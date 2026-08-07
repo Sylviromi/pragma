@@ -1,6 +1,5 @@
 # Pragma — Design Spec
 **Date:** 2026-08-08
-**Status:** In progress (UI Layout section pending)
 
 ## Overview
 
@@ -27,12 +26,17 @@ Pragma is a GUI AI coding harness — a Tauri 2 desktop application with a Svelt
 │  ┌──────────────────────────────────────┐   │
 │  │         Svelte Frontend              │   │
 │  │                                      │   │
-│  │  [Session Sidebar] [Chat Panel]      │   │
-│  │  [Model Picker   ] [Toolbar  ]       │   │
+│  │  [Tab Bar: sessions]                 │   │
+│  │  [chat-toolbar-extra slot]           │   │
+│  │  [Chat Panel]                        │   │
+│  │  [Input Bar + model picker]          │   │
 │  │                                      │   │
-│  │  <slot name="model-picker-extra">    │   │
-│  │  <slot name="settings-screens">      │   │
-│  │  <slot name="chat-toolbar-extra">    │   │
+│  │  Named slots:                        │   │
+│  │    model-picker-extra (in dropdown)  │   │
+│  │    settings-screens   (Settings nav) │   │
+│  │    chat-toolbar-extra (above input)  │   │
+│  │    input-toolbar      (in input bar) │   │
+│  │    chat-message-extra                │   │
 │  └──────────────────────────────────────┘   │
 │              Tauri IPC bridge               │
 │  ┌──────────────────────────────────────┐   │
@@ -75,19 +79,30 @@ messages        (id, session_id, role, content, model, provider, timestamp, toke
 session_tags    (session_id, tag)
 ```
 
-Sessions are named, searchable, and filterable by tag. Sidebar lists them sorted by last active with fuzzy search.
+Sessions are named, searchable, and filterable by tag. Each open session appears as a browser-style tab in the title bar.
 
 **Flat files** for agent work state — stored per session:
 ```
 ~/.config/pragma/sessions/<session-id>/
-  state.json        ← current phase, current task, retry count, etc.
+  state.json        ← current phase, current task, retry count, plugin owner, etc.
   plan.md           ← living plan (handsfree or any planning plugin)
   screenshots/      ← visual history (never deleted)
 ```
 
+`state.json` includes a `pluginId` field identifying which plugin owns the state, so Pragma knows which plugin to notify on resume:
+```json
+{
+  "pluginId": "handsfree",
+  "phase": "EXECUTING",
+  "currentMilestone": "Milestone 2",
+  "currentTask": "Task 2.1",
+  "retryCount": 0
+}
+```
+
 **Resume behaviour:**
-- App opens → sidebar shows all sessions
-- Click any session → full conversation history loaded from SQLite, rendered in chat panel
+- App opens → restores previously open tabs
+- Click any tab or open a session → full conversation history loaded from SQLite
 - If `state.json` exists → plugin that owns that state is notified and can offer to resume
 - Model + provider last used are restored per session automatically
 - No session is ever auto-deleted — archive instead of delete
@@ -96,7 +111,7 @@ Sessions are named, searchable, and filterable by tag. Sidebar lists them sorted
 
 ## Section 3: Provider & Model System
 
-The provider registry lives in Rust. Built-in providers ship with the app; plugins can register additional ones.
+The provider registry lives in Rust. Built-in providers ship with the app; plugins register additional ones with identical treatment in the UI.
 
 **Built-in providers:**
 | Provider | Auth | Model discovery |
@@ -107,20 +122,20 @@ The provider registry lives in Rust. Built-in providers ship with the app; plugi
 | OpenCode | local | `/v1/models` endpoint |
 | OpenAI-compatible | base URL + key | `/v1/models` endpoint |
 
-**Per-message model picker** — sits in the chat input bar:
+**Model picker** — a chip in the input bar footer:
 ```
-[Session: my-project ▾] ... [claude-sonnet-4-6 (Anthropic) ▾] [Send]
+[● claude-sonnet-4-6 ▾]  |  [Build | Plan]  [Handsfree]  →→→  [@ skills] [/ cmds] [Send]
 ```
 
-Last used model is remembered per session. Models grouped by provider in the dropdown.
+Clicking the chip opens a unified dropdown grouping all models by provider. Plugin-contributed providers appear under their own header labelled `· plugin` but are otherwise identical. Last used model is remembered per session.
 
 **Plugin-contributed providers** (e.g. Zen WARP):
-- Plugin manifest declares: `"contributes": { "providers": ["zen-warp"] }`
-- Provider defined via JSON file (base URL template, auth type, model discovery method)
-- Web Component injects into `<slot name="model-picker-extra">` for proxy-specific controls
-- Indistinguishable from built-in providers in the chat UI
+- Declared in `manifest.json`: `"contributes": { "providers": ["zen-warp"] }`
+- Provider behaviour defined in `provider.json` (base URL template, auth type, model discovery)
+- Models appear in the native picker under a `ZEN WARP · plugin` group
+- Plugin may also inject into `input-toolbar` slot for proxy-specific controls
 
-**Streaming:** Rust streams SSE chunks from the provider and emits Tauri events → Svelte subscribes and appends tokens as they arrive.
+**Streaming:** Rust streams SSE chunks and emits Tauri events → Svelte appends tokens as they arrive.
 
 ---
 
@@ -143,7 +158,7 @@ Last used model is remembered per session. Models grouped by provider in the dro
   "version": "1.0.0",
   "contributes": {
     "providers": ["zen-warp"],
-    "slots": ["model-picker-extra", "settings-screens"],
+    "slots": ["input-toolbar", "settings-screens"],
     "commands": [],
     "skills": ["skill.md"]
   }
@@ -151,31 +166,26 @@ Last used model is remembered per session. Models grouped by provider in the dro
 ```
 
 **Extension slots defined by host:**
-| Slot | Description |
+| Slot | Where |
 |---|---|
-| `model-picker-extra` | Below the model dropdown |
-| `settings-screens` | New tab in Settings |
-| `chat-toolbar-extra` | Above the input bar (handsfree status lives here) |
-| `session-sidebar-extra` | Below session list |
+| `input-toolbar` | Between model picker and Send button in input bar |
+| `model-picker-extra` | Inside model picker dropdown (below provider groups) |
+| `settings-screens` | Adds an entry to the Settings left nav |
+| `chat-toolbar-extra` | Above the input area (handsfree status bar lives here) |
 | `chat-message-extra` | Per-message action buttons |
 
 **Hot-reload:**
 - Rust file watcher (`notify` crate) on `~/.config/pragma/plugins/` and `~/.pi/agent/skills/`
-- **Skills (SKILL.md):** reload instantly on save — injected into next message's context
-- **Plugin Web Components:** `plugin:reload` Tauri event → Svelte unmounts slot, re-imports ES module (cache-busted by timestamp), remounts
+- **Skills (SKILL.md):** reload on save — injected into next message's context
+- **Plugin Web Components:** `plugin:reload` Tauri event → Svelte unmounts slot, re-imports ES module (cache-busted by timestamp), remounts in under a second
 - **manifest.json / provider.json:** full plugin reload on change
 - **App code (Svelte):** standard Vite HMR in dev mode
 - Toast notification: "reloaded: zen-warp"
 
-**GUI plugin inspector** — Settings → Plugins screen:
-- Lists all installed plugins with their slots, skills, and provider contributions
-- Toggle per plugin (enable/disable without deleting)
-- No file editing required for on/off
-
 **Handsfree as the reference plugin:**
 ```
 ~/.config/pragma/plugins/handsfree/
-  manifest.json       ← declares chat-toolbar-extra slot, commands: ["/handsfree"]
+  manifest.json       ← declares chat-toolbar-extra + input-toolbar slots, /handsfree command
   component.js        ← status bar (phase, task progress, screenshot viewer)
   skill.md            ← same behavioral instructions as current PI handsfree skill
 ```
@@ -185,4 +195,101 @@ State machine logic moves to Rust (currently TS extension in PI) — crash-safe,
 
 ## Section 5: UI Layout
 
-*Pending*
+### Main Window
+
+Sessions are browser-style tabs in the title bar. No sidebar. Multiple sessions open simultaneously.
+
+```
+┌─ PRAGMA ─┬─ my-project × ─┬─ rust-game × ─┬─ + ─┬──────────── ⚙ Settings  ⧉ Plugins ─┐
+│          │  (active tab)   │               │     │                                       │
+├──────────┴─────────────────┴───────────────┴─────┴───────────────────────────────────────┤
+│  [chat-toolbar-extra slot — e.g. handsfree status bar]                                   │
+├───────────────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                           │
+│   User: How do I implement collision detection in Bevy?                                   │
+│                                                                                           │
+│   ✦  You can use Bevy's built-in Rapier physics integration...         [message actions]  │
+│                                                                                           │
+├───────────────────────────────────────────────────────────────────────────────────────────┤
+│  ┌─────────────────────────────────────────────────────────────────────────────────────┐  │
+│  │  Ask anything...                                                                    │  │
+│  └─────────────────────────────────────────────────────────────────────────────────────┘  │
+│  [● claude-sonnet-4-6 ▾]  │  [input-toolbar slot]  →→→  [@ skills]  [/ cmds]  [Send]    │
+└───────────────────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Model Picker Dropdown
+
+Opens upward from the model chip. Unified list grouping all providers (native + plugin):
+
+```
+┌─────────────────────────────────────┐
+│  🔍 Search models...                │
+├─────────────────────────────────────┤
+│  ANTHROPIC                          │
+│    ● claude-sonnet-4-6   200k  ✓   │
+│    ● claude-opus-4-6     200k       │
+│  DEEPSEEK                           │
+│    ● deepseek-v4-flash   64k        │
+│  ZEN WARP · plugin                  │
+│    ● deepseek-v4 via warp  free     │
+│    ● mimo-v2.5 via warp  vision     │
+│  OPENCODE · local                   │
+│    ● qwen3-32b           128k       │
+└─────────────────────────────────────┘
+```
+
+Plugin providers appear under their own labelled group, otherwise identical to native providers.
+
+### Input Toolbar (plugin slot example)
+
+```
+[● claude-sonnet-4-6 ▾]  │  [Build|Plan]  [Handsfree ●]  →→→  [@ skills]  [/ cmds]  [Send]
+                              ↑ Planner      ↑ Handsfree
+                              plugin         plugin
+                              (input-toolbar slot)
+```
+
+### Settings → Plugins Screen
+
+Two-column layout: left nav (core settings + plugin-contributed screens below a divider), right content area.
+
+**Plugin card (expanded):**
+- Icon, name, version, author
+- Toggle (enable/disable, no restart needed)
+- Contribution badges: `provider`, `slot`, `command` tags
+- File list
+- Status: loaded / error + hot-reload indicator
+- Actions: Open settings → · Reload · Remove
+
+**Settings left nav structure:**
+```
+SETTINGS
+  General
+  Providers
+  Skills
+  Plugins          ← manage installed plugins
+  Shortcuts
+  Appearance
+
+PLUGINS            ← plugin-contributed screens
+  Zen WARP
+  Handsfree
+```
+
+---
+
+## Difficulty Assessment
+
+**Medium project.** Well-understood technologies with no exotic requirements.
+
+| Area | Effort |
+|---|---|
+| Core Tauri + Svelte shell, tab navigation | 1 week |
+| Session persistence (SQLite + flat files) | 1 week |
+| Provider registry + model picker + streaming | 1 week |
+| Plugin loader + Web Component slot system | 1–2 weeks |
+| Hot-reload (file watcher + ES module reload) | 3–4 days |
+| Settings UI + plugin inspector | 3–4 days |
+| Handsfree port (PI TS → Rust state machine) | 1–2 weeks |
+| **Total** | **~6–8 weeks** |
