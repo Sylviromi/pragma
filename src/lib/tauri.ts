@@ -1,4 +1,5 @@
-import { invoke as tauriInvoke, Channel } from '@tauri-apps/api/core'
+import { invoke as tauriInvoke } from '@tauri-apps/api/core'
+import { listen } from '@tauri-apps/api/event'
 import type { Session, Message, ProviderInfo, AgentEvent } from './types'
 
 // Contributes as serialized by Rust (all camelCase)
@@ -53,7 +54,15 @@ export const spawnProcess = (program: string, args: string[], cwd?: string | nul
 export const killProcess = (pid: number) => tauriInvoke<void>('kill_process', { pid })
 export const probePort = (port: number) => tauriInvoke<boolean>('probe_port', { port })
 
-export function runAgenticLoop(
+export const getRunningSessionIds = () => tauriInvoke<string[]>('get_running_sessions')
+
+/** Subscribe to agent events for a session via Tauri's global event bus.
+ *  Returns an unlisten function. Survives frontend HMR reloads. */
+export function listenAgentEvents(sessionId: string, onEvent: (e: AgentEvent) => void) {
+  return listen<AgentEvent>(`agent:${sessionId}`, (e) => onEvent(e.payload))
+}
+
+export async function runAgenticLoop(
   sessionId: string,
   userMessage: string,
   model: string,
@@ -62,9 +71,13 @@ export function runAgenticLoop(
   autoApprove: boolean,
   onEvent: (e: AgentEvent) => void,
 ): Promise<void> {
-  const channel = new Channel<AgentEvent>()
-  channel.onmessage = onEvent
-  return tauriInvoke<void>('run_agentic_loop', {
-    sessionId, userMessage, model, provider, workingDir, autoApprove, channel,
-  })
+  // Subscribe BEFORE invoking so no events are missed.
+  const unlisten = await listenAgentEvents(sessionId, onEvent)
+  try {
+    await tauriInvoke<void>('run_agentic_loop', {
+      sessionId, userMessage, model, provider, workingDir, autoApprove,
+    })
+  } finally {
+    unlisten()
+  }
 }

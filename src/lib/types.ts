@@ -51,6 +51,7 @@ export type AgentEvent =
   | { event: 'tool_result'; toolUseId: string; output: string; isError: boolean }
   | { event: 'done' }
   | { event: 'error'; message: string }
+  | { event: 'working_dir_changed'; newPath: string }
 
 // Parsed message content helper
 export function parseContent(raw: string): MessageContent {

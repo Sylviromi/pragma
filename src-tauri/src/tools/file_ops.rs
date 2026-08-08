@@ -60,31 +60,36 @@ pub fn move_file(wd: &Path, input: &serde_json::Value) -> Result<String, String>
 pub fn list_files(wd: &Path, input: &serde_json::Value) -> Result<String, String> {
     let subdir = input["path"].as_str().unwrap_or(".");
     let pattern = input["pattern"].as_str();
+    // depth 0 means unlimited; default 1 = immediate children only.
+    let depth = input["depth"].as_u64().unwrap_or(1);
     let base = abs(wd, subdir);
+    let mut walker = WalkDir::new(&base).min_depth(1);
+    if depth > 0 {
+        walker = walker.max_depth(depth as usize);
+    }
     let mut entries = Vec::new();
-    for entry in WalkDir::new(&base).max_depth(6) {
+    for entry in walker {
         let entry = entry.map_err(|e| e.to_string())?;
-        if entry.file_type().is_file() {
-            let rel = entry
-                .path()
-                .strip_prefix(wd)
-                .unwrap_or(entry.path())
-                .display()
-                .to_string();
-            if let Some(pat) = pattern {
-                if glob::Pattern::new(pat)
-                    .map(|p| p.matches(&rel))
-                    .unwrap_or(false)
-                {
-                    entries.push(rel);
-                }
-            } else {
-                entries.push(rel);
+        let is_dir = entry.file_type().is_dir();
+        let rel = entry
+            .path()
+            .strip_prefix(wd)
+            .unwrap_or(entry.path())
+            .display()
+            .to_string();
+        let display = if is_dir { format!("{rel}/") } else { rel.clone() };
+        if let Some(pat) = pattern {
+            if !glob::Pattern::new(pat)
+                .map(|p| p.matches(&rel))
+                .unwrap_or(false)
+            {
+                continue;
             }
         }
+        entries.push(display);
     }
     Ok(if entries.is_empty() {
-        "(no files)".into()
+        "(empty)".into()
     } else {
         entries.join("\n")
     })

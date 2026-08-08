@@ -11,6 +11,11 @@ pub enum ContentBlock {
         #[serde(default)]
         is_error: bool,
     },
+    /// Extended-thinking block (Anthropic). Must be passed back verbatim in subsequent requests.
+    Thinking { thinking: String, signature: String },
+    /// Reasoning block (DeepSeek / OpenAI-compat). Stored separately and reconstructed as
+    /// `reasoning_content` top-level field when replaying history.
+    Reasoning { content: String },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -84,4 +89,6 @@ pub enum AgentEvent {
     },
     Done,
     Error { message: String },
+    #[serde(rename_all = "camelCase")]
+    WorkingDirChanged { new_path: String },
 }

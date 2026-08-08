@@ -24,11 +24,14 @@ pub struct AppState {
     pub plugins: plugins::PluginManager,
     // pending tool approvals: tool_use_id → oneshot sender
     pub pending_approvals: Arc<tokio::sync::Mutex<HashMap<String, tokio::sync::oneshot::Sender<bool>>>>,
+    // session IDs with an active agentic loop — used by frontend to reconnect after HMR
+    pub running_sessions: Arc<tokio::sync::Mutex<std::collections::HashSet<String>>>,
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             let config_dir = app.path().app_config_dir().expect("no config dir");
             std::fs::create_dir_all(&config_dir).ok();
@@ -61,6 +64,7 @@ pub fn run() {
                 settings: RwLock::new(settings),
                 settings_path,
                 pending_approvals: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
+                running_sessions: Arc::new(tokio::sync::Mutex::new(std::collections::HashSet::new())),
                 plugins: plugin_manager,
             });
 
@@ -106,6 +110,7 @@ pub fn run() {
             commands::messages::list_messages,
             commands::providers::list_providers,
             commands::providers::run_agentic_loop,
+            commands::providers::get_running_sessions,
             commands::tools::approve_tool,
             commands::tools::deny_tool,
             commands::providers::save_api_key,

@@ -74,12 +74,13 @@ pub fn standard_tools() -> Vec<ToolDefinition> {
         },
         ToolDefinition {
             name: "list_files".into(),
-            description: "List files in a directory recursively up to depth 6. Returns relative paths.".into(),
+            description: "List files and directories. Defaults to immediate children only (depth 1). Use depth > 1 for recursive listing. Directories are suffixed with '/'.".into(),
             input_schema: serde_json::json!({
                 "type": "object",
                 "properties": {
                     "path": { "type": "string", "description": "Directory path relative to working directory. Defaults to '.'." },
-                    "pattern": { "type": "string", "description": "Optional glob pattern, e.g. '**/*.rs'" }
+                    "depth": { "type": "integer", "description": "How many levels deep to recurse. Default 1 (immediate children only). Use 0 for unlimited." },
+                    "pattern": { "type": "string", "description": "Optional glob pattern to filter results, e.g. '**/*.rs'" }
                 }
             }),
         },
@@ -170,6 +171,30 @@ pub fn standard_tools() -> Vec<ToolDefinition> {
                 "required": ["message"]
             }),
         },
+        // ── Skills ────────────────────────────────────────────────────────
+        ToolDefinition {
+            name: "load_skill".into(),
+            description: "Load the full content of a plugin skill by its id. Use the skill index in the system prompt to decide which skill is relevant, then call this to read it.".into(),
+            input_schema: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "skill_id": { "type": "string", "description": "The plugin id whose skill.md to load" }
+                },
+                "required": ["skill_id"]
+            }),
+        },
+        // ── Session ───────────────────────────────────────────────────────
+        ToolDefinition {
+            name: "change_directory".into(),
+            description: "Change the session working directory. All subsequent file and shell operations will use the new path. The path must exist.".into(),
+            input_schema: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "path": { "type": "string", "description": "Absolute path or path relative to current working directory" }
+                },
+                "required": ["path"]
+            }),
+        },
         // ── Web ───────────────────────────────────────────────────────────
         ToolDefinition {
             name: "web_search".into(),
@@ -214,6 +239,6 @@ mod tests {
     #[test]
     fn test_expected_tool_count() {
         // Ensures no tools are accidentally dropped when editing
-        assert_eq!(standard_tools().len(), 16);
+        assert_eq!(standard_tools().len(), 18);
     }
 }
