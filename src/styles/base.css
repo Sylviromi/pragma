@@ -1,0 +1,14 @@
+*, *::before, *::after { box-sizing: border-box; }
+body {
+  margin: 0; font-family: var(--font-sans); font-size: var(--font-size-md);
+  color: var(--color-text-primary); background: var(--color-bg-base);
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+}
+:focus-visible { outline: 2px solid var(--color-border-focus); outline-offset: 2px; }
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+}
+code, pre, .mono { font-family: var(--font-mono); }
+button { cursor: pointer; font-family: inherit; font-size: inherit; }
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); border: 0; }

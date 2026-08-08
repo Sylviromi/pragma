@@ -79,20 +79,20 @@ pragma/
 
 **Files:** project root via create-tauri-app, `src-tauri/Cargo.toml`, `vite.config.ts`
 
-- [ ] **Step 1: Scaffold**
+- [x] **Step 1: Scaffold**
 ```bash
 cd /mnt/Projects/pragma
 npm create tauri-app@latest . -- --template svelte-ts --manager npm
 npm install
 ```
 
-- [ ] **Step 2: Verify blank window**
+- [x] **Step 2: Verify blank window**
 ```bash
 npm run tauri dev
 ```
 Expected: native window opens. Close it.
 
-- [ ] **Step 3: Add Rust dependencies to `src-tauri/Cargo.toml`**
+- [x] **Step 3: Add Rust dependencies to `src-tauri/Cargo.toml`**
 ```toml
 [dependencies]
 serde = { version = "1", features = ["derive"] }
@@ -108,7 +108,7 @@ notify = "6"
 glob = "0.3"
 ```
 
-- [ ] **Step 4: Add test tooling**
+- [x] **Step 4: Add test tooling**
 ```bash
 npm install -D vitest @testing-library/svelte @testing-library/jest-dom jsdom
 ```
@@ -129,7 +129,7 @@ Create `src/test-setup.ts`:
 import '@testing-library/jest-dom'
 ```
 
-- [ ] **Step 5: Set app identity in `src-tauri/tauri.conf.json`**
+- [x] **Step 5: Set app identity in `src-tauri/tauri.conf.json`**
 ```json
 {
   "productName": "Pragma",
@@ -140,13 +140,13 @@ import '@testing-library/jest-dom'
 }
 ```
 
-- [ ] **Step 6: Verify compilation**
+- [x] **Step 6: Verify compilation**
 ```bash
 cd src-tauri && cargo check
 ```
 Expected: no errors.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 ```bash
 git add . && git commit -m "feat: bootstrap Tauri 2 + Svelte project"
 ```
@@ -157,7 +157,7 @@ git add . && git commit -m "feat: bootstrap Tauri 2 + Svelte project"
 
 **Files:** `src/styles/tokens.css`, `dark.css`, `light.css`, `high-contrast.css`, `base.css`, `src/app.svelte`
 
-- [ ] **Step 1: Write token test**
+- [x] **Step 1: Write token test**
 
 Create `src/styles/tokens.test.ts`:
 ```typescript
@@ -182,12 +182,12 @@ describe('CSS token system', () => {
 })
 ```
 
-- [ ] **Step 2: Run — verify FAIL**
+- [x] **Step 2: Run — verify FAIL**
 ```bash
 npx vitest run src/styles/tokens.test.ts
 ```
 
-- [ ] **Step 3: Create `src/styles/dark.css`**
+- [x] **Step 3: Create `src/styles/dark.css`**
 ```css
 :root[data-theme="dark"], :root {
   --color-bg-base: #0d1117;
@@ -212,7 +212,7 @@ npx vitest run src/styles/tokens.test.ts
 }
 ```
 
-- [ ] **Step 4: Create `src/styles/light.css`**
+- [x] **Step 4: Create `src/styles/light.css`**
 ```css
 :root[data-theme="light"] {
   --color-bg-base: #ffffff; --color-bg-elevated: #f6f8fa; --color-bg-overlay: #eaeef2;
@@ -229,7 +229,7 @@ npx vitest run src/styles/tokens.test.ts
 }
 ```
 
-- [ ] **Step 5: Create `src/styles/high-contrast.css`**
+- [x] **Step 5: Create `src/styles/high-contrast.css`**
 ```css
 :root[data-theme="high-contrast"] {
   --color-bg-base: #000000; --color-bg-elevated: #0a0a0a; --color-bg-overlay: #1a1a1a;
@@ -246,7 +246,7 @@ npx vitest run src/styles/tokens.test.ts
 }
 ```
 
-- [ ] **Step 6: Create `src/styles/base.css`**
+- [x] **Step 6: Create `src/styles/base.css`**
 ```css
 *, *::before, *::after { box-sizing: border-box; }
 body {
@@ -263,7 +263,7 @@ button { cursor: pointer; font-family: inherit; font-size: inherit; }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); border: 0; }
 ```
 
-- [ ] **Step 7: Wire styles into `src/app.svelte`**
+- [x] **Step 7: Wire styles into `src/app.svelte`**
 ```svelte
 <script lang="ts">
   import './styles/dark.css'
@@ -276,12 +276,12 @@ button { cursor: pointer; font-family: inherit; font-size: inherit; }
 <div id="app"><p style="color:var(--color-text-primary)">Pragma loading…</p></div>
 ```
 
-- [ ] **Step 8: Run — verify PASS**
+- [x] **Step 8: Run — verify PASS**
 ```bash
 npx vitest run src/styles/tokens.test.ts
 ```
 
-- [ ] **Step 9: Commit**
+- [x] **Step 9: Commit**
 ```bash
 git add src/styles/ src/app.svelte src/test-setup.ts vite.config.ts
 git commit -m "feat: CSS token system with dark/light/high-contrast themes"
@@ -293,7 +293,7 @@ git commit -m "feat: CSS token system with dark/light/high-contrast themes"
 
 **Files:** `src-tauri/src/db/mod.rs`, `src-tauri/src/db/migrations/001_init.sql`
 
-- [ ] **Step 1: Write test**
+- [x] **Step 1: Write test**
 
 Create `src-tauri/src/db/mod.rs`:
 ```rust
@@ -333,12 +333,12 @@ mod tests {
 }
 ```
 
-- [ ] **Step 2: Run — verify FAIL**
+- [x] **Step 2: Run — verify FAIL**
 ```bash
 cd src-tauri && cargo test db::tests
 ```
 
-- [ ] **Step 3: Create migration**
+- [x] **Step 3: Create migration**
 
 Create `src-tauri/src/db/migrations/001_init.sql`:
 ```sql
@@ -374,12 +374,12 @@ CREATE TABLE IF NOT EXISTS session_tags (
 );
 ```
 
-- [ ] **Step 4: Run — verify PASS**
+- [x] **Step 4: Run — verify PASS**
 ```bash
 cd src-tauri && cargo test db::tests
 ```
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 ```bash
 git add src-tauri/src/db/
 git commit -m "feat: SQLite database with sessions/messages schema"
@@ -391,7 +391,7 @@ git commit -m "feat: SQLite database with sessions/messages schema"
 
 **Files:** `src-tauri/src/providers/types.rs`, `src-tauri/src/tools/definitions.rs`, `src-tauri/src/lib.rs`
 
-- [ ] **Step 1: Create `src-tauri/src/providers/types.rs`**
+- [x] **Step 1: Create `src-tauri/src/providers/types.rs`**
 ```rust
 use serde::{Deserialize, Serialize};
 use tauri::ipc::Channel;
@@ -457,7 +457,7 @@ pub enum AgentEvent {
 }
 ```
 
-- [ ] **Step 2: Create tool definitions**
+- [x] **Step 2: Create tool definitions**
 
 Create `src-tauri/src/tools/definitions.rs`:
 ```rust
@@ -682,13 +682,13 @@ mod tests {
 }
 ```
 
-- [ ] **Step 3: Run tool definition tests**
+- [x] **Step 3: Run tool definition tests**
 ```bash
 cd src-tauri && cargo test tools::definitions::tests
 ```
 Expected: PASS.
 
-- [ ] **Step 4: Wire AppState in `src-tauri/src/lib.rs`**
+- [x] **Step 4: Wire AppState in `src-tauri/src/lib.rs`**
 ```rust
 use sqlx::SqlitePool;
 use tauri::Manager;
@@ -778,7 +778,7 @@ fn load_settings(path: &std::path::Path) -> Settings {
 }
 ```
 
-- [ ] **Step 5: Create stub modules so it compiles**
+- [x] **Step 5: Create stub modules so it compiles**
 
 Create `src-tauri/src/commands/mod.rs`:
 ```rust
@@ -840,12 +840,12 @@ touch src-tauri/src/commands/tools.rs
 
 Each stub gets just `// TODO` for now.
 
-- [ ] **Step 6: Verify compilation**
+- [x] **Step 6: Verify compilation**
 ```bash
 cd src-tauri && cargo check
 ```
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 ```bash
 git add src-tauri/src/
 git commit -m "feat: Rust types, AppState, tool definitions scaffold"
@@ -857,7 +857,7 @@ git commit -m "feat: Rust types, AppState, tool definitions scaffold"
 
 **Files:** `src-tauri/src/commands/sessions.rs`, `src-tauri/src/commands/messages.rs`
 
-- [ ] **Step 1: Implement sessions.rs with tests**
+- [x] **Step 1: Implement sessions.rs with tests**
 
 Replace `src-tauri/src/commands/sessions.rs`:
 ```rust
@@ -960,12 +960,12 @@ mod tests {
 }
 ```
 
-- [ ] **Step 2: Run — verify PASS**
+- [x] **Step 2: Run — verify PASS**
 ```bash
 cd src-tauri && cargo test commands::sessions::tests
 ```
 
-- [ ] **Step 3: Implement messages.rs with tests**
+- [x] **Step 3: Implement messages.rs with tests**
 
 Replace `src-tauri/src/commands/messages.rs`:
 ```rust
@@ -1038,12 +1038,12 @@ mod tests {
 }
 ```
 
-- [ ] **Step 4: Run — verify PASS**
+- [x] **Step 4: Run — verify PASS**
 ```bash
 cd src-tauri && cargo test commands::messages::tests
 ```
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 ```bash
 git add src-tauri/src/commands/sessions.rs src-tauri/src/commands/messages.rs
 git commit -m "feat: session and message CRUD commands"
@@ -1055,7 +1055,7 @@ git commit -m "feat: session and message CRUD commands"
 
 **Files:** `src-tauri/src/tools/mod.rs`, `src-tauri/src/tools/file_ops.rs`, `src-tauri/src/tools/shell.rs`, `src-tauri/src/tools/git.rs`, `src-tauri/src/tools/web.rs`
 
-- [ ] **Step 1: Add dependencies to `src-tauri/Cargo.toml`**
+- [x] **Step 1: Add dependencies to `src-tauri/Cargo.toml`**
 
 ```toml
 [dependencies]
@@ -1068,7 +1068,7 @@ diffy = "0.4"           # patch_file unified diff
 tempfile = "3"
 ```
 
-- [ ] **Step 2: Create `src-tauri/src/tools/mod.rs`**
+- [x] **Step 2: Create `src-tauri/src/tools/mod.rs`**
 
 ```rust
 pub mod definitions;
@@ -1116,7 +1116,7 @@ impl ToolExecutor {
 }
 ```
 
-- [ ] **Step 3: Write failing tests for file_ops**
+- [x] **Step 3: Write failing tests for file_ops**
 
 Create `src-tauri/src/tools/file_ops.rs` with tests first:
 
@@ -1291,12 +1291,12 @@ mod tests {
 }
 ```
 
-- [ ] **Step 4: Run file_ops tests — verify PASS**
+- [x] **Step 4: Run file_ops tests — verify PASS**
 ```bash
 cd src-tauri && cargo test tools::file_ops::tests
 ```
 
-- [ ] **Step 5: Create `src-tauri/src/tools/shell.rs`**
+- [x] **Step 5: Create `src-tauri/src/tools/shell.rs`**
 
 ```rust
 use std::path::Path;
@@ -1335,12 +1335,12 @@ mod tests {
 }
 ```
 
-- [ ] **Step 6: Run shell tests — verify PASS**
+- [x] **Step 6: Run shell tests — verify PASS**
 ```bash
 cd src-tauri && cargo test tools::shell::tests
 ```
 
-- [ ] **Step 7: Create `src-tauri/src/tools/git.rs`**
+- [x] **Step 7: Create `src-tauri/src/tools/git.rs`**
 
 ```rust
 use std::path::{Path, PathBuf};
@@ -1446,12 +1446,12 @@ mod tests {
 }
 ```
 
-- [ ] **Step 8: Run git tests — verify PASS**
+- [x] **Step 8: Run git tests — verify PASS**
 ```bash
 cd src-tauri && cargo test tools::git::tests
 ```
 
-- [ ] **Step 9: Create `src-tauri/src/tools/web.rs`**
+- [x] **Step 9: Create `src-tauri/src/tools/web.rs`**
 
 Web search uses DuckDuckGo Lite via curl (no API key required). `fetch_url` downloads any URL and strips HTML tags.
 
@@ -1609,20 +1609,20 @@ mod tests {
 }
 ```
 
-- [ ] **Step 10: Run web tests — verify PASS**
+- [x] **Step 10: Run web tests — verify PASS**
 ```bash
 cd src-tauri && cargo test tools::web::tests
 ```
 
-- [ ] **Step 11: Update `src-tauri/src/tools/mod.rs` executor dispatch** (already done in Step 2 above — verify it references all modules)
+- [x] **Step 11: Update `src-tauri/src/tools/mod.rs` executor dispatch** (already done in Step 2 above — verify it references all modules)
 
-- [ ] **Step 12: Run all tool tests**
+- [x] **Step 12: Run all tool tests**
 ```bash
 cd src-tauri && cargo test tools::
 ```
 Expected: all pass.
 
-- [ ] **Step 13: Commit**
+- [x] **Step 13: Commit**
 ```bash
 git add src-tauri/src/tools/ src-tauri/Cargo.toml
 git commit -m "feat: full tool suite — file ops, patch, git, web search, fetch_url, shell"
@@ -1634,7 +1634,7 @@ git commit -m "feat: full tool suite — file ops, patch, git, web search, fetch
 
 **Files:** `src-tauri/src/providers/anthropic.rs`, `src-tauri/src/providers/openai_compat.rs`, `src-tauri/src/commands/providers.rs`, `src-tauri/src/commands/tools.rs`
 
-- [ ] **Step 1: Implement Anthropic provider**
+- [x] **Step 1: Implement Anthropic provider**
 
 Replace `src-tauri/src/providers/anthropic.rs`:
 ```rust
@@ -1744,7 +1744,7 @@ impl AnthropicProvider {
 }
 ```
 
-- [ ] **Step 2: Implement OpenAI-compatible provider**
+- [x] **Step 2: Implement OpenAI-compatible provider**
 
 Replace `src-tauri/src/providers/openai_compat.rs`:
 ```rust
@@ -1831,7 +1831,7 @@ pub fn opencode_local() -> OpenAICompatProvider {
 }
 ```
 
-- [ ] **Step 3: Implement the agentic loop command**
+- [x] **Step 3: Implement the agentic loop command**
 
 Replace `src-tauri/src/commands/providers.rs`:
 ```rust
@@ -1995,7 +1995,7 @@ async fn persist_message(pool: &sqlx::SqlitePool, session_id: &str, role: &str, 
 }
 ```
 
-- [ ] **Step 4: Implement tool approval commands**
+- [x] **Step 4: Implement tool approval commands**
 
 Replace `src-tauri/src/commands/tools.rs`:
 ```rust
@@ -2020,12 +2020,12 @@ pub async fn deny_tool(tool_use_id: String, state: tauri::State<'_, AppState>) -
 }
 ```
 
-- [ ] **Step 5: Verify compilation**
+- [x] **Step 5: Verify compilation**
 ```bash
 cd src-tauri && cargo check
 ```
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 ```bash
 git add src-tauri/src/providers/ src-tauri/src/commands/providers.rs src-tauri/src/commands/tools.rs
 git commit -m "feat: agentic loop with tool calling, approval flow, Anthropic + OpenAI providers"
@@ -2037,7 +2037,7 @@ git commit -m "feat: agentic loop with tool calling, approval flow, Anthropic + 
 
 **Files:** `src/lib/types.ts`, `src/lib/tauri.ts`
 
-- [ ] **Step 1: Create `src/lib/types.ts`**
+- [x] **Step 1: Create `src/lib/types.ts`**
 ```typescript
 export interface Session {
   id: string
@@ -2090,7 +2090,7 @@ export function parseContent(raw: string): MessageContent {
 }
 ```
 
-- [ ] **Step 2: Create `src/lib/tauri.ts`**
+- [x] **Step 2: Create `src/lib/tauri.ts`**
 ```typescript
 import { invoke as tauriInvoke, Channel } from '@tauri-apps/api/core'
 import type { Session, Message, ProviderInfo, AgentEvent } from './types'
@@ -2130,7 +2130,7 @@ export function runAgenticLoop(
 }
 ```
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 ```bash
 git add src/lib/
 git commit -m "feat: TypeScript types and IPC wrappers including agentic loop"
@@ -2142,7 +2142,7 @@ git commit -m "feat: TypeScript types and IPC wrappers including agentic loop"
 
 **Files:** `src/stores/sessions.svelte.ts`, `src/stores/providers.svelte.ts`, `src/stores/chat.svelte.ts`
 
-- [ ] **Step 1: Create `src/stores/sessions.svelte.ts`**
+- [x] **Step 1: Create `src/stores/sessions.svelte.ts`**
 ```typescript
 import { listSessions as fetch, createSession as apiCreate, archiveSession as apiArchive } from '../lib/tauri'
 import type { Session } from '../lib/types'
@@ -2181,7 +2181,7 @@ export async function archiveTab(id: string) {
 export function getSession(id: string) { return sessions.list.find(s => s.id === id) }
 ```
 
-- [ ] **Step 2: Create `src/stores/providers.svelte.ts`**
+- [x] **Step 2: Create `src/stores/providers.svelte.ts`**
 ```typescript
 import { listProviders as fetch } from '../lib/tauri'
 import type { ProviderInfo } from '../lib/types'
@@ -2190,7 +2190,7 @@ export const providerState = $state({ providers: [] as ProviderInfo[] })
 export async function loadProviders() { providerState.providers = await fetch() }
 ```
 
-- [ ] **Step 3: Create `src/stores/chat.svelte.ts`**
+- [x] **Step 3: Create `src/stores/chat.svelte.ts`**
 ```typescript
 import { runAgenticLoop, listMessages as fetchMessages, approveTool as apiApprove, denyTool as apiDeny } from '../lib/tauri'
 import type { AgentEvent, ContentBlock } from '../lib/types'
@@ -2260,7 +2260,7 @@ export async function denyTool(sessionId: string, toolUseId: string) {
 }
 ```
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 ```bash
 git add src/stores/
 git commit -m "feat: Svelte stores for sessions, providers, and agentic chat"
@@ -2272,7 +2272,7 @@ git commit -m "feat: Svelte stores for sessions, providers, and agentic chat"
 
 **Files:** `src/components/ToolCard.svelte`, `src/components/ChatMessage.svelte`, `src/components/MessageList.svelte`, `src/components/StatusBar.svelte`, `src/components/InputArea.svelte`, `src/components/ChatPanel.svelte`
 
-- [ ] **Step 1: Create `src/components/ToolCard.svelte`**
+- [x] **Step 1: Create `src/components/ToolCard.svelte`**
 ```svelte
 <script lang="ts">
   import { approveTool, denyTool } from '../stores/chat.svelte'
@@ -2339,7 +2339,7 @@ git commit -m "feat: Svelte stores for sessions, providers, and agentic chat"
 </style>
 ```
 
-- [ ] **Step 2: Create `src/components/ChatMessage.svelte`**
+- [x] **Step 2: Create `src/components/ChatMessage.svelte`**
 ```svelte
 <script lang="ts">
   import { parseContent } from '../lib/types'
@@ -2387,7 +2387,7 @@ git commit -m "feat: Svelte stores for sessions, providers, and agentic chat"
 </style>
 ```
 
-- [ ] **Step 3: Create `src/components/MessageList.svelte`**
+- [x] **Step 3: Create `src/components/MessageList.svelte`**
 ```svelte
 <script lang="ts">
   import { tick } from 'svelte'
@@ -2440,7 +2440,7 @@ git commit -m "feat: Svelte stores for sessions, providers, and agentic chat"
 </style>
 ```
 
-- [ ] **Step 4: Create `src/components/InputArea.svelte`**
+- [x] **Step 4: Create `src/components/InputArea.svelte`**
 ```svelte
 <script lang="ts">
   import { sendMessage, chat } from '../stores/chat.svelte'
@@ -2503,7 +2503,7 @@ git commit -m "feat: Svelte stores for sessions, providers, and agentic chat"
 </style>
 ```
 
-- [ ] **Step 5: Create `src/components/StatusBar.svelte`**
+- [x] **Step 5: Create `src/components/StatusBar.svelte`**
 ```svelte
 <script lang="ts">
   let { sessionId }: { sessionId: string } = $props()
@@ -2515,7 +2515,7 @@ git commit -m "feat: Svelte stores for sessions, providers, and agentic chat"
 </style>
 ```
 
-- [ ] **Step 6: Create `src/components/ChatPanel.svelte`**
+- [x] **Step 6: Create `src/components/ChatPanel.svelte`**
 ```svelte
 <script lang="ts">
   import { onMount } from 'svelte'
@@ -2541,7 +2541,7 @@ git commit -m "feat: Svelte stores for sessions, providers, and agentic chat"
 </style>
 ```
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 ```bash
 git add src/components/
 git commit -m "feat: chat UI with tool cards, streaming, approve/deny flow"
@@ -2553,7 +2553,7 @@ git commit -m "feat: chat UI with tool cards, streaming, approve/deny flow"
 
 **Files:** `src/components/TabBar.svelte`, `src/components/ModelPicker.svelte`, `src/app.svelte`
 
-- [ ] **Step 1: Create TabBar**
+- [x] **Step 1: Create TabBar**
 
 Create `src/components/TabBar.svelte`:
 ```svelte
@@ -2600,7 +2600,7 @@ Create `src/components/TabBar.svelte`:
 </style>
 ```
 
-- [ ] **Step 2: Create ModelPicker**
+- [x] **Step 2: Create ModelPicker**
 
 Create `src/components/ModelPicker.svelte`:
 ```svelte
@@ -2685,7 +2685,7 @@ Create `src/components/ModelPicker.svelte`:
 </style>
 ```
 
-- [ ] **Step 3: Wire everything in `src/app.svelte`**
+- [x] **Step 3: Wire everything in `src/app.svelte`**
 ```svelte
 <script lang="ts">
   import './styles/dark.css'
@@ -2722,13 +2722,13 @@ Create `src/components/ModelPicker.svelte`:
 </style>
 ```
 
-- [ ] **Step 4: Full smoke test**
+- [x] **Step 4: Full smoke test**
 ```bash
 npm run tauri dev
 ```
 Expected: tab bar, + creates session, chat input visible, message sends, streaming response appears, tool calls show ToolCard with Approve/Deny (or auto-execute if Auto checked).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 ```bash
 git add src/components/TabBar.svelte src/components/ModelPicker.svelte src/app.svelte
 git commit -m "feat: tab bar, model picker, full app wired together"
@@ -2740,7 +2740,7 @@ git commit -m "feat: tab bar, model picker, full app wired together"
 
 **Files:** `src/routes/settings/+layout.svelte`, `src/routes/settings/providers/+page.svelte`, `src/routes/settings/appearance/+page.svelte`
 
-- [ ] **Step 1: Create settings layout**
+- [x] **Step 1: Create settings layout**
 
 Create `src/routes/settings/+layout.svelte`:
 ```svelte
@@ -2774,7 +2774,7 @@ Create `src/routes/settings/+layout.svelte`:
 </style>
 ```
 
-- [ ] **Step 2: Create providers settings page**
+- [x] **Step 2: Create providers settings page**
 
 Create `src/routes/settings/providers/+page.svelte`:
 ```svelte
@@ -2813,7 +2813,7 @@ Create `src/routes/settings/providers/+page.svelte`:
 {/each}
 ```
 
-- [ ] **Step 3: Create appearance settings page**
+- [x] **Step 3: Create appearance settings page**
 
 Create `src/routes/settings/appearance/+page.svelte`:
 ```svelte
@@ -2843,7 +2843,7 @@ Create `src/routes/settings/appearance/+page.svelte`:
 </div>
 ```
 
-- [ ] **Step 4: Restore theme on startup**
+- [x] **Step 4: Restore theme on startup**
 
 In `src/app.svelte` `onMount`, before `loadSessions()`:
 ```typescript
@@ -2851,19 +2851,19 @@ const savedTheme = localStorage.getItem('pragma:theme')
 if (savedTheme) document.documentElement.setAttribute('data-theme', savedTheme)
 ```
 
-- [ ] **Step 5: Smoke test settings**
+- [x] **Step 5: Smoke test settings**
 ```bash
 npm run tauri dev
 ```
 Expected: Settings button opens settings, can enter API key and save, theme toggle switches themes.
 
-- [ ] **Step 6: Run all tests**
+- [x] **Step 6: Run all tests**
 ```bash
 npx vitest run && cd src-tauri && cargo test
 ```
 Expected: all pass.
 
-- [ ] **Step 7: Final commit**
+- [x] **Step 7: Final commit**
 ```bash
 git add src/routes/ src/app.svelte
 git commit -m "feat: settings — API key management, theme switcher, startup restore"

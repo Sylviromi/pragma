@@ -1,0 +1,27 @@
+<script lang="ts">
+  import { onMount } from 'svelte'
+  import MessageList from './MessageList.svelte'
+  import InputArea from './InputArea.svelte'
+  import StatusBar from './StatusBar.svelte'
+  import { loadMessages } from '../stores/chat.svelte'
+
+  let { sessionId }: { sessionId: string } = $props()
+  const autoApprove = $derived(false) // will come from session settings later
+
+  onMount(() => loadMessages(sessionId))
+</script>
+
+<div class="panel">
+  <StatusBar {sessionId} />
+  <MessageList {sessionId} {autoApprove} />
+  <InputArea {sessionId} />
+</div>
+
+<style>
+  .panel {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    overflow: hidden;
+  }
+</style>

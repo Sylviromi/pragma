@@ -1,0 +1,18 @@
+# Node
+node_modules/
+dist/
+build/
+.svelte-kit/
+
+# Tauri
+src-tauri/target/
+src-tauri/gen/schemas/
+
+# Logs
+*.log
+npm-debug.log*
+
+# Editor
+.DS_Store
+.vscode/
+.idea/
