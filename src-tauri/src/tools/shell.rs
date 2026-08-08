@@ -6,8 +6,24 @@ use std::time::{Duration, Instant};
 /// caps every tool result before persisting it).
 const MAX_OUTPUT_CHARS: usize = 96_000;
 
+/// Default hard timeout, matching the tool description — a server that never
+/// exits (e.g. `npm run dev`) must not hold the agentic loop forever.
+const DEFAULT_TIMEOUT: Duration = Duration::from_secs(60);
+
 pub fn run_command(wd: &Path, input: &serde_json::Value) -> Result<String, String> {
     let command = input["command"].as_str().ok_or("missing command")?;
+
+    let timeout = match input["timeout_secs"].as_u64() {
+        Some(secs) if secs > 0 => Duration::from_secs(secs),
+        Some(_) => return Err("timeout_secs must be a positive integer".into()),
+        None => DEFAULT_TIMEOUT,
+    };
+    let max_output_chars = match input["max_output_chars"].as_u64() {
+        Some(n) if n > 0 => n as usize,
+        Some(_) => return Err("max_output_chars must be a positive integer".into()),
+        None => MAX_OUTPUT_CHARS,
+    };
+
     let child = std::process::Command::new("sh")
         .arg("-c")
         .arg(command)
@@ -17,9 +33,7 @@ pub fn run_command(wd: &Path, input: &serde_json::Value) -> Result<String, Strin
         .spawn()
         .map_err(|e| e.to_string())?;
 
-    // Hard 60s timeout, matching the tool description — a server that never
-    // exits (e.g. `npm run dev`) must not hold the agentic loop forever.
-    let output = run_with_timeout(child, Duration::from_secs(60))
+    let output = run_with_timeout(child, timeout)
         .map_err(|e| format!("command failed: {e}"))?;
 
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -31,9 +45,12 @@ pub fn run_command(wd: &Path, input: &serde_json::Value) -> Result<String, Strin
         combined
     };
     // Cap runaway output so huge results can't dominate context.
-    if result.chars().count() > MAX_OUTPUT_CHARS {
-        let cut: String = result.chars().take(MAX_OUTPUT_CHARS).collect();
-        return Ok(format!("{cut}\n…[output truncated: {} chars]", result.chars().count()));
+    if result.chars().count() > max_output_chars {
+        let cut: String = result.chars().take(max_output_chars).collect();
+        return Ok(format!(
+            "{cut}\n…[output truncated: {} chars]",
+            result.chars().count()
+        ));
     }
     Ok(result)
 }
@@ -81,7 +98,7 @@ fn run_with_timeout(
         if started.elapsed() >= timeout {
             let _ = child.kill();
             let _ = child.wait();
-            return Err("timed out after 60s".into());
+            return Err(format!("timed out after {}s", timeout.as_secs()));
         }
         std::thread::sleep(Duration::from_millis(25));
     }
@@ -124,10 +141,32 @@ mod tests {
     }
 
     #[test]
+    fn test_custom_timeout_secs() {
+        let dir = tempdir().unwrap();
+        let r = run_command(
+            dir.path(),
+            &serde_json::json!({"command":"sleep 5", "timeout_secs": 1}),
+        );
+        assert!(r.is_err());
+        assert!(r.unwrap_err().contains("timed out after 1s"));
+    }
+
+    #[test]
     fn test_output_capped() {
         let dir = tempdir().unwrap();
         let r = run_command(dir.path(), &serde_json::json!({"command":"yes x | head -c 200000"})).unwrap();
         assert!(r.chars().count() <= MAX_OUTPUT_CHARS + 100);
         assert!(r.contains("truncated"));
+    }
+
+    #[test]
+    fn test_custom_output_cap() {
+        let dir = tempdir().unwrap();
+        let r = run_command(
+            dir.path(),
+            &serde_json::json!({"command":"printf 'abcdefghij'", "max_output_chars": 5}),
+        )
+        .unwrap();
+        assert_eq!(r, "abcde\n…[output truncated: 10 chars]");
     }
 }

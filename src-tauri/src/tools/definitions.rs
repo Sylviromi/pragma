@@ -100,11 +100,13 @@ pub fn standard_tools() -> Vec<ToolDefinition> {
         // ── Shell ─────────────────────────────────────────────────────────
         ToolDefinition {
             name: "run_command".into(),
-            description: "Run a shell command in the session working directory. Returns combined stdout + stderr. Timeout: 60s.".into(),
+            description: "Run a shell command in the session working directory. Returns combined stdout + stderr. Killed after 60s by default (set timeout_secs to override). Output is capped at 96000 chars by default (set max_output_chars to override).".into(),
             input_schema: serde_json::json!({
                 "type": "object",
                 "properties": {
-                    "command": { "type": "string", "description": "Shell command to run (via sh -c)" }
+                    "command": { "type": "string", "description": "Shell command to run (via sh -c)" },
+                    "timeout_secs": { "type": "integer", "description": "Timeout in seconds before the command is killed. Default 60." },
+                    "max_output_chars": { "type": "integer", "description": "Maximum result length in characters before truncation. Default 96000." }
                 },
                 "required": ["command"]
             }),
@@ -195,6 +197,12 @@ pub fn standard_tools() -> Vec<ToolDefinition> {
                 "required": ["path"]
             }),
         },
+        // ── App / dev cycle ───────────────────────────────────────────────
+        ToolDefinition {
+            name: "reload_app".into(),
+            description: "Apply Rust backend changes by rebuilding and restarting the app. Runs `cargo build` first (using the project's Cargo manifest) and only restarts if the build succeeds. This ends the current run — the app relaunches with the new code, so call it LAST, after your edits are complete and verified. Do not call it for frontend-only changes; only when the Rust backend must be reloaded.".into(),
+            input_schema: serde_json::json!({ "type": "object", "properties": {} }),
+        },
         // ── Web ───────────────────────────────────────────────────────────
         ToolDefinition {
             name: "web_search".into(),
@@ -239,6 +247,6 @@ mod tests {
     #[test]
     fn test_expected_tool_count() {
         // Ensures no tools are accidentally dropped when editing
-        assert_eq!(standard_tools().len(), 18);
+        assert_eq!(standard_tools().len(), 19);
     }
 }
