@@ -6,14 +6,13 @@
   import { loadMessages } from '../stores/chat.svelte'
 
   let { sessionId }: { sessionId: string } = $props()
-  const autoApprove = $derived(false) // will come from session settings later
 
   onMount(() => loadMessages(sessionId))
 </script>
 
 <div class="panel">
   <StatusBar {sessionId} />
-  <MessageList {sessionId} {autoApprove} />
+  <MessageList {sessionId} />
   <InputArea {sessionId} />
 </div>
 

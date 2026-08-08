@@ -4,7 +4,7 @@
   import ToolCard from './ToolCard.svelte'
   import { chat } from '../stores/chat.svelte'
 
-  let { sessionId, autoApprove }: { sessionId: string; autoApprove: boolean } = $props()
+  let { sessionId }: { sessionId: string } = $props()
 
   let listEl = $state<HTMLElement | null>(null)
   let userScrolled = $state(false)
@@ -12,16 +12,15 @@
   const messages = $derived(chat.messages[sessionId] ?? [])
   const streaming = $derived(chat.streamingToken[sessionId])
   const running = $derived(chat.running[sessionId] ?? false)
-  const pendingTools = $derived(chat.pendingTools[sessionId] ?? [])
-  const toolResults = $derived(chat.toolResults[sessionId] ?? [])
+  const toolItems = $derived(chat.toolItems[sessionId] ?? [])
   const error = $derived(chat.error[sessionId] ?? null)
 
-  // thinking = running but no tokens yet
-  const thinking = $derived(running && streaming === '')
+  // thinking = running but no tokens yet and no tools yet
+  const thinking = $derived(running && streaming === '' && toolItems.length === 0)
 
   $effect(() => {
     // track anything that changes the list height
-    const _ = messages.length + (streaming ?? '').length + (thinking ? 1 : 0) + (error ? 1 : 0)
+    const _ = messages.length + (streaming ?? '').length + toolItems.length + (thinking ? 1 : 0) + (error ? 1 : 0)
     if (!userScrolled) tick().then(() => { if (listEl) listEl.scrollTop = listEl.scrollHeight })
   })
 </script>
@@ -38,17 +37,6 @@
 >
   {#each messages as msg (msg.id)}
     <ChatMessage message={msg} />
-  {/each}
-
-  {#each pendingTools as tool (tool.toolUseId)}
-    <div style="padding: 0 var(--spacing-4)">
-      <ToolCard
-        {sessionId}
-        {tool}
-        result={toolResults.find((r) => r.toolUseId === tool.toolUseId)}
-        {autoApprove}
-      />
-    </div>
   {/each}
 
   {#if thinking}
@@ -68,6 +56,12 @@
       </div>
     </div>
   {/if}
+
+  {#each toolItems as tool (tool.toolUseId)}
+    <div style="padding: 0 var(--spacing-4)">
+      <ToolCard {sessionId} {tool} />
+    </div>
+  {/each}
 
   {#if error}
     <div class="error-row" role="alert">
