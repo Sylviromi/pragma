@@ -11,10 +11,17 @@
 
   const messages = $derived(chat.messages[sessionId] ?? [])
   const streaming = $derived(chat.streamingToken[sessionId])
+  const running = $derived(chat.running[sessionId] ?? false)
   const pendingTools = $derived(chat.pendingTools[sessionId] ?? [])
   const toolResults = $derived(chat.toolResults[sessionId] ?? [])
+  const error = $derived(chat.error[sessionId] ?? null)
+
+  // thinking = running but no tokens yet
+  const thinking = $derived(running && streaming === '')
 
   $effect(() => {
+    // track anything that changes the list height
+    const _ = messages.length + (streaming ?? '').length + (thinking ? 1 : 0) + (error ? 1 : 0)
     if (!userScrolled) tick().then(() => { if (listEl) listEl.scrollTop = listEl.scrollHeight })
   })
 </script>
@@ -44,12 +51,32 @@
     </div>
   {/each}
 
-  {#if streaming}
-    <div class="message assistant" style="padding: var(--spacing-2) var(--spacing-4)">
+  {#if thinking}
+    <div class="message assistant">
       <div class="avatar" aria-hidden="true">✦</div>
-      <div class="bubble">
+      <div class="bubble thinking-bubble" aria-label="Thinking">
+        <span class="dot"></span>
+        <span class="dot"></span>
+        <span class="dot"></span>
+      </div>
+    </div>
+  {:else if streaming}
+    <div class="message assistant">
+      <div class="avatar" aria-hidden="true">✦</div>
+      <div class="bubble stream-bubble">
         <p>{streaming}<span class="cursor" aria-hidden="true">▋</span></p>
       </div>
+    </div>
+  {/if}
+
+  {#if error}
+    <div class="error-row" role="alert">
+      <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true">
+        <circle cx="8" cy="8" r="7"/>
+        <line x1="8" y1="5" x2="8" y2="8.5"/>
+        <circle cx="8" cy="11" r="0.5" fill="currentColor" stroke="none"/>
+      </svg>
+      <span>{error}</span>
     </div>
   {/if}
 </div>
@@ -63,6 +90,7 @@
   .message {
     display: flex;
     gap: var(--spacing-2);
+    padding: var(--spacing-2) var(--spacing-4);
     align-items: flex-start;
   }
   .avatar {
@@ -83,6 +111,29 @@
     border-radius: var(--radius-sm) var(--radius-lg) var(--radius-lg) var(--radius-lg);
     padding: var(--spacing-2) var(--spacing-3);
   }
+  .stream-bubble {
+    max-width: 70%;
+  }
+  .thinking-bubble {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    padding: var(--spacing-2) var(--spacing-3);
+    min-height: 36px;
+  }
+  .dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--color-text-muted);
+    animation: bounce 1.2s ease-in-out infinite;
+  }
+  .dot:nth-child(2) { animation-delay: 0.2s; }
+  .dot:nth-child(3) { animation-delay: 0.4s; }
+  @keyframes bounce {
+    0%, 60%, 100% { transform: translateY(0); opacity: 0.4; }
+    30% { transform: translateY(-5px); opacity: 1; }
+  }
   p {
     margin: 0;
     color: var(--color-text-primary);
@@ -92,12 +143,21 @@
     animation: blink 1s step-end infinite;
   }
   @keyframes blink {
-    0%,
-    100% {
-      opacity: 1;
-    }
-    50% {
-      opacity: 0;
-    }
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0; }
   }
+  .error-row {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--spacing-2);
+    margin: var(--spacing-2) var(--spacing-4);
+    padding: var(--spacing-2) var(--spacing-3);
+    background: color-mix(in srgb, var(--color-accent-error, #f85149) 10%, transparent);
+    border: 1px solid color-mix(in srgb, var(--color-accent-error, #f85149) 30%, transparent);
+    border-radius: var(--radius-md);
+    color: var(--color-accent-error, #f85149);
+    font-size: var(--font-size-sm);
+  }
+  .error-row svg { flex-shrink: 0; margin-top: 1px; }
+  .error-row span { white-space: pre-wrap; word-break: break-word; }
 </style>

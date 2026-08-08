@@ -64,8 +64,33 @@ pub async fn run_agentic_loop(
         .get(&provider)
         .ok_or_else(|| format!("unknown provider: {provider}"))?;
 
-    // Inject enabled plugins' SKILL.md content as a leading system message.
+    // Base system prompt for the coding agent.
+    const BASE_PROMPT: &str = "\
+You are Pragma, an AI coding assistant running inside a desktop IDE. \
+You have direct access to the user's file system and development environment through tools.\n\
+\n\
+## Tools available\n\
+- **read_file** / **write_file** / **patch_file** — read and modify source files\n\
+- **create_directory** / **delete_file** / **move_file** — file system operations\n\
+- **list_files** / **search_files** — explore and search the codebase\n\
+- **run_command** — execute shell commands (compile, test, run scripts, install packages)\n\
+- **git_status** / **git_diff** / **git_log** / **git_add** / **git_commit** — git operations\n\
+- **web_search** / **fetch_url** — look up documentation, research solutions\n\
+\n\
+## How to work\n\
+- Read files before editing — understand context first\n\
+- Use patch_file for targeted edits to existing files; write_file for new files\n\
+- Run tests or the build after making changes to verify correctness\n\
+- Match the style, conventions, and patterns already in the codebase\n\
+- Be concise and direct. Do exactly what was asked — no extra features, no unsolicited refactors.";
+
+    // Collect enabled plugin skills, then build combined system message.
     let skills_md = state.plugins.collect_skill_markdown();
+    let system_content = if skills_md.is_empty() {
+        BASE_PROMPT.to_string()
+    } else {
+        format!("{BASE_PROMPT}\n\n{skills_md}")
+    };
 
     // Load existing conversation history from DB
     let db_messages = sqlx::query_as::<_, crate::commands::messages::Message>(
@@ -89,9 +114,7 @@ pub async fn run_agentic_loop(
     // Append the new user message
     history.push(serde_json::json!({ "role": "user", "content": user_message }));
 
-    if !skills_md.is_empty() {
-        history.insert(0, serde_json::json!({ "role": "system", "content": skills_md }));
-    }
+    history.insert(0, serde_json::json!({ "role": "system", "content": system_content }));
 
     // Persist user message
     persist_message(

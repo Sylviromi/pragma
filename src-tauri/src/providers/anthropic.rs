@@ -49,12 +49,29 @@ impl AnthropicProvider {
         channel: &Channel<AgentEvent>,
     ) -> Result<Vec<ContentBlock>, String> {
         let client = reqwest::Client::new();
+
+        // Anthropic requires system content in a top-level "system" field,
+        // not as a {"role":"system"} entry inside messages.
+        let system_text: String = messages
+            .iter()
+            .filter(|m| m["role"].as_str() == Some("system"))
+            .filter_map(|m| m["content"].as_str())
+            .collect::<Vec<_>>()
+            .join("\n\n");
+        let chat_messages: Vec<&serde_json::Value> = messages
+            .iter()
+            .filter(|m| m["role"].as_str() != Some("system"))
+            .collect();
+
         let mut body = serde_json::json!({
             "model": model,
             "max_tokens": 8096,
             "stream": true,
-            "messages": messages,
+            "messages": chat_messages,
         });
+        if !system_text.is_empty() {
+            body["system"] = serde_json::Value::String(system_text);
+        }
         if !tools.is_empty() {
             body["tools"] = serde_json::to_value(
                 tools
@@ -87,20 +104,26 @@ impl AnthropicProvider {
             return Err(msg);
         }
 
-        // Parse SSE stream, collect content blocks
+        // Parse SSE stream, collect content blocks.
+        // SSE lines can span multiple HTTP chunks — buffer and process complete lines only.
         let mut blocks: Vec<ContentBlock> = Vec::new();
         let mut current_text = String::new();
         let mut current_tool: Option<(String, String, String)> = None; // (id, name, input_json)
         let mut stream = resp.bytes_stream();
+        let mut buf = String::new();
 
-        while let Some(chunk) = stream.next().await {
+        'outer: while let Some(chunk) = stream.next().await {
             let bytes = chunk.map_err(|e| e.to_string())?;
-            for line in String::from_utf8_lossy(&bytes).lines() {
+            buf.push_str(&String::from_utf8_lossy(&bytes));
+            loop {
+                let Some(nl) = buf.find('\n') else { break };
+                let line = buf[..nl].trim_end_matches('\r').to_string();
+                buf.drain(..=nl);
                 let Some(data) = line.strip_prefix("data: ") else {
                     continue;
                 };
                 if data == "[DONE]" {
-                    break;
+                    break 'outer;
                 }
                 let Ok(ev) = serde_json::from_str::<serde_json::Value>(data) else {
                     continue;
@@ -119,16 +142,10 @@ impl AnthropicProvider {
                         if dt == "text_delta" {
                             let t = ev["delta"]["text"].as_str().unwrap_or("");
                             current_text.push_str(t);
-                            channel
-                                .send(AgentEvent::Token {
-                                    content: t.to_string(),
-                                })
-                                .ok();
+                            channel.send(AgentEvent::Token { content: t.to_string() }).ok();
                         } else if dt == "input_json_delta" {
                             if let Some((_, _, ref mut json_buf)) = current_tool {
-                                json_buf.push_str(
-                                    ev["delta"]["partial_json"].as_str().unwrap_or(""),
-                                );
+                                json_buf.push_str(ev["delta"]["partial_json"].as_str().unwrap_or(""));
                             }
                         }
                     }

@@ -24,7 +24,8 @@ export const chat = $state({
   streamingToken: {} as Record<string, string | null>,
   pendingTools: {} as Record<string, PendingTool[]>,
   toolResults: {} as Record<string, ToolResult[]>,
-  running: {} as Record<string, boolean>
+  running: {} as Record<string, boolean>,
+  error: {} as Record<string, string | null>,
 })
 
 export async function loadMessages(sessionId: string) {
@@ -42,6 +43,21 @@ export async function sendMessage(
   chat.running[sessionId] = true
   chat.streamingToken[sessionId] = ''
   chat.pendingTools[sessionId] = []
+  chat.toolResults[sessionId] = []
+  chat.error[sessionId] = null
+
+  // Show user message immediately — replaced by DB reload on completion
+  const optimistic: Message = {
+    id: `optimistic-${Date.now()}`,
+    sessionId,
+    role: 'user',
+    content: JSON.stringify(content),
+    model,
+    provider,
+    timestamp: new Date().toISOString(),
+    tokens: 0,
+  }
+  chat.messages[sessionId] = [...(chat.messages[sessionId] ?? []), optimistic]
 
   try {
     await runAgenticLoop(sessionId, content, model, provider, workingDir, autoApprove, (ev: AgentEvent) => {
@@ -57,17 +73,22 @@ export async function sendMessage(
           ...(chat.toolResults[sessionId] ?? []),
           { toolUseId: ev.toolUseId, output: ev.output, isError: ev.isError }
         ]
-        // Remove from pending
         chat.pendingTools[sessionId] = (chat.pendingTools[sessionId] ?? []).filter(
           (t) => t.toolUseId !== ev.toolUseId
         )
-      } else if (ev.event === 'done' || ev.event === 'error') {
+      } else if (ev.event === 'error') {
+        chat.error[sessionId] = ev.message
         chat.streamingToken[sessionId] = null
         chat.running[sessionId] = false
-        // Reload messages from DB to get persisted state
+        loadMessages(sessionId)
+      } else if (ev.event === 'done') {
+        chat.streamingToken[sessionId] = null
+        chat.running[sessionId] = false
         loadMessages(sessionId)
       }
     })
+  } catch (err) {
+    chat.error[sessionId] = String(err)
   } finally {
     chat.running[sessionId] = false
     chat.streamingToken[sessionId] = null
