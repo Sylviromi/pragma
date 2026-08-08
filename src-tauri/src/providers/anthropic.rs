@@ -113,12 +113,23 @@ impl AnthropicProvider {
             .header("content-type", "application/json")
             .header("accept-encoding", "identity")
             .json(&body)
+            .timeout(std::time::Duration::from_secs(180))
             .send()
             .await
-            .map_err(|e| e.to_string())?;
+            .map_err(|e| {
+                let msg = format!("Failed to reach Anthropic API: {e}");
+                app_handle.emit(&event_name, AgentEvent::Error { message: msg.clone() }).ok();
+                msg
+            })?;
 
         if !resp.status().is_success() {
-            let msg = resp.text().await.unwrap_or_default();
+            let status = resp.status();
+            let msg = match resp.text().await {
+                Ok(t) if !t.trim().is_empty() => t,
+                _ => format!(
+                    "Anthropic API returned HTTP {status} with no error details — the service may be down or the key invalid."
+                ),
+            };
             app_handle.emit(&event_name, AgentEvent::Error { message: msg.clone() }).ok();
             return Err(msg);
         }
@@ -132,11 +143,25 @@ impl AnthropicProvider {
         let mut stream = resp.bytes_stream();
         // Raw byte buffer — avoids corrupting multi-byte UTF-8 chars split across HTTP chunks.
         let mut buf: Vec<u8> = Vec::new();
+        // Whether the stream finished cleanly (message_stop seen, no transport errors).
+        let mut saw_stop = false;
+        let mut stream_broken = false;
 
-        'outer: while let Some(chunk) = stream.next().await {
+        'outer: loop {
+            // Idle protection: if no bytes arrive for 60s the connection is
+            // dead — surface it instead of hanging forever.
+            let chunk = tokio::time::timeout(std::time::Duration::from_secs(60), stream.next()).await;
             let bytes = match chunk {
-                Ok(b) => b,
-                Err(_) => break 'outer,
+                Err(_) => {
+                    stream_broken = true; // no data for 60s
+                    break 'outer;
+                }
+                Ok(None) => break 'outer, // clean EOF — message_stop handling below
+                Ok(Some(Err(_))) => {
+                    stream_broken = true;
+                    break 'outer;
+                }
+                Ok(Some(Ok(b))) => b,
             };
             buf.extend_from_slice(&bytes);
             loop {
@@ -149,11 +174,16 @@ impl AnthropicProvider {
                     continue;
                 };
                 if data == "[DONE]" {
+                    saw_stop = true;
                     break 'outer;
                 }
                 let Ok(ev) = serde_json::from_str::<serde_json::Value>(data) else {
                     continue;
                 };
+                if ev["type"].as_str() == Some("message_stop") {
+                    saw_stop = true;
+                    break 'outer;
+                }
                 match ev["type"].as_str().unwrap_or("") {
                     "content_block_start" => {
                         let bt = ev["content_block"]["type"].as_str().unwrap_or("");
@@ -177,7 +207,13 @@ impl AnthropicProvider {
                             }
                         } else if dt == "thinking_delta" {
                             if let Some((ref mut thinking, _)) = current_thinking {
-                                thinking.push_str(ev["delta"]["thinking"].as_str().unwrap_or(""));
+                                let t = ev["delta"]["thinking"].as_str().unwrap_or("");
+                                thinking.push_str(t);
+                                if !t.is_empty() {
+                                    app_handle
+                                        .emit(&event_name, AgentEvent::Reasoning { content: t.to_string() })
+                                        .ok();
+                                }
                             }
                         } else if dt == "signature_delta" {
                             if let Some((_, ref mut signature)) = current_thinking {
@@ -206,6 +242,22 @@ impl AnthropicProvider {
         // Flush any in-progress text block (stream may have ended without content_block_stop)
         if !current_text.is_empty() {
             blocks.push(ContentBlock::Text { text: current_text });
+        }
+
+        let cut_off = stream_broken || !saw_stop;
+        if blocks.is_empty() {
+            return Err(if cut_off {
+                "Connection interrupted before any content arrived — the Anthropic service may be down.".into()
+            } else {
+                "The model returned an empty response — try again.".into()
+            });
+        }
+        if cut_off && !blocks.iter().any(|b| matches!(b, ContentBlock::ToolUse { .. })) {
+            app_handle
+                .emit(&event_name, AgentEvent::Error {
+                    message: "Connection interrupted — the response may be incomplete.".into(),
+                })
+                .ok();
         }
 
         Ok(blocks)

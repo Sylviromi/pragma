@@ -69,9 +69,25 @@ impl OpenAICompatProvider {
             req = req.bearer_auth(api_key);
         }
 
-        let resp = req.send().await.map_err(|e| e.to_string())?;
+        let resp = req
+            .timeout(std::time::Duration::from_secs(180))
+            .send()
+            .await
+            .map_err(|e| {
+                let msg = format!("Failed to reach {}", self.id);
+                let msg = format!("{msg} at {}: {e}", self.base_url);
+                app_handle.emit(&event_name, AgentEvent::Error { message: msg.clone() }).ok();
+                msg
+            })?;
         if !resp.status().is_success() {
-            let msg = resp.text().await.unwrap_or_default();
+            let status = resp.status();
+            let msg = match resp.text().await {
+                Ok(t) if !t.trim().is_empty() => t,
+                _ => format!(
+                    "{} returned HTTP {status} with no error details — the service may be down, slow, or over quota.",
+                    self.id
+                ),
+            };
             app_handle.emit(&event_name, AgentEvent::Error { message: msg.clone() }).ok();
             return Err(msg);
         }
@@ -85,10 +101,25 @@ impl OpenAICompatProvider {
         let mut stream = resp.bytes_stream();
         // Raw byte buffer — avoids corrupting multi-byte UTF-8 chars split across HTTP chunks.
         let mut buf: Vec<u8> = Vec::new();
-        'outer: while let Some(chunk) = stream.next().await {
+        // Whether the stream ended cleanly with [DONE]; false means we hit an
+        // EOF/error mid-stream, in which case the answer may be incomplete.
+        let mut saw_done = false;
+        let mut stream_broken = false;
+        'outer: loop {
+            // Idle protection: if the relay stops sending bytes for 60s the
+            // connection is dead — surface it instead of hanging forever.
+            let chunk = tokio::time::timeout(std::time::Duration::from_secs(60), stream.next()).await;
             let bytes = match chunk {
-                Ok(b) => b,
-                Err(_) => break 'outer,
+                Err(_) => {
+                    stream_broken = true; // no data for 60s
+                    break 'outer;
+                }
+                Ok(None) => break 'outer, // clean EOF — [DONE] handling below
+                Ok(Some(Err(_))) => {
+                    stream_broken = true;
+                    break 'outer;
+                }
+                Ok(Some(Ok(b))) => b,
             };
             buf.extend_from_slice(&bytes);
             loop {
@@ -101,6 +132,7 @@ impl OpenAICompatProvider {
                     continue;
                 };
                 if data.trim() == "[DONE]" {
+                    saw_done = true;
                     break 'outer;
                 }
                 let Ok(ev) = serde_json::from_str::<serde_json::Value>(data) else {
@@ -112,6 +144,9 @@ impl OpenAICompatProvider {
                 if let Some(r) = delta["reasoning_content"].as_str() {
                     if !r.is_empty() {
                         reasoning_buf.push_str(r);
+                        app_handle
+                            .emit(&event_name, AgentEvent::Reasoning { content: r.to_string() })
+                            .ok();
                     }
                 }
 
@@ -154,6 +189,26 @@ impl OpenAICompatProvider {
         for (_, (id, name, args)) in tool_calls {
             let input = serde_json::from_str(&args).unwrap_or(serde_json::Value::Object(Default::default()));
             blocks.push(ContentBlock::ToolUse { id, name, input });
+        }
+
+        let cut_off = stream_broken || !saw_done;
+        if blocks.is_empty() {
+            // An empty body that wasn't cut off is still a dead turn — never
+            // end the loop with zero content (that looks like the model dying).
+            return Err(if cut_off {
+                "Connection interrupted before any content arrived — the model service may be down.".into()
+            } else {
+                "The model returned an empty response — the service may be overloaded; try again.".into()
+            });
+        }
+        if cut_off && !blocks.iter().any(|b| matches!(b, ContentBlock::ToolUse { .. })) {
+            // Partial answer arrived but the stream broke: surface it. (When
+            // tool calls are pending we stay quiet so approvals keep flowing.)
+            app_handle
+                .emit(&event_name, AgentEvent::Error {
+                    message: "Connection interrupted — the response may be incomplete.".into(),
+                })
+                .ok();
         }
 
         Ok(blocks)
