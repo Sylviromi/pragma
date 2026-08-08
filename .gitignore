@@ -16,3 +16,7 @@ npm-debug.log*
 .DS_Store
 .vscode/
 .idea/
+# Agent scratch / session state
+.handsfree/
+.superpowers/
+.claude/
