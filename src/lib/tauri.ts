@@ -48,6 +48,11 @@ export const openPluginFolder = (id: string) => tauriInvoke<void>('open_plugin_f
 
 export const captureAppScreenshot = () => tauriInvoke<string>('capture_app_screenshot')
 
+export const spawnProcess = (program: string, args: string[], cwd?: string | null) =>
+  tauriInvoke<number>('spawn_process', { program, args, cwd: cwd ?? null })
+export const killProcess = (pid: number) => tauriInvoke<void>('kill_process', { pid })
+export const probePort = (port: number) => tauriInvoke<boolean>('probe_port', { port })
+
 export function runAgenticLoop(
   sessionId: string,
   userMessage: string,

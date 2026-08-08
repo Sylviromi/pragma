@@ -115,6 +115,9 @@ pub fn run() {
             commands::plugins::read_plugin_component,
             commands::plugins::read_plugin_skill,
             commands::plugins::open_plugin_folder,
+            commands::process::spawn_process,
+            commands::process::kill_process,
+            commands::process::probe_port,
             screenshot::capture_app_screenshot,
         ])
         .run(tauri::generate_context!())
