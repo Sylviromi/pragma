@@ -4,6 +4,7 @@ use uuid::Uuid;
 use chrono::Utc;
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+#[serde(rename_all = "camelCase")]
 pub struct Message {
     pub id: String,
     pub session_id: String,

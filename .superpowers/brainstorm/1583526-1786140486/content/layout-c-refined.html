@@ -1,0 +1,89 @@
+<h2>Pragma — Layout C Refined</h2>
+<p class="subtitle">Sessions as tabs, model picker lives in the input bar. Does this feel right?</p>
+
+<div class="mockup">
+  <div class="mockup-header">Pragma — Main Window</div>
+  <div class="mockup-body" style="padding:0;overflow:hidden;">
+    <div style="display:flex;flex-direction:column;height:400px;background:#0d1117;font-size:12px;">
+
+      <!-- Title bar / tabs -->
+      <div style="background:#161b22;border-bottom:1px solid #21262d;display:flex;align-items:stretch;padding:0 8px;gap:2px;min-height:36px;">
+        <div style="color:#58a6ff;font-weight:bold;font-size:11px;padding:0 10px;display:flex;align-items:center;border-right:1px solid #21262d;margin-right:4px;">PRAGMA</div>
+        <!-- active tab -->
+        <div style="background:#0d1117;border-top:2px solid #1f6feb;padding:0 12px;display:flex;align-items:center;gap:6px;color:#e6edf3;font-size:11px;">
+          my-project <span style="color:#8b949e;font-size:10px;">×</span>
+        </div>
+        <div style="padding:0 12px;display:flex;align-items:center;gap:6px;color:#8b949e;font-size:11px;">
+          rust-game <span style="color:#484f58;font-size:10px;">×</span>
+        </div>
+        <div style="padding:0 12px;display:flex;align-items:center;gap:6px;color:#8b949e;font-size:11px;">
+          api-work <span style="color:#484f58;font-size:10px;">×</span>
+        </div>
+        <div style="padding:0 12px;display:flex;align-items:center;color:#8b949e;font-size:14px;cursor:pointer;">+</div>
+        <!-- right side of title bar -->
+        <div style="margin-left:auto;display:flex;align-items:center;gap:8px;padding:0 4px;">
+          <div style="color:#8b949e;font-size:10px;">⚙ Settings</div>
+          <div style="color:#8b949e;font-size:10px;">⧉ Plugins</div>
+        </div>
+      </div>
+
+      <!-- Plugin slot: chat-toolbar-extra (e.g. handsfree status bar) -->
+      <div style="background:#0d2a1f;border-bottom:1px solid #1a3d2b;padding:4px 16px;display:flex;align-items:center;gap:8px;">
+        <div style="width:6px;height:6px;border-radius:50%;background:#3fb950;"></div>
+        <div style="color:#3fb950;font-size:10px;">Handsfree — EXECUTING · Milestone 2 / Task 3: Collision detection</div>
+        <div style="margin-left:auto;color:#8b949e;font-size:10px;">pause · view plan</div>
+      </div>
+
+      <!-- Chat messages -->
+      <div style="flex:1;padding:16px;display:flex;flex-direction:column;gap:10px;overflow:hidden;">
+        <!-- user msg -->
+        <div style="display:flex;justify-content:flex-end;">
+          <div style="background:#1f6feb22;border:1px solid #1f6feb55;border-radius:8px 8px 2px 8px;padding:8px 12px;max-width:65%;color:#e6edf3;font-size:11px;line-height:1.5;">
+            How do I implement collision detection in Bevy?
+          </div>
+        </div>
+        <!-- assistant msg -->
+        <div style="display:flex;gap:8px;align-items:flex-start;">
+          <div style="width:20px;height:20px;border-radius:50%;background:#1f6feb;display:flex;align-items:center;justify-content:center;color:#fff;font-size:8px;flex-shrink:0;">✦</div>
+          <div style="background:#161b22;border-radius:2px 8px 8px 8px;padding:8px 12px;max-width:70%;color:#c9d1d9;font-size:11px;line-height:1.5;">
+            You can use Bevy's built-in Rapier physics integration. Add <code style="background:#21262d;padding:1px 4px;border-radius:3px;font-size:10px;">bevy_rapier2d</code> to your Cargo.toml, then attach a <code style="background:#21262d;padding:1px 4px;border-radius:3px;font-size:10px;">Collider</code> component to your entities...
+            <div style="margin-top:4px;color:#8b949e;font-size:9px;">claude-sonnet-4-6 · 342 tokens</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Input area -->
+      <div style="border-top:1px solid #21262d;padding:10px 16px;display:flex;flex-direction:column;gap:6px;background:#0d1117;">
+        <!-- Textarea -->
+        <div style="background:#161b22;border:1px solid #30363d;border-radius:8px;padding:8px 12px;min-height:44px;color:#8b949e;font-size:11px;">
+          Ask anything...
+        </div>
+        <!-- Input footer row: model picker left, send right -->
+        <div style="display:flex;align-items:center;gap:6px;">
+          <!-- Model picker -->
+          <div style="display:flex;align-items:center;gap:4px;background:#161b22;border:1px solid #30363d;border-radius:6px;padding:3px 8px;cursor:pointer;">
+            <div style="width:6px;height:6px;border-radius:50%;background:#58a6ff;"></div>
+            <div style="color:#e6edf3;font-size:10px;">claude-sonnet-4-6</div>
+            <div style="color:#8b949e;font-size:9px;">· Anthropic</div>
+            <div style="color:#8b949e;font-size:10px;">▾</div>
+          </div>
+          <!-- slot: model-picker-extra (e.g. zen-warp injects here) -->
+          <div style="display:flex;align-items:center;gap:4px;background:#161b22;border:1px solid #30363d;border-radius:6px;padding:3px 8px;cursor:pointer;opacity:0.6;">
+            <div style="width:6px;height:6px;border-radius:50%;background:#f78166;"></div>
+            <div style="color:#e6edf3;font-size:10px;">zen-warp</div>
+            <div style="color:#8b949e;font-size:9px;">↔ deepseek-v4</div>
+            <div style="color:#8b949e;font-size:10px;">▾</div>
+          </div>
+          <div style="margin-left:auto;display:flex;align-items:center;gap:6px;">
+            <div style="color:#8b949e;font-size:10px;">@ skills</div>
+            <div style="color:#8b949e;font-size:10px;">/ commands</div>
+            <div style="background:#1f6feb;border-radius:6px;padding:4px 14px;color:#fff;font-size:11px;">Send</div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<p class="subtitle" style="margin-top:16px;">The greyed-out zen-warp chip is how a plugin contributes its own model source to the input bar — sits right next to the native model picker.</p>

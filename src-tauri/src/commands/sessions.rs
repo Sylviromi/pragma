@@ -5,6 +5,7 @@ use uuid::Uuid;
 use chrono::Utc;
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+#[serde(rename_all = "camelCase")]
 pub struct Session {
     pub id: String,
     pub name: String,

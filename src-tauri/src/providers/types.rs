@@ -34,6 +34,7 @@ pub struct ToolDefinition {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ModelInfo {
     pub id: String,
     pub name: String,
@@ -57,17 +58,21 @@ pub struct ProviderInfo {
     pub models: Vec<ModelInfo>,
 }
 
-// Events emitted over the Channel during an agentic loop
+// Events emitted over the Channel during an agentic loop.
+// The outer rename_all = "snake_case" controls tag values (token, tool_call, etc.).
+// Per-variant rename_all = "camelCase" controls field names sent to the frontend.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "event", rename_all = "snake_case")]
 pub enum AgentEvent {
     Token { content: String },
+    #[serde(rename_all = "camelCase")]
     ToolCall {
         run_id: String,
         tool_use_id: String,
         name: String,
         input: serde_json::Value,
     },
+    #[serde(rename_all = "camelCase")]
     ToolResult {
         tool_use_id: String,
         output: String,

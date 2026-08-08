@@ -2,6 +2,7 @@
   import { sendMessage, chat } from '../stores/chat.svelte'
   import ModelPicker from './ModelPicker.svelte'
   import { getSession } from '../stores/sessions.svelte'
+  import { updateSession } from '../lib/tauri'
 
   let { sessionId }: { sessionId: string } = $props()
 
@@ -12,6 +13,18 @@
 
   const session = $derived(getSession(sessionId))
   const running = $derived(chat.running[sessionId] ?? false)
+
+  // Initialise model/provider from persisted session on mount
+  $effect(() => {
+    const s = getSession(sessionId)
+    if (s?.model) model = s.model
+    if (s?.provider) provider = s.provider
+  })
+
+  // Persist model/provider whenever they change
+  $effect(() => {
+    updateSession(sessionId, model, provider, session?.workingDir ?? '').catch(() => {})
+  })
 
   async function submit() {
     const content = text.trim()

@@ -31,7 +31,7 @@ export interface Message {
 export interface ModelInfo {
   id: string
   name: string
-  contextWindow: number | null
+  contextWindow: number | null  // camelCase — Rust sends contextWindow
   isFree: boolean
   isVision: boolean
 }
@@ -39,12 +39,14 @@ export interface ModelInfo {
 export interface ProviderInfo {
   id: string
   name: string
+  // Rust: ProviderSource::Builtin → "builtin", Plugin { plugin_id } → { plugin: { pluginId } }
   source: 'builtin' | { plugin: { pluginId: string } }
   models: ModelInfo[]
 }
 
 export type AgentEvent =
   | { event: 'token'; content: string }
+  // Fields are camelCase — Rust AgentEvent variants use #[serde(rename_all = "camelCase")]
   | { event: 'tool_call'; runId: string; toolUseId: string; name: string; input: Record<string, unknown> }
   | { event: 'tool_result'; toolUseId: string; output: string; isError: boolean }
   | { event: 'done' }
