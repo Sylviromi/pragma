@@ -1,0 +1,2 @@
+Hello from write_file!
+And a line from patch_file!

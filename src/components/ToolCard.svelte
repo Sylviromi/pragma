@@ -12,6 +12,13 @@
 
   let outputOpen = $state(false)
 
+  // Auto-open output when tool completes so the result is immediately visible
+  $effect(() => {
+    if ((tool.status === 'done' || tool.status === 'error') && tool.output) {
+      outputOpen = true
+    }
+  })
+
   // Human-readable one-liner for the tool input
   function summarize(name: string, input: Record<string, unknown>): string {
     const s = (k: string) => String(input[k] ?? '')
@@ -103,7 +110,7 @@
     background: var(--color-bg-elevated);
     min-height: 30px;
   }
-  .icon { font-size: 11px; flex-shrink: 0; }
+  .icon { font-size: 13px; flex-shrink: 0; }
   .icon.ok   { color: var(--color-accent-success, #3fb950); }
   .icon.err  { color: var(--color-accent-error,   #f85149); }
   .icon.warn { color: var(--color-accent-warning,  #d29922); }
@@ -142,7 +149,7 @@
     border: none;
     color: var(--color-text-muted);
     cursor: pointer;
-    font-size: 13px;
+    font-size: 15px;
     padding: 0 2px;
     line-height: 1;
   }

@@ -87,7 +87,7 @@
   }
   .tab-close {
     opacity: 0;
-    font-size: 14px;
+    font-size: 16px;
     padding: 2px 3px;
     border-radius: var(--radius-sm);
   }
@@ -103,7 +103,7 @@
     background: transparent;
     border: none;
     color: var(--color-text-muted);
-    font-size: 18px;
+    font-size: 20px;
   }
   .actions {
     margin-left: auto;

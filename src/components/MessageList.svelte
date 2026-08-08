@@ -3,24 +3,66 @@
   import ChatMessage from './ChatMessage.svelte'
   import ToolCard from './ToolCard.svelte'
   import { chat } from '../stores/chat.svelte'
+  import { parseContent } from '../lib/types'
+  import type { ContentBlock } from '../lib/types'
 
   let { sessionId }: { sessionId: string } = $props()
 
   let listEl = $state<HTMLElement | null>(null)
   let userScrolled = $state(false)
 
-  const messages = $derived(chat.messages[sessionId] ?? [])
-  const streaming = $derived(chat.streamingToken[sessionId])
-  const running = $derived(chat.running[sessionId] ?? false)
-  const toolItems = $derived(chat.toolItems[sessionId] ?? [])
-  const error = $derived(chat.error[sessionId] ?? null)
+  const messages      = $derived(chat.messages[sessionId] ?? [])
+  const streamingToken = $derived(chat.streamingToken[sessionId])
+  const running       = $derived(chat.running[sessionId] ?? false)
+  const liveBlocks    = $derived(chat.liveBlocks[sessionId] ?? [])
+  const toolItems     = $derived(chat.toolItems[sessionId] ?? [])
+  const error         = $derived(chat.error[sessionId] ?? null)
 
-  // thinking = running but no tokens yet and no tools yet
-  const thinking = $derived(running && streaming === '' && toolItems.length === 0)
+  const thinking = $derived(running && liveBlocks.length === 0)
+
+  // When a live turn is in progress (liveBlocks non-empty), hide the DB messages for
+  // that turn so they don't duplicate what liveBlocks already shows. Only show messages
+  // up to and including the last "real" user message (not tool_result).
+  const visibleMessages = $derived.by(() => {
+    if (liveBlocks.length === 0) return messages
+    // Walk backwards to find the last real user message
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const msg = messages[i]
+      if (msg.role === 'user') {
+        const c = parseContent(msg.content)
+        const isToolResult = Array.isArray(c) &&
+          (c as ContentBlock[]).every(b => b.type === 'tool_result')
+        if (!isToolResult) {
+          return messages.slice(0, i + 1)
+        }
+      }
+    }
+    return []
+  })
+
+  // Build a map of toolUseId → output from all user tool_result messages.
+  // Used by ChatMessage to show outputs in historical (completed) tool cards.
+  const toolOutputs = $derived.by(() => {
+    const map: Record<string, { content: string; isError: boolean }> = {}
+    for (const msg of messages) {
+      if (msg.role !== 'user') continue
+      const c = parseContent(msg.content)
+      if (!Array.isArray(c)) continue
+      for (const b of c as ContentBlock[]) {
+        if (b.type === 'tool_result') {
+          map[(b as any).tool_use_id] = {
+            content: (b as any).content ?? '',
+            isError: (b as any).is_error ?? false,
+          }
+        }
+      }
+    }
+    return map
+  })
 
   $effect(() => {
-    // track anything that changes the list height
-    const _ = messages.length + (streaming ?? '').length + toolItems.length + (thinking ? 1 : 0) + (error ? 1 : 0)
+    const _ = messages.length + liveBlocks.length + (streamingToken ?? '').length
+              + (thinking ? 1 : 0) + (error ? 1 : 0)
     if (!userScrolled) tick().then(() => { if (listEl) listEl.scrollTop = listEl.scrollHeight })
   })
 </script>
@@ -35,8 +77,8 @@
   aria-live="polite"
   aria-label="Conversation"
 >
-  {#each messages as msg (msg.id)}
-    <ChatMessage message={msg} />
+  {#each visibleMessages as msg (msg.id)}
+    <ChatMessage message={msg} {toolOutputs} />
   {/each}
 
   {#if thinking}
@@ -48,20 +90,25 @@
         <span class="dot"></span>
       </div>
     </div>
-  {:else if streaming}
-    <div class="message assistant">
+  {:else if liveBlocks.length > 0}
+    <div class="live-turn">
       <div class="avatar" aria-hidden="true">✦</div>
-      <div class="bubble stream-bubble">
-        <p>{streaming}<span class="cursor" aria-hidden="true">▋</span></p>
+      <div class="live-body">
+        {#each liveBlocks as block, i}
+          {#if block.type === 'text'}
+            <p class="live-text">
+              {block.text}{#if running && i === liveBlocks.length - 1}<span class="cursor" aria-hidden="true">▋</span>{/if}
+            </p>
+          {:else if block.type === 'tool'}
+            {@const tool = toolItems.find(t => t.toolUseId === block.toolUseId)}
+            {#if tool}
+              <ToolCard {sessionId} {tool} />
+            {/if}
+          {/if}
+        {/each}
       </div>
     </div>
   {/if}
-
-  {#each toolItems as tool (tool.toolUseId)}
-    <div style="padding: 0 var(--spacing-4)">
-      <ToolCard {sessionId} {tool} />
-    </div>
-  {/each}
 
   {#if error}
     <div class="error-row" role="alert">
@@ -81,12 +128,14 @@
     overflow-y: auto;
     padding: var(--spacing-4) 0;
   }
-  .message {
+
+  .message, .live-turn {
     display: flex;
     gap: var(--spacing-2);
     padding: var(--spacing-2) var(--spacing-4);
     align-items: flex-start;
   }
+
   .avatar {
     width: 22px;
     height: 22px;
@@ -96,17 +145,15 @@
     align-items: center;
     justify-content: center;
     color: white;
-    font-size: 10px;
+    font-size: 12px;
     flex-shrink: 0;
     margin-top: 2px;
   }
+
   .bubble {
     background: var(--color-bg-elevated);
     border-radius: var(--radius-sm) var(--radius-lg) var(--radius-lg) var(--radius-lg);
     padding: var(--spacing-2) var(--spacing-3);
-  }
-  .stream-bubble {
-    max-width: 70%;
   }
   .thinking-bubble {
     display: flex;
@@ -128,18 +175,33 @@
     0%, 60%, 100% { transform: translateY(0); opacity: 0.4; }
     30% { transform: translateY(-5px); opacity: 1; }
   }
-  p {
+
+  .live-body {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-2);
+  }
+
+  .live-text {
     margin: 0;
+    max-width: 70%;
+    background: var(--color-bg-elevated);
+    border-radius: var(--radius-sm) var(--radius-lg) var(--radius-lg) var(--radius-lg);
+    padding: var(--spacing-2) var(--spacing-3);
     color: var(--color-text-primary);
     white-space: pre-wrap;
+    font-size: var(--font-size-md);
+    line-height: 1.6;
   }
-  .cursor {
-    animation: blink 1s step-end infinite;
-  }
+
+  .cursor { animation: blink 1s step-end infinite; }
   @keyframes blink {
     0%, 100% { opacity: 1; }
     50% { opacity: 0; }
   }
+
   .error-row {
     display: flex;
     align-items: flex-start;
