@@ -231,9 +231,13 @@ fn to_openai_messages(messages: &[serde_json::Value]) -> Vec<serde_json::Value> 
             _ => out.push(msg.clone()),
         }
     }
-    // Sanitize: remove orphaned tool_calls sequences (e.g., session crashed mid-loop).
-    // If an assistant message has N tool_calls but fewer than N role:tool messages follow it,
-    // truncate from that assistant message onwards.
+    // Sanitize: remove orphaned tool_calls sequences (e.g., session crashed
+    // mid-loop). If an assistant message has N tool_calls but fewer than N
+    // role:tool messages follow it, the exchange is corrupted. Drop only the
+    // corrupt span and everything up to the latest real user message — but
+    // ALWAYS keep the newest user prompt (and the system message) so the model
+    // still sees what the user actually asked instead of re-running old tool
+    // calls.
     let mut i = 0;
     while i < out.len() {
         if out[i]["role"].as_str() == Some("assistant") {
@@ -245,7 +249,28 @@ fn to_openai_messages(messages: &[serde_json::Value]) -> Vec<serde_json::Value> 
                         j += 1;
                     }
                     if (j - i - 1) < n_calls {
-                        out.truncate(i);
+                        // Find the newest real user message (role:user — tool
+                        // results are already role:tool here).
+                        let mut cutoff = i;
+                        for k in (i..out.len()).rev() {
+                            if out[k]["role"].as_str() == Some("user") {
+                                cutoff = k;
+                                break;
+                            }
+                        }
+                        if cutoff <= i {
+                            // No user prompt after the dangling call: drop the
+                            // dangling assistant message itself.
+                            out.remove(i);
+                        } else {
+                            let mut kept = out[..i]
+                                .iter()
+                                .filter(|m| m["role"].as_str() == Some("system"))
+                                .cloned()
+                                .collect::<Vec<_>>();
+                            kept.extend_from_slice(&out[cutoff..]);
+                            out = kept;
+                        }
                         break;
                     }
                     i = j;
@@ -282,5 +307,52 @@ pub fn opencode_local() -> OpenAICompatProvider {
         base_url: "http://localhost:4000/v1".into(),
         source: ProviderSource::Builtin,
         models: vec![],
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sanitizer_keeps_newest_user_prompt_with_dangling_tool_call() {
+        // Exactly the corruption seen in production: assistant tool_call with
+        // no result, then the user's brand-new prompt.
+        let messages = vec![
+            serde_json::json!({ "role": "system", "content": "sys" }),
+            serde_json::json!({ "role": "user", "content": "old task" }),
+            assistant_with_blocks(vec![
+                serde_json::json!({ "type": "tool_use", "id": "c1", "name": "x", "input": {} }),
+            ]),
+            serde_json::json!({ "role": "user", "content": "unrelated follow-up" }),
+        ];
+        let out = to_openai_messages(&messages);
+        let texts: Vec<&str> = out
+            .iter()
+            .filter(|m| m["role"].as_str() == Some("user"))
+            .filter_map(|m| m["content"].as_str())
+            .collect();
+        assert!(texts.contains(&"unrelated follow-up"), "newest prompt must survive: {out:?}");
+    }
+
+    fn assistant_with_blocks(blocks: Vec<serde_json::Value>) -> serde_json::Value {
+        serde_json::json!({ "role": "assistant", "content": blocks })
+    }
+
+    #[test]
+    fn sanitizer_keeps_well_formed_exchange() {
+        let messages = vec![
+            serde_json::json!({ "role": "user", "content": "hi" }),
+            assistant_with_blocks(vec![
+                serde_json::json!({ "type": "tool_use", "id": "c1", "name": "read_file", "input": {"path": "a"} }),
+            ]),
+            serde_json::json!({ "role": "user", "content": [
+                serde_json::json!({ "type": "tool_result", "tool_use_id": "c1", "content": "ok", "is_error": false })
+            ]}),
+        ];
+        let out = to_openai_messages(&messages);
+        assert_eq!(out.len(), 3);
+        assert_eq!(out[1]["tool_calls"].as_array().unwrap().len(), 1);
+        assert_eq!(out[2]["role"], "tool");
     }
 }

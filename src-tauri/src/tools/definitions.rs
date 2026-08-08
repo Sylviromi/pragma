@@ -28,12 +28,12 @@ pub fn standard_tools() -> Vec<ToolDefinition> {
         },
         ToolDefinition {
             name: "patch_file".into(),
-            description: "Apply a unified diff to a file. Use this to make targeted edits without rewriting the whole file.".into(),
+            description: "Apply a unified diff to a file. Use this for targeted edits without rewriting the whole file. The diff must be exact: `--- a/<path>` and `+++ b/<path>` headers, then one or more `@@ -start,count +start,count @@` hunks whose line numbers, counts, and space-prefixed context lines match the current file verbatim. There is no fuzzy matching — any mismatch fails the whole patch. Read the file first to pin exact positions. Use write_file for full rewrites.".into(),
             input_schema: serde_json::json!({
                 "type": "object",
                 "properties": {
                     "path": { "type": "string", "description": "File path relative to working directory" },
-                    "diff": { "type": "string", "description": "Unified diff string (--- a/file ... +++ b/file ... @@ ... @@)" }
+                    "diff": { "type": "string", "description": "Unified diff string: `--- a/<path>` / `+++ b/<path>` headers then `@@ -start,count +start,count @@` hunks. Prefix removed lines with '-', added lines with '+', context with a space. Line numbers, counts, and context must match the file exactly — no fuzzy matching." }
                 },
                 "required": ["path", "diff"]
             }),

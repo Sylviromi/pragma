@@ -12,6 +12,9 @@ pub async fn run_migrations(pool: &SqlitePool) -> Result<(), sqlx::Error> {
     sqlx::query(include_str!("migrations/001_init.sql"))
         .execute(pool)
         .await?;
+    sqlx::query(include_str!("migrations/002_active_loops.sql"))
+        .execute(pool)
+        .await?;
     Ok(())
 }
 
