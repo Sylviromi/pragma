@@ -3,7 +3,8 @@
   import ModelPicker from './ModelPicker.svelte'
   import SlotStack from './SlotStack.svelte'
   import { getSession } from '../stores/sessions.svelte'
-  import { updateSession } from '../lib/tauri'
+  import { updateSession, captureAppScreenshot } from '../lib/tauri'
+  import { pushToast } from '../stores/toast.svelte'
 
   let { sessionId }: { sessionId: string } = $props()
 
@@ -40,6 +41,26 @@
       submit()
     }
   }
+
+  async function shoot() {
+    try {
+      const path = await captureAppScreenshot()
+      pushToast(`Screenshot → ${path}`, 'success')
+    } catch (err) {
+      pushToast(String(err), 'error')
+    }
+  }
+
+  $effect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === 's') {
+        e.preventDefault()
+        shoot()
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  })
 </script>
 
 <div class="input-area">
@@ -60,6 +81,7 @@
       <span>Auto</span>
     </label>
     <div class="footer-right">
+      <button class="hint-btn" type="button" title="Screenshot this app window (Ctrl+Shift+S)" onclick={shoot}>📷</button>
       <button class="hint-btn" type="button">@ skills</button>
       <button class="hint-btn" type="button">/ cmds</button>
       <button

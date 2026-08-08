@@ -46,6 +46,8 @@ export const readPluginComponent = (id: string) => tauriInvoke<string>('read_plu
 export const readPluginSkill = (id: string) => tauriInvoke<string>('read_plugin_skill', { id })
 export const openPluginFolder = (id: string) => tauriInvoke<void>('open_plugin_folder', { id })
 
+export const captureAppScreenshot = () => tauriInvoke<string>('capture_app_screenshot')
+
 export function runAgenticLoop(
   sessionId: string,
   userMessage: string,

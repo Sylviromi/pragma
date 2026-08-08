@@ -8,6 +8,7 @@ use std::path::PathBuf;
 use std::sync::RwLock;
 
 #[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct PluginInfo {
     pub id: String,
     pub name: String,

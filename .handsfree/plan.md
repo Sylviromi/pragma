@@ -1,6 +1,6 @@
 # Pragma Plugin System — Implementation Plan (Plan 2)
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use subagent-driven-development or executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use subagent-driven-development or executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Make Pragma extensible with plugins. Plugins live as plain folders in `~/.config/pragma/plugins/<id>/` (or the app's real config dir) with **no build step**: a `manifest.json`, an optional ES-module `component.js` that defines a Web Component, an optional `skill.md`, and an optional `provider.json` that registers OpenAI-compatible providers into the native model picker.
 
@@ -50,7 +50,7 @@ src/
 
 **Files:** `src-tauri/src/plugins/mod.rs`, `src-tauri/src/plugins/manifest.rs`
 
-- [ ] **Step 1: Write test first** — parse full manifest, defaults for missing fields, reject bad JSON.
+- [x] **Step 1: Write test first** — parse full manifest, defaults for missing fields, reject bad JSON.
 
 `src-tauri/src/plugins/manifest.rs`:
 ```rust
@@ -113,15 +113,15 @@ mod tests {
 }
 ```
 
-- [ ] **Step 2: Run** `cd src-tauri && cargo test plugins::manifest::tests` → RED then PASS.
+- [x] **Step 2: Run** `cd src-tauri && cargo test plugins::manifest::tests` → RED then PASS.
 
-- [ ] **Step 3: Commit.**
+- [x] **Step 3: Commit.**
 
 ## Task 2: PluginManager + AppState wiring + commands
 
 **Files:** `src-tauri/src/plugins/mod.rs`, `src-tauri/src/commands/plugins.rs`, `src-tauri/src/lib.rs`
 
-- [ ] **Step 1: PluginManager**
+- [x] **Step 1: PluginManager**
 
 ```rust
 pub struct PluginManager {
@@ -145,23 +145,23 @@ impl PluginManager {
 pub struct PluginInfo { id, name, version, description, enabled, contributes, has_component, has_skill, folder }
 ```
 
-- [ ] **Step 2: Demo plugin bootstrapping** — `ensure_demo_plugin()` writes `demo/` folder (manifest, component.js, skill.md, provider.json) into the plugins dir **only when the dir has no subfolders at all**, so the UI demos itself on first launch. Repo carries the demo plugin sources under `src-tauri/assets/demo-plugin/*` and they are copied via `include_str!`.
+- [x] **Step 2: Demo plugin bootstrapping** — `ensure_demo_plugin()` writes `demo/` folder (manifest, component.js, skill.md, provider.json) into the plugins dir **only when the dir has no subfolders at all**, so the UI demos itself on first launch. Repo carries the demo plugin sources under `src-tauri/assets/demo-plugin/*` and they are copied via `include_str!`.
 
-- [ ] **Step 3: commands/plugins.rs** — `list_plugins`, `set_plugin_enabled(id, enabled)` (persists to `settings.json` `disabled_plugins`, also un/registers provider), `read_plugin_component(id)` → code string, `read_plugin_skill(id)` → markdown, `open_plugin_folder(id)` → `xdg-open`.
+- [x] **Step 3: commands/plugins.rs** — `list_plugins`, `set_plugin_enabled(id, enabled)` (persists to `settings.json` `disabled_plugins`, also un/registers provider), `read_plugin_component(id)` → code string, `read_plugin_skill(id)` → markdown, `open_plugin_folder(id)` → `xdg-open`.
 
-- [ ] **Step 4: lib.rs** — Settings gains `disabled_plugins: Vec<String>` (parsed, default). AppState gains `plugins: plugins::PluginManager`. In setup: create dir, ensure demo, load disabled from settings, build manager with dir, `register_plugin_providers(&registry, &plugins)`.
+- [x] **Step 4: lib.rs** — Settings gains `disabled_plugins: Vec<String>` (parsed, default). AppState gains `plugins: plugins::PluginManager`. In setup: create dir, ensure demo, load disabled from settings, build manager with dir, `register_plugin_providers(&registry, &plugins)`.
 
-- [ ] **Step 5: providers/mod.rs** — add `unregister(&self, id)` and `upsert_models(&self, id, models)`.
+- [x] **Step 5: providers/mod.rs** — add `unregister(&self, id)` and `upsert_models(&self, id, models)`.
 
-- [ ] **Step 6: Verify** `cargo check` + `cargo test`, run app, confirm `~/.config/pragma/plugins/demo/` created.
+- [x] **Step 6: Verify** `cargo check` + `cargo test`, run app, confirm `~/.config/pragma/plugins/demo/` created.
 
-- [ ] **Step 7: Commit.**
+- [x] **Step 7: Commit.**
 
 ## Task 3: Plugin provider registration (provider.json)
 
 **Files:** `src-tauri/src/plugins/provider.rs`, `src-tauri/src/plugins/mod.rs`
 
-- [ ] **Step 1: provider.rs**
+- [x] **Step 1: provider.rs**
 
 ```rust
 pub struct ProviderDef {
@@ -175,38 +175,38 @@ pub struct ProviderDef {
 ```
 Parsing of `provider.json` inside plugin folder; validation that `contributes.providers` includes the def id.
 
-- [ ] **Step 2: `register_plugin_providers(registry, manager)`** — for each enabled plugin with provider.json, build `OpenAICompatProvider` with `ProviderSource::Plugin { plugin_id }` and `registry.register`. If `discover: true` → spawn a tokio task that GETs `{base}/models` with bearer api-key from settings (best-effort; 5s timeout; upsert models, ignore failures).
+- [x] **Step 2: `register_plugin_providers(registry, manager)`** — for each enabled plugin with provider.json, build `OpenAICompatProvider` with `ProviderSource::Plugin { plugin_id }` and `registry.register`. If `discover: true` → spawn a tokio task that GETs `{base}/models` with bearer api-key from settings (best-effort; 5s timeout; upsert models, ignore failures).
 
-- [ ] **Step 3: tests** — parse valid/invalid provider.json; verify registration produces correct ProviderInfo (`source == Plugin`) and that unregister removes it.
+- [x] **Step 3: tests** — parse valid/invalid provider.json; verify registration produces correct ProviderInfo (`source == Plugin`) and that unregister removes it.
 
-- [ ] **Step 4: Verify** — launch app; demo provider "demo" shows in picker with `· plugin` group. Manual: `curl http://localhost:4000/v1/models` sanity.
+- [x] **Step 4: Verify** — launch app; demo provider "demo" shows in picker with `· plugin` group. Manual: `curl http://localhost:4000/v1/models` sanity.
 
-- [ ] **Step 5: Commit.**
+- [x] **Step 5: Commit.**
 
 ## Task 4: File watcher + hot reload
 
 **Files:** `src-tauri/src/plugins/watcher.rs`, `src-tauri/src/lib.rs`
 
-- [ ] **Step 1: watcher.rs** — `pub fn spawn_plugin_watcher(app: AppHandle, plugins_dir: PathBuf, on_changed: Box<dyn Fn() + Send + 'static>)`; std-thread poll loop:
+- [x] **Step 1: watcher.rs** — `pub fn spawn_plugin_watcher(app: AppHandle, plugins_dir: PathBuf, on_changed: Box<dyn Fn() + Send + 'static>)`; std-thread poll loop:
   - `notify::RecommendedWatcher` on the dir (recursive), `debounce 350ms`;
   - on event → callback (the real work happens on the Tauri main event loop via a spawned task to avoid blocking):
     - (re)load all enabled plugin providers (unregisterAllPlugin then register)
     - settings write-back not needed
     - `app.emit("plugin:reload", PluginReloadPayload { version: now_ts })`.
 
-- [ ] **Step 2: lib.rs wiring** — after setup registers plugins, spawn watcher if plugins dir exists; pass a callback that uses `app_handle.state` to access registry+plugins and rebind.
+- [x] **Step 2: lib.rs wiring** — after setup registers plugins, spawn watcher if plugins dir exists; pass a callback that uses `app_handle.state` to access registry+plugins and rebind.
 
-- [ ] **Step 3: tests** — watcher itself untested (filesystem+thread), but `register_plugin_providers` idempotency + unregister tested in Task 3; rebind test: register demo provider, `unregister`, `register` again → registry still coherent. Verify app output: edit `demo/component.js` while app runs → toast "reloaded: demo" (frontend part in Task 6).
+- [x] **Step 3: tests** — watcher itself untested (filesystem+thread), but `register_plugin_providers` idempotency + unregister tested in Task 3; rebind test: register demo provider, `unregister`, `register` again → registry still coherent. Verify app output: edit `demo/component.js` while app runs → toast "reloaded: demo" (frontend part in Task 6).
 
-- [ ] **Step 4: Commit.**
+- [x] **Step 4: Commit.**
 
 ## Task 5: Frontend — IPC + plugins store + PluginSlot
 
 **Files:** `src/lib/tauri.ts`, `src/stores/plugins.svelte.ts`, `src/components/PluginSlot.svelte`, `src/components/SlotStack.svelte`
 
-- [ ] **Step 1: tauri.ts** — `listPlugins()`, `setPluginEnabled(id, enabled)`, `readPluginComponent(id)`, `readPluginSkill(id)`, `openPluginFolder(id)`.
+- [x] **Step 1: tauri.ts** — `listPlugins()`, `setPluginEnabled(id, enabled)`, `readPluginComponent(id)`, `readPluginSkill(id)`, `openPluginFolder(id)`.
 
-- [ ] **Step 2: stores/plugins.svelte.ts**
+- [x] **Step 2: stores/plugins.svelte.ts**
 
 ```ts
 import { listen } from '@tauri-apps/api/event'
@@ -217,7 +217,7 @@ export function bumpPlugin(id: string)   // cacheKey[id] = Date.now()
 export async function initPluginEvents() // listen('plugin:reload') → bump('*')
 ```
 
-- [ ] **Step 3: PluginSlot.svelte** — props `{ pluginId, slot, context?, taint = '0s' }`. Effect:
+- [x] **Step 3: PluginSlot.svelte** — props `{ pluginId, slot, context?, taint = '0s' }`. Effect:
   1. if no plugin / no component → shows up empty.
   2. `const code = await readPluginComponent(pluginId)` (once per (id, taint); cache in module map)
   3. `const blobUrl = URL.createObjectURL(new Blob([code], { type: 'text/javascript' }))`
@@ -225,48 +225,48 @@ export async function initPluginEvents() // listen('plugin:reload') → bump('*'
   5. registry: `customElements.define('pragma-plugin-<sanitized-id>', mod.default)`
   6. create element, set attrs `data-slot` + `data-context="json"`, append to bound host div; cleanup on destroy/re-taint: remove child, revoke URL.
 
-- [ ] **Step 4: SlotStack.svelte** — `let { slot, context }`, `$derived(apps = plugins.list.filter(p => p.hasComponent && p.enabled && p.contributes.slots.includes(slot)))`, renders `<PluginSlot>` per app in its own inline wrapper; empty → `slot="mask"` nothing & parent `:empty` hide.
+- [x] **Step 4: SlotStack.svelte** — `let { slot, context }`, `$derived(apps = plugins.list.filter(p => p.hasComponent && p.enabled && p.contributes.slots.includes(slot)))`, renders `<PluginSlot>` per app in its own inline wrapper; empty → `slot="mask"` nothing & parent `:empty` hide.
 
-- [ ] **Step 5: tests** — `stores/plugins.svelte.ts` logic test (filter/hasComponent) with vitest; slot mount test skipped (needs webview IPC).
+- [x] **Step 5: tests** — `stores/plugins.svelte.ts` logic test (filter/hasComponent) with vitest; slot mount test skipped (needs webview IPC).
 
-- [ ] **Step 6: Commit.**
+- [x] **Step 6: Commit.**
 
 ## Task 6: Wire slots into UI + Toast
 
 **Files:** `src/components/StatusBar.svelte`, `src/components/InputArea.svelte`, `src/components/ModelPicker.svelte`, `src/routes/settings/+layout.svelte`, `src/components/Toast.svelte`, `src/stores/toast.svelte.ts`, `src/routes/+layout.svelte`
 
-- [ ] **Step 1: toast store+component** — `toast.svelte.ts` exposes `push(msg)`, holds list; `Toast.svelte` renders fixed bottom-right stack, auto-dismiss 3s, aria-live polite.
+- [x] **Step 1: toast store+component** — `toast.svelte.ts` exposes `push(msg)`, holds list; `Toast.svelte` renders fixed bottom-right stack, auto-dismiss 3s, aria-live polite.
 
-- [ ] **Step 2: StatusBar** → render `<SlotStack slot="chat-toolbar-extra" context={sessionId}>` inside the container; keep `:empty` hide.
+- [x] **Step 2: StatusBar** → render `<SlotStack slot="chat-toolbar-extra" context={sessionId}>` inside the container; keep `:empty` hide.
 
-- [ ] **Step 3: InputArea** → `<SlotStack slot="input-toolbar" />` between the divider and the hint buttons.
+- [x] **Step 3: InputArea** → `<SlotStack slot="input-toolbar" />` between the divider and the hint buttons.
 
-- [ ] **Step 4: ModelPicker** → `<SlotStack slot="model-picker-extra" />` at the bottom of the dropdown.
+- [x] **Step 4: ModelPicker** → `<SlotStack slot="model-picker-extra" />` at the bottom of the dropdown.
 
-- [ ] **Step 5: settings nav** → after core items, a `PLUGINS` divider listing each enabled plugin with `settings` slot entries; simplest: render enabled plugins that declare `slots.includes("settings-screens")` as nav rows linking to `/settings/plugins/<id>` (simple param route in plugins page with `?p=` query). Also `initPlugins()` called on app start; `plugin:reload` toast "reloaded: <id>".
+- [x] **Step 5: settings nav** → after core items, a `PLUGINS` divider listing each enabled plugin with `settings` slot entries; simplest: render enabled plugins that declare `slots.includes("settings-screens")` as nav rows linking to `/settings/plugins/<id>` (simple param route in plugins page with `?p=` query). Also `initPlugins()` called on app start; `plugin:reload` toast "reloaded: <id>".
 
-- [ ] **Step 6: Verify visually** — demo plugin status bar visible (phase + progress), clicking demo "turbo" button toggles text; editing `component.js` in `~/.config/pragma/plugins/demo/` shows toast + update within ~1s. Screenshot.
+- [x] **Step 6: Verify visually** — demo plugin status bar visible (phase + progress), clicking demo "turbo" button toggles text; editing `component.js` in `~/.config/pragma/plugins/demo/` shows toast + update within ~1s. Screenshot.
 
-- [ ] **Step 7: Commit.**
+- [x] **Step 7: Commit.**
 
 ## Task 7: Settings → Plugins management screen
 
 **Files:** `src/routes/settings/plugins/+page.svelte` (replace placeholder), `src-tauri/src/commands/plugins.rs` (open folder already)
 
-- [ ] **Step 1: Card list** — for each `plugins.list`: name/version/description, chips for contributed providers/slots/skills, toggle button (Switch) → `setPluginEnabled` + `loadPlugins()`; "Open Folder" button; reload button per plugin. Empty state when list empty.
-- [ ] **Step 2: Styling** — existing tokens; grid of cards; toggle reuses the `.toggle` pattern from Settings/General.
-- [ ] **Step 3: Verify** — disable demo plugin hides its slots everywhere (status bar empty, picker group gone); re-enable brings back; refresh persists.
-- [ ] **Step 4: Commit.**
+- [x] **Step 1: Card list** — for each `plugins.list`: name/version/description, chips for contributed providers/slots/skills, toggle button (Switch) → `setPluginEnabled` + `loadPlugins()`; "Open Folder" button; reload button per plugin. Empty state when list empty.
+- [x] **Step 2: Styling** — existing tokens; grid of cards; toggle reuses the `.toggle` pattern from Settings/General.
+- [x] **Step 3: Verify** — disable demo plugin hides its slots everywhere (status bar empty, picker group gone); re-enable brings back; refresh persists.
+- [x] **Step 4: Commit.**
 
 ## Task 8: Skills injection
 
 **Files:** `src-tauri/src/commands/providers.rs` (run_agentic_loop), `src-tauri/src/plugins/mod.rs`
 
-- [ ] **Step 1: `collect_skill_markdown(manager) -> String`** — concatenates `skill.md` of all enabled plugins with `# <id>` headers prefixed.
-- [ ] **Step 2: Agentic loop** — before building history, load skills once per run; if any, prepend a `system` message containing them (only first run per loop; not re-appended on tool-round trips).
-- [ ] **Step 3: list_skills command** — for the `@ skills` popover (frontend uses it, plus plugin skill count on card).
-- [ ] **Step 4: tests** — skills formatting unit test; loop-prepend via a small unit test on a pure helper.
-- [ ] **Step 5: Commit.**
+- [x] **Step 1: `collect_skill_markdown(manager) -> String`** — concatenates `skill.md` of all enabled plugins with `# <id>` headers prefixed.
+- [x] **Step 2: Agentic loop** — before building history, load skills once per run; if any, prepend a `system` message containing them (only first run per loop; not re-appended on tool-round trips).
+- [x] **Step 3: list_skills command** — for the `@ skills` popover (frontend uses it, plus plugin skill count on card).
+- [x] **Step 4: tests** — skills formatting unit test; loop-prepend via a small unit test on a pure helper.
+- [x] **Step 5: Commit.**
 
 ## Test commands
 

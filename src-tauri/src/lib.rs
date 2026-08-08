@@ -7,6 +7,7 @@ mod db;
 mod commands;
 mod plugins;
 mod providers;
+mod screenshot;
 mod tools;
 
 #[derive(Default)]
@@ -63,10 +64,12 @@ pub fn run() {
                 plugins: plugin_manager,
             });
 
-            // Hot-reload watcher: rebind providers + tell the frontend to re-import.
+            // Hot-reload watcher: rebind providers + tell the frontend to re-scan.
             let app_handle = app.handle().clone();
+            let watched_plugins_dir = plugins_dir.clone();
             plugins::watcher::spawn_plugin_watcher(&plugins_dir, move || {
                 let handle = app_handle.clone();
+                let plugin_watch = watched_plugins_dir.clone();
                 std::thread::spawn(move || {
                     let state = handle.state::<AppState>();
                     let api_keys = state.settings.read().unwrap().api_keys.clone();
@@ -76,6 +79,18 @@ pub fn run() {
                         "plugin:reload",
                         serde_json::json!({ "version": chrono::Utc::now().timestamp_millis() }),
                     );
+
+                    // Dev convenience: dropping a file named ".shot" inside the
+                    // plugins dir makes the app capture its own window to the
+                    // app-data screenshots folder, then deletes the marker.
+                    let marker = plugin_watch.join(".shot");
+                    if marker.exists() {
+                        let _ = std::fs::remove_file(&marker);
+                        match screenshot::capture_core(&handle) {
+                            Ok(path) => eprintln!("[shot] saved {path}"),
+                            Err(e) => eprintln!("[shot] failed: {e}"),
+                        }
+                    }
                 });
             });
 
@@ -100,6 +115,7 @@ pub fn run() {
             commands::plugins::read_plugin_component,
             commands::plugins::read_plugin_skill,
             commands::plugins::open_plugin_folder,
+            screenshot::capture_app_screenshot,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

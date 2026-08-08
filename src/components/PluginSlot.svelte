@@ -3,6 +3,7 @@
   import { cacheKeyFor } from '../stores/plugins.svelte'
 
   let { pluginId, slot, context = '' }: { pluginId: string; slot: string; context?: string } = $props()
+  import { pushToast } from '../stores/toast.svelte'
 
   let host = $state<HTMLElement | null>(null)
 
@@ -30,7 +31,9 @@
           const code = await readPluginComponent(pluginId)
           codeCache.set(pluginId, { code, version: key })
         } catch (err) {
-          console.warn('[plugin] cannot load component for', pluginId, err)
+          const msg = `[${pluginId}] cannot read component: ${err}`
+          console.warn(msg)
+          pushToast(msg, 'error')
           return
         }
       }
@@ -47,7 +50,9 @@
             const mod = await import(/* @vite-ignore */ blobUrl)
             const Ctor = (mod as { default?: typeof HTMLElement }).default
             if (typeof Ctor !== 'function') {
-              console.warn('[plugin]', pluginId, 'component.js must export a class (default export)')
+              const msg = `[${pluginId}] component.js must export a class`
+              console.warn(msg)
+              pushToast(msg, 'error')
               return
             }
             customElements.define(name, Ctor)
