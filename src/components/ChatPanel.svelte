@@ -2,7 +2,6 @@
   import { onMount } from 'svelte'
   import MessageList from './MessageList.svelte'
   import InputArea from './InputArea.svelte'
-  import StatusBar from './StatusBar.svelte'
   import { loadMessages } from '../stores/chat.svelte'
 
   let { sessionId }: { sessionId: string } = $props()
@@ -11,7 +10,6 @@
 </script>
 
 <div class="panel">
-  <StatusBar {sessionId} />
   <MessageList {sessionId} />
   <InputArea {sessionId} />
 </div>

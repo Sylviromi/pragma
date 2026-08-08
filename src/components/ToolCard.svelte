@@ -95,6 +95,8 @@
     font-family: var(--font-mono);
     font-size: var(--font-size-xs);
     margin: var(--spacing-1) 0;
+    max-width: 70%;
+    align-self: flex-start;
   }
   .tool-card.waiting {
     border-color: color-mix(in srgb, var(--color-accent-warning, #d29922) 40%, transparent);

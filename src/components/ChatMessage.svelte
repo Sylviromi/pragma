@@ -83,6 +83,7 @@
 
   .bubble {
     max-width: 70%;
+    overflow-wrap: anywhere;
     border-radius: var(--radius-lg);
     padding: var(--spacing-2) var(--spacing-3);
     font-size: var(--font-size-md);
@@ -125,6 +126,7 @@
   .text-block {
     margin: 0;
     max-width: 70%;
+    align-self: flex-start;
     background: var(--color-bg-elevated);
     border-radius: var(--radius-sm) var(--radius-lg) var(--radius-lg) var(--radius-lg);
     padding: var(--spacing-2) var(--spacing-3);
@@ -134,7 +136,7 @@
     line-height: 1.6;
   }
 
-  p { margin: 0; color: var(--color-text-primary); white-space: pre-wrap; }
+  p { margin: 0; color: var(--color-text-primary); white-space: pre-wrap; overflow-wrap: anywhere; }
 
   .meta {
     font-size: var(--font-size-xs);

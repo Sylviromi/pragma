@@ -94,11 +94,9 @@
     <div class="live-turn">
       <div class="avatar" aria-hidden="true">✦</div>
       <div class="live-body">
-        {#each liveBlocks as block, i}
+        {#each liveBlocks as block}
           {#if block.type === 'text'}
-            <p class="live-text">
-              {block.text}{#if running && i === liveBlocks.length - 1}<span class="cursor" aria-hidden="true">▋</span>{/if}
-            </p>
+            <p class="live-text">{block.text}</p>
           {:else if block.type === 'tool'}
             {@const tool = toolItems.find(t => t.toolUseId === block.toolUseId)}
             {#if tool}
@@ -106,6 +104,13 @@
             {/if}
           {/if}
         {/each}
+        {#if running}
+          <div class="thinking-tail" aria-label="Generating">
+            <span class="dot"></span>
+            <span class="dot"></span>
+            <span class="dot"></span>
+          </div>
+        {/if}
       </div>
     </div>
   {/if}
@@ -161,6 +166,7 @@
     gap: 5px;
     padding: var(--spacing-2) var(--spacing-3);
     min-height: 36px;
+    max-width: 70%;
   }
   .dot {
     width: 6px;
@@ -176,6 +182,18 @@
     30% { transform: translateY(-5px); opacity: 1; }
   }
 
+  /* Compact dots shown inside the live turn while the model is still generating */
+  .thinking-tail {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: var(--spacing-1) 0;
+  }
+  .thinking-tail .dot {
+    width: 5px;
+    height: 5px;
+  }
+
   .live-body {
     flex: 1;
     min-width: 0;
@@ -187,6 +205,8 @@
   .live-text {
     margin: 0;
     max-width: 70%;
+    align-self: flex-start;
+    overflow-wrap: anywhere;
     background: var(--color-bg-elevated);
     border-radius: var(--radius-sm) var(--radius-lg) var(--radius-lg) var(--radius-lg);
     padding: var(--spacing-2) var(--spacing-3);
