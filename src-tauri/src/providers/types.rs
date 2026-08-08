@@ -38,8 +38,11 @@ pub struct ToolDefinition {
 pub struct ModelInfo {
     pub id: String,
     pub name: String,
+    #[serde(default)]
     pub context_window: Option<u32>,
+    #[serde(default)]
     pub is_free: bool,
+    #[serde(default)]
     pub is_vision: bool,
 }
 

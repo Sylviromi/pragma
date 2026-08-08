@@ -1,6 +1,26 @@
 import { invoke as tauriInvoke, Channel } from '@tauri-apps/api/core'
 import type { Session, Message, ProviderInfo, AgentEvent } from './types'
 
+// Contributes as serialized by Rust (all camelCase)
+export interface PluginContributes {
+  providers: string[]
+  slots: string[]
+  commands: string[]
+  skills: string[]
+}
+
+export interface PluginInfo {
+  id: string
+  name: string
+  version: string
+  description: string
+  enabled: boolean
+  contributes: PluginContributes
+  hasComponent: boolean
+  hasSkill: boolean
+  folder: string
+}
+
 export const invoke = tauriInvoke
 
 export const listSessions = () => tauriInvoke<Session[]>('list_sessions')
@@ -18,6 +38,13 @@ export const getApiKeys = () => tauriInvoke<Record<string, string>>('get_api_key
 
 export const approveTool = (toolUseId: string) => tauriInvoke<void>('approve_tool', { toolUseId })
 export const denyTool = (toolUseId: string) => tauriInvoke<void>('deny_tool', { toolUseId })
+
+export const listPlugins = () => tauriInvoke<PluginInfo[]>('list_plugins')
+export const setPluginEnabled = (id: string, enabled: boolean) =>
+  tauriInvoke<void>('set_plugin_enabled', { id, enabled })
+export const readPluginComponent = (id: string) => tauriInvoke<string>('read_plugin_component', { id })
+export const readPluginSkill = (id: string) => tauriInvoke<string>('read_plugin_skill', { id })
+export const openPluginFolder = (id: string) => tauriInvoke<void>('open_plugin_folder', { id })
 
 export function runAgenticLoop(
   sessionId: string,

@@ -4,7 +4,9 @@
   import '../styles/high-contrast.css';
   import '../styles/base.css';
   import TabBar from '../components/TabBar.svelte';
+  import Toast from '../components/Toast.svelte';
   import { onMount } from 'svelte';
+  import { loadPlugins, initPluginEvents } from '../stores/plugins.svelte';
 
   let { children } = $props();
 
@@ -12,6 +14,8 @@
 
   // Restore saved theme on startup (plan: restore theme before chat loads)
   onMount(() => {
+    initPluginEvents();
+    loadPlugins();
     const saved = localStorage.getItem('pragma:theme');
     if (saved) theme = saved as 'dark' | 'light' | 'high-contrast';
   });
@@ -22,6 +26,7 @@
 <div id="app">
   <TabBar />
   <main>{@render children()}</main>
+  <Toast />
 </div>
 
 <style>

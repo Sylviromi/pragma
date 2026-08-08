@@ -6,7 +6,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 
 use tauri::ipc::Channel;
-use types::{AgentEvent, ContentBlock, ProviderInfo, ToolDefinition};
+use types::{AgentEvent, ContentBlock, ModelInfo, ProviderInfo, ToolDefinition};
 use anthropic::AnthropicProvider;
 use openai_compat::OpenAICompatProvider;
 
@@ -70,6 +70,24 @@ impl ProviderRegistry {
             .values()
             .map(|p| p.info())
             .collect()
+    }
+
+    /// Remove a provider by id (used when a plugin is disabled or uninstalled).
+    pub fn unregister(&self, id: &str) {
+        self.inner.write().unwrap().remove(id);
+    }
+
+    /// Replace the model list of an existing provider (used by /v1/models discovery).
+    pub fn upsert_models(&self, id: &str, models: Vec<ModelInfo>) {
+        let mut inner = self.inner.write().unwrap();
+        if let Some(handle) = inner.get_mut(id) {
+            match handle {
+                ProviderHandle::OpenAICompat(p) => p.models = models,
+                ProviderHandle::Anthropic(p) => {
+                    let _ = p;
+                }
+            }
+        }
     }
 }
 

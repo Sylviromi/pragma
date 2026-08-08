@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import { loadProviders, providerState } from '../stores/providers.svelte'
+  import SlotStack from './SlotStack.svelte'
 
   let {
     model = $bindable(''),
@@ -104,6 +105,7 @@
           {/each}
         {/each}
       </div>
+      <SlotStack slot="model-picker-extra" />
     </div>
   {/if}
 </div>

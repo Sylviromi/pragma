@@ -1,8 +1,11 @@
 <script lang="ts">
+  import SlotStack from './SlotStack.svelte'
   let { sessionId }: { sessionId: string } = $props()
 </script>
 
-<div class="status-bar" id="slot-chat-toolbar-extra" data-session-id={sessionId}></div>
+<div class="status-bar" data-session-id={sessionId}>
+  <SlotStack slot="chat-toolbar-extra" context={sessionId} />
+</div>
 
 <style>
   .status-bar:empty {

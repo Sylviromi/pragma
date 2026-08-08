@@ -1,6 +1,7 @@
 <script lang="ts">
   import { sendMessage, chat } from '../stores/chat.svelte'
   import ModelPicker from './ModelPicker.svelte'
+  import SlotStack from './SlotStack.svelte'
   import { getSession } from '../stores/sessions.svelte'
   import { updateSession } from '../lib/tauri'
 
@@ -53,6 +54,7 @@
   <div class="footer">
     <ModelPicker bind:model bind:provider />
     <div class="divider" aria-hidden="true"></div>
+    <SlotStack slot="input-toolbar" />
     <label class="auto-approve" title="Auto-approve all tool calls without confirmation">
       <input type="checkbox" bind:checked={autoApprove} aria-label="Auto-approve tools" />
       <span>Auto</span>

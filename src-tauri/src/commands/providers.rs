@@ -20,13 +20,8 @@ pub async fn save_api_key(
     {
         state.settings.write().unwrap().api_keys.insert(provider, key);
     }
-    let settings = state.settings.read().unwrap();
-    let json = serde_json::json!({ "api_keys": settings.api_keys });
-    std::fs::write(
-        &state.settings_path,
-        serde_json::to_string_pretty(&json).unwrap(),
-    )
-    .map_err(|e| e.to_string())
+    crate::save_settings(&state);
+    Ok(())
 }
 
 #[tauri::command]
@@ -69,6 +64,9 @@ pub async fn run_agentic_loop(
         .get(&provider)
         .ok_or_else(|| format!("unknown provider: {provider}"))?;
 
+    // Inject enabled plugins' SKILL.md content as a leading system message.
+    let skills_md = state.plugins.collect_skill_markdown();
+
     // Load existing conversation history from DB
     let db_messages = sqlx::query_as::<_, crate::commands::messages::Message>(
         "SELECT * FROM messages WHERE session_id=? ORDER BY timestamp ASC",
@@ -90,6 +88,10 @@ pub async fn run_agentic_loop(
 
     // Append the new user message
     history.push(serde_json::json!({ "role": "user", "content": user_message }));
+
+    if !skills_md.is_empty() {
+        history.insert(0, serde_json::json!({ "role": "system", "content": skills_md }));
+    }
 
     // Persist user message
     persist_message(
