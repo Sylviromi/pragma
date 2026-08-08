@@ -2,7 +2,7 @@ use super::types::{
     AgentEvent, ContentBlock, ModelInfo, ProviderInfo, ProviderSource, ToolDefinition,
 };
 use futures_util::StreamExt;
-use tauri::ipc::Channel;
+use tauri::Emitter;
 
 #[derive(Clone)]
 pub struct AnthropicProvider;
@@ -46,8 +46,10 @@ impl AnthropicProvider {
         model: &str,
         api_key: &str,
         tools: &[ToolDefinition],
-        channel: &Channel<AgentEvent>,
+        app_handle: &tauri::AppHandle,
+        session_id: &str,
     ) -> Result<Vec<ContentBlock>, String> {
+        let event_name = format!("agent:{session_id}");
         let client = reqwest::Client::new();
 
         // Anthropic requires system content in a top-level "system" field,
@@ -58,10 +60,26 @@ impl AnthropicProvider {
             .filter_map(|m| m["content"].as_str())
             .collect::<Vec<_>>()
             .join("\n\n");
-        let chat_messages: Vec<&serde_json::Value> = messages
+        // Strip thinking blocks from assistant messages — the API rejects requests that contain
+        // thinking blocks in history unless thinking mode is explicitly enabled in the request.
+        let stripped_messages: Vec<serde_json::Value> = messages
             .iter()
             .filter(|m| m["role"].as_str() != Some("system"))
+            .map(|m| {
+                if m["role"].as_str() == Some("assistant") {
+                    if let Some(blocks) = m["content"].as_array() {
+                        let clean: Vec<_> = blocks
+                            .iter()
+                            .filter(|b| b["type"].as_str() != Some("thinking"))
+                            .cloned()
+                            .collect();
+                        return serde_json::json!({ "role": "assistant", "content": clean });
+                    }
+                }
+                m.clone()
+            })
             .collect();
+        let chat_messages: Vec<&serde_json::Value> = stripped_messages.iter().collect();
 
         let mut body = serde_json::json!({
             "model": model,
@@ -93,6 +111,7 @@ impl AnthropicProvider {
             .header("x-api-key", api_key)
             .header("anthropic-version", "2023-06-01")
             .header("content-type", "application/json")
+            .header("accept-encoding", "identity")
             .json(&body)
             .send()
             .await
@@ -100,7 +119,7 @@ impl AnthropicProvider {
 
         if !resp.status().is_success() {
             let msg = resp.text().await.unwrap_or_default();
-            channel.send(AgentEvent::Error { message: msg.clone() }).ok();
+            app_handle.emit(&event_name, AgentEvent::Error { message: msg.clone() }).ok();
             return Err(msg);
         }
 
@@ -109,15 +128,22 @@ impl AnthropicProvider {
         let mut blocks: Vec<ContentBlock> = Vec::new();
         let mut current_text = String::new();
         let mut current_tool: Option<(String, String, String)> = None; // (id, name, input_json)
+        let mut current_thinking: Option<(String, String)> = None; // (thinking, signature)
         let mut stream = resp.bytes_stream();
-        let mut buf = String::new();
+        // Raw byte buffer — avoids corrupting multi-byte UTF-8 chars split across HTTP chunks.
+        let mut buf: Vec<u8> = Vec::new();
 
         'outer: while let Some(chunk) = stream.next().await {
-            let bytes = chunk.map_err(|e| e.to_string())?;
-            buf.push_str(&String::from_utf8_lossy(&bytes));
+            let bytes = match chunk {
+                Ok(b) => b,
+                Err(_) => break 'outer,
+            };
+            buf.extend_from_slice(&bytes);
             loop {
-                let Some(nl) = buf.find('\n') else { break };
-                let line = buf[..nl].trim_end_matches('\r').to_string();
+                let Some(nl) = buf.iter().position(|&b| b == b'\n') else { break };
+                let line_bytes = &buf[..nl];
+                let line_bytes = line_bytes.strip_suffix(b"\r").unwrap_or(line_bytes);
+                let line = String::from_utf8_lossy(line_bytes).into_owned();
                 buf.drain(..=nl);
                 let Some(data) = line.strip_prefix("data: ") else {
                     continue;
@@ -135,6 +161,8 @@ impl AnthropicProvider {
                             let id = ev["content_block"]["id"].as_str().unwrap_or("").to_string();
                             let name = ev["content_block"]["name"].as_str().unwrap_or("").to_string();
                             current_tool = Some((id, name, String::new()));
+                        } else if bt == "thinking" {
+                            current_thinking = Some((String::new(), String::new()));
                         }
                     }
                     "content_block_delta" => {
@@ -142,10 +170,18 @@ impl AnthropicProvider {
                         if dt == "text_delta" {
                             let t = ev["delta"]["text"].as_str().unwrap_or("");
                             current_text.push_str(t);
-                            channel.send(AgentEvent::Token { content: t.to_string() }).ok();
+                            app_handle.emit(&event_name, AgentEvent::Token { content: t.to_string() }).ok();
                         } else if dt == "input_json_delta" {
                             if let Some((_, _, ref mut json_buf)) = current_tool {
                                 json_buf.push_str(ev["delta"]["partial_json"].as_str().unwrap_or(""));
+                            }
+                        } else if dt == "thinking_delta" {
+                            if let Some((ref mut thinking, _)) = current_thinking {
+                                thinking.push_str(ev["delta"]["thinking"].as_str().unwrap_or(""));
+                            }
+                        } else if dt == "signature_delta" {
+                            if let Some((_, ref mut signature)) = current_thinking {
+                                signature.push_str(ev["delta"]["signature"].as_str().unwrap_or(""));
                             }
                         }
                     }
@@ -154,6 +190,8 @@ impl AnthropicProvider {
                             let input: serde_json::Value =
                                 serde_json::from_str(&json_buf).unwrap_or(serde_json::Value::Null);
                             blocks.push(ContentBlock::ToolUse { id, name, input });
+                        } else if let Some((thinking, signature)) = current_thinking.take() {
+                            blocks.push(ContentBlock::Thinking { thinking, signature });
                         } else if !current_text.is_empty() {
                             blocks.push(ContentBlock::Text {
                                 text: std::mem::take(&mut current_text),
@@ -163,6 +201,11 @@ impl AnthropicProvider {
                     _ => {}
                 }
             }
+        }
+
+        // Flush any in-progress text block (stream may have ended without content_block_stop)
+        if !current_text.is_empty() {
+            blocks.push(ContentBlock::Text { text: current_text });
         }
 
         Ok(blocks)

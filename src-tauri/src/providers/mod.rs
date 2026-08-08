@@ -5,8 +5,7 @@ pub mod openai_compat;
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 
-use tauri::ipc::Channel;
-use types::{AgentEvent, ContentBlock, ModelInfo, ProviderInfo, ToolDefinition};
+use types::{ContentBlock, ModelInfo, ProviderInfo, ToolDefinition};
 use anthropic::AnthropicProvider;
 use openai_compat::OpenAICompatProvider;
 
@@ -33,14 +32,15 @@ impl ProviderHandle {
         model: &str,
         api_key: &str,
         tools: &[ToolDefinition],
-        channel: &Channel<AgentEvent>,
+        app_handle: &tauri::AppHandle,
+        session_id: &str,
     ) -> Result<Vec<ContentBlock>, String> {
         match self {
             ProviderHandle::Anthropic(_) => {
-                AnthropicProvider::call(messages, model, api_key, tools, channel).await
+                AnthropicProvider::call(messages, model, api_key, tools, app_handle, session_id).await
             }
             ProviderHandle::OpenAICompat(p) => {
-                p.call(messages, model, api_key, tools, channel).await
+                p.call(messages, model, api_key, tools, app_handle, session_id).await
             }
         }
     }

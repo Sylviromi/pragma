@@ -2,7 +2,7 @@ use super::types::{
     AgentEvent, ContentBlock, ModelInfo, ProviderInfo, ProviderSource, ToolDefinition,
 };
 use futures_util::StreamExt;
-use tauri::ipc::Channel;
+use tauri::Emitter;
 
 #[derive(Clone)]
 pub struct OpenAICompatProvider {
@@ -25,15 +25,16 @@ impl OpenAICompatProvider {
 }
 
 impl OpenAICompatProvider {
-    #[allow(clippy::too_many_arguments)]
     pub async fn call(
         &self,
         messages: &[serde_json::Value],
         model: &str,
         api_key: &str,
         tools: &[ToolDefinition],
-        channel: &Channel<AgentEvent>,
+        app_handle: &tauri::AppHandle,
+        session_id: &str,
     ) -> Result<Vec<ContentBlock>, String> {
+        let event_name = format!("agent:{session_id}");
         let client = reqwest::Client::new();
 
         // Convert history to OpenAI format (handles Anthropic-style tool_use/tool_result blocks)
@@ -62,6 +63,7 @@ impl OpenAICompatProvider {
         let mut req = client
             .post(&url)
             .header("content-type", "application/json")
+            .header("accept-encoding", "identity")
             .json(&body);
         if !api_key.is_empty() {
             req = req.bearer_auth(api_key);
@@ -70,24 +72,30 @@ impl OpenAICompatProvider {
         let resp = req.send().await.map_err(|e| e.to_string())?;
         if !resp.status().is_success() {
             let msg = resp.text().await.unwrap_or_default();
-            channel.send(AgentEvent::Error { message: msg.clone() }).ok();
+            app_handle.emit(&event_name, AgentEvent::Error { message: msg.clone() }).ok();
             return Err(msg);
         }
 
         let mut full_text = String::new();
+        let mut reasoning_buf = String::new();
         // tool_calls by index: (id, name, accumulated_arguments)
         let mut tool_calls: std::collections::BTreeMap<usize, (String, String, String)> =
             std::collections::BTreeMap::new();
 
         let mut stream = resp.bytes_stream();
-        // SSE lines can span multiple HTTP chunks — buffer and process complete lines only.
-        let mut buf = String::new();
+        // Raw byte buffer — avoids corrupting multi-byte UTF-8 chars split across HTTP chunks.
+        let mut buf: Vec<u8> = Vec::new();
         'outer: while let Some(chunk) = stream.next().await {
-            let bytes = chunk.map_err(|e| e.to_string())?;
-            buf.push_str(&String::from_utf8_lossy(&bytes));
+            let bytes = match chunk {
+                Ok(b) => b,
+                Err(_) => break 'outer,
+            };
+            buf.extend_from_slice(&bytes);
             loop {
-                let Some(nl) = buf.find('\n') else { break };
-                let line = buf[..nl].trim_end_matches('\r').to_string();
+                let Some(nl) = buf.iter().position(|&b| b == b'\n') else { break };
+                let line_bytes = &buf[..nl];
+                let line_bytes = line_bytes.strip_suffix(b"\r").unwrap_or(line_bytes);
+                let line = String::from_utf8_lossy(line_bytes).into_owned();
                 buf.drain(..=nl);
                 let Some(data) = line.strip_prefix("data: ") else {
                     continue;
@@ -100,11 +108,18 @@ impl OpenAICompatProvider {
                 };
                 let delta = &ev["choices"][0]["delta"];
 
+                // Reasoning tokens (DeepSeek and compatible models)
+                if let Some(r) = delta["reasoning_content"].as_str() {
+                    if !r.is_empty() {
+                        reasoning_buf.push_str(r);
+                    }
+                }
+
                 // Text tokens
                 if let Some(t) = delta["content"].as_str() {
                     if !t.is_empty() {
                         full_text.push_str(t);
-                        channel.send(AgentEvent::Token { content: t.to_string() }).ok();
+                        app_handle.emit(&event_name, AgentEvent::Token { content: t.to_string() }).ok();
                     }
                 }
 
@@ -130,6 +145,9 @@ impl OpenAICompatProvider {
         }
 
         let mut blocks: Vec<ContentBlock> = Vec::new();
+        if !reasoning_buf.is_empty() {
+            blocks.push(ContentBlock::Reasoning { content: reasoning_buf });
+        }
         if !full_text.is_empty() {
             blocks.push(ContentBlock::Text { text: full_text });
         }
@@ -153,7 +171,12 @@ fn to_openai_messages(messages: &[serde_json::Value]) -> Vec<serde_json::Value> 
         match role {
             "assistant" => {
                 if let Some(blocks) = content.as_array() {
-                    // Anthropic content-block array — split into text + tool_calls
+                    // Content-block array — split into reasoning + text + tool_calls
+                    let reasoning: String = blocks.iter()
+                        .filter(|b| b["type"] == "reasoning")
+                        .filter_map(|b| b["content"].as_str())
+                        .collect::<Vec<_>>()
+                        .join("");
                     let text: String = blocks.iter()
                         .filter(|b| b["type"] == "text")
                         .filter_map(|b| b["text"].as_str())
@@ -170,15 +193,19 @@ fn to_openai_messages(messages: &[serde_json::Value]) -> Vec<serde_json::Value> 
                             }
                         }))
                         .collect();
-                    if tcs.is_empty() {
-                        out.push(serde_json::json!({ "role": "assistant", "content": text }));
+                    let mut m = if tcs.is_empty() {
+                        serde_json::json!({ "role": "assistant", "content": text })
                     } else {
-                        out.push(serde_json::json!({
+                        serde_json::json!({
                             "role": "assistant",
                             "content": if text.is_empty() { serde_json::Value::Null } else { serde_json::Value::String(text) },
                             "tool_calls": tcs,
-                        }));
+                        })
+                    };
+                    if !reasoning.is_empty() {
+                        m["reasoning_content"] = serde_json::Value::String(reasoning);
                     }
+                    out.push(m);
                 } else {
                     out.push(msg.clone());
                 }
@@ -204,6 +231,31 @@ fn to_openai_messages(messages: &[serde_json::Value]) -> Vec<serde_json::Value> 
             _ => out.push(msg.clone()),
         }
     }
+    // Sanitize: remove orphaned tool_calls sequences (e.g., session crashed mid-loop).
+    // If an assistant message has N tool_calls but fewer than N role:tool messages follow it,
+    // truncate from that assistant message onwards.
+    let mut i = 0;
+    while i < out.len() {
+        if out[i]["role"].as_str() == Some("assistant") {
+            if let Some(tcs) = out[i]["tool_calls"].as_array() {
+                let n_calls = tcs.len();
+                if n_calls > 0 {
+                    let mut j = i + 1;
+                    while j < out.len() && out[j]["role"].as_str() == Some("tool") {
+                        j += 1;
+                    }
+                    if (j - i - 1) < n_calls {
+                        out.truncate(i);
+                        break;
+                    }
+                    i = j;
+                    continue;
+                }
+            }
+        }
+        i += 1;
+    }
+
     out
 }
 
