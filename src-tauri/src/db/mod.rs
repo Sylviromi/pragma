@@ -15,6 +15,19 @@ pub async fn run_migrations(pool: &SqlitePool) -> Result<(), sqlx::Error> {
     sqlx::query(include_str!("migrations/002_active_loops.sql"))
         .execute(pool)
         .await?;
+    sqlx::query(include_str!("migrations/003_file_snapshots.sql"))
+        .execute(pool)
+        .await?;
+    // 004 adds a column (SQLite can't ALTER IF NOT EXISTS) — guard manually.
+    let has_heartbeat: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM pragma_table_info('active_loops') WHERE name='heartbeat_at'")
+            .fetch_one(pool)
+            .await?;
+    if has_heartbeat == 0 {
+        sqlx::query(include_str!("migrations/004_active_loops_heartbeat.sql"))
+            .execute(pool)
+            .await?;
+    }
     Ok(())
 }
 

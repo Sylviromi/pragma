@@ -26,13 +26,26 @@ pub struct AppState {
     pub pending_approvals: Arc<tokio::sync::Mutex<HashMap<String, tokio::sync::oneshot::Sender<bool>>>>,
     // session IDs with an active agentic loop — used by frontend to reconnect after HMR
     pub running_sessions: Arc<tokio::sync::Mutex<std::collections::HashSet<String>>>,
+    // one-shot cancel signal per session — interrupt_session() flips it; the
+    // agentic loop selects on it while waiting on the provider / approvals
+    pub loop_cancels: Arc<tokio::sync::Mutex<HashMap<String, tokio::sync::watch::Sender<bool>>>>,
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_notification::init())
         .setup(|app| {
+            // Wayland compositors (Hyprland, Sway, …) draw their own window
+            // frame, so the GTK client-side header bar should not render there.
+            // X11 / GNOME keep the normal decorations.
+            if is_wayland_session() {
+                if let Some(win) = app.get_webview_window("main") {
+                    let _ = win.set_decorations(false);
+                }
+            }
+
             let config_dir = app.path().app_config_dir().expect("no config dir");
             std::fs::create_dir_all(&config_dir).ok();
             let plugins_dir = config_dir.join("plugins");
@@ -41,6 +54,24 @@ pub fn run() {
             let db_path = format!("sqlite:{}", config_dir.join("sessions.db").display());
             let rt = tokio::runtime::Runtime::new().unwrap();
             let pool = rt.block_on(db::init_db(&db_path)).expect("db init failed");
+
+            // Sweep stale cross-process loop locks (rows whose owning process
+            // died) so a fresh instance never inherits a phantom "already
+            // running" state for a session.
+            rt.block_on(async {
+                let stale: Vec<String> = sqlx::query_scalar("SELECT session_id FROM active_loops")
+                    .fetch_all(&pool)
+                    .await
+                    .unwrap_or_default();
+                for sid in stale {
+                    if commands::providers::loop_row_is_stale(&pool, &sid).await.unwrap_or(false) {
+                        let _ = sqlx::query("DELETE FROM active_loops WHERE session_id=?")
+                            .bind(&sid)
+                            .execute(&pool)
+                            .await;
+                    }
+                }
+            });
 
             let settings_path = config_dir.join("settings.json");
             let settings = load_settings(&settings_path);
@@ -65,6 +96,7 @@ pub fn run() {
                 settings_path,
                 pending_approvals: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
                 running_sessions: Arc::new(tokio::sync::Mutex::new(std::collections::HashSet::new())),
+                loop_cancels: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
                 plugins: plugin_manager,
             });
 
@@ -111,9 +143,12 @@ pub fn run() {
             commands::providers::list_providers,
             commands::providers::run_agentic_loop,
             commands::providers::get_running_sessions,
+            commands::providers::interrupt_session,
             commands::tools::approve_tool,
             commands::tools::deny_tool,
             commands::tools::get_pending_approvals,
+            commands::revert::revert_session,
+            commands::revert::get_revert_info,
             commands::providers::save_api_key,
             commands::providers::get_api_keys,
             commands::plugins::list_plugins,
@@ -173,4 +208,45 @@ fn load_settings(path: &std::path::Path) -> Settings {
             })
         })
         .unwrap_or_default()
+}
+
+/// True when running under a Wayland compositor (Hyprland, Sway, KWin wayland,
+/// …) rather than X11 — used to suppress the GTK client-side window header.
+#[cfg(target_os = "linux")]
+fn is_wayland_session() -> bool {
+    detects_wayland(
+        std::env::var("XDG_SESSION_TYPE").ok(),
+        std::env::var("WAYLAND_DISPLAY").ok(),
+    )
+}
+
+#[cfg(not(target_os = "linux"))]
+fn is_wayland_session() -> bool {
+    false
+}
+
+/// Pure detector so it's unit-testable without touching process env.
+fn detects_wayland(xdg_session_type: Option<String>, wayland_display: Option<String>) -> bool {
+    xdg_session_type
+        .map(|v| v.eq_ignore_ascii_case("wayland"))
+        .unwrap_or(false)
+        || wayland_display.map(|s| !s.is_empty()).unwrap_or(false)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn wayland_detection() {
+        // XDG_SESSION_TYPE=wayland (Hyprland/Sway) → no decorations
+        assert!(detects_wayland(Some("wayland".into()), None));
+        assert!(detects_wayland(Some("WAYLAND".into()), Some("wayland-0".into())));
+        // WAYLAND_DISPLAY set (some sessions only set the socket)
+        assert!(detects_wayland(None, Some("wayland-1".into())));
+        // X11 / GNOME on Xorg → keep decorations
+        assert!(!detects_wayland(Some("x11".into()), None));
+        assert!(!detects_wayland(Some("tty".into()), None));
+        assert!(!detects_wayland(None, None));
+    }
 }

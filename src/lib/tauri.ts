@@ -1,6 +1,6 @@
 import { invoke as tauriInvoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
-import type { Session, Message, ProviderInfo, AgentEvent } from './types'
+import type { Session, Message, ProviderInfo, AgentEvent, RevertInfo, RevertSummary } from './types'
 
 // Contributes as serialized by Rust (all camelCase)
 export interface PluginContributes {
@@ -56,6 +56,15 @@ export const killProcess = (pid: number) => tauriInvoke<void>('kill_process', { 
 export const probePort = (port: number) => tauriInvoke<boolean>('probe_port', { port })
 
 export const getRunningSessionIds = () => tauriInvoke<string[]>('get_running_sessions')
+
+export const interruptSession = (sessionId: string) =>
+  tauriInvoke<void>('interrupt_session', { sessionId })
+
+export const getRevertInfo = (sessionId: string, toMessageId: string) =>
+  tauriInvoke<RevertInfo>('get_revert_info', { sessionId, toMessageId })
+
+export const revertSession = (sessionId: string, toMessageId: string, revertFiles: boolean) =>
+  tauriInvoke<RevertSummary>('revert_session', { sessionId, toMessageId, revertFiles })
 
 /** Subscribe to agent events for a session via Tauri's global event bus.
  *  Returns an unlisten function. Survives frontend HMR reloads. */

@@ -1,6 +1,8 @@
 <script lang="ts">
   import { sendMessage, chat } from '../stores/chat.svelte'
+  import { stopTurn } from '../stores/chat.svelte'
   import ModelPicker from './ModelPicker.svelte'
+  import Icon from './Icon.svelte'
   import DirChip from './DirChip.svelte'
   import SlotStack from './SlotStack.svelte'
   import { getSession } from '../stores/sessions.svelte'
@@ -10,30 +12,48 @@
   let { sessionId }: { sessionId: string } = $props()
 
   let text = $state('')
-  let model = $state('claude-sonnet-4-6')
-  let provider = $state('anthropic')
-  let autoApprove = $state(false)
+  let model = $state('')
+  let provider = $state('')
+  // Becomes true once the session's stored model/provider have been loaded,
+  // so we never persist transient defaults (mount / HMR resets) over the real
+  // selection.
+  let hydrated = $state(false)
 
   const session = $derived(getSession(sessionId))
   const running = $derived(chat.running[sessionId] ?? false)
 
-  // Initialise model/provider from persisted session on mount
+  // Initialise model/provider from persisted session once it's available
   $effect(() => {
     const s = getSession(sessionId)
-    if (s?.model) model = s.model
-    if (s?.provider) provider = s.provider
+    if (!s) return
+    if (s.model && model !== s.model) model = s.model
+    if (s.provider && provider !== s.provider) provider = s.provider
+    hydrated = true
   })
 
-  // Persist model/provider whenever they change
+  // Persist model/provider when they change — but only after hydration and only
+  // when they actually differ from what's stored. This prevents the mount-time
+  // default selection (or an HMR reset) from clobbering a session's plugin
+  // provider, model, or working directory.
   $effect(() => {
-    updateSession(sessionId, model, provider, session?.workingDir ?? '').catch(() => {})
+    const s = getSession(sessionId)
+    if (!hydrated || !s) return
+    if (model === s.model && provider === s.provider) return
+    updateSession(sessionId, model, provider, s.workingDir ?? '').catch(() => {})
   })
 
   async function submit() {
     const content = text.trim()
     if (!content || running) return
     text = ''
-    await sendMessage(sessionId, content, model, provider, session?.workingDir ?? '', autoApprove)
+    await sendMessage(
+      sessionId,
+      content,
+      model,
+      provider,
+      session?.workingDir ?? '',
+      chat.autoApprove[sessionId] ?? false
+    )
   }
 
   function onKeydown(e: KeyboardEvent) {
@@ -42,6 +62,18 @@
       submit()
     }
   }
+
+  // Esc interrupts the running turn wherever the focus is.
+  $effect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && (chat.running[sessionId] ?? false)) {
+        e.preventDefault()
+        stopTurn(sessionId)
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  })
 
   async function shoot() {
     try {
@@ -79,12 +111,17 @@
     <div class="divider" aria-hidden="true"></div>
     <SlotStack slot="input-toolbar" />
     <SlotStack slot="chat-toolbar-extra" context={sessionId} />
-    <label class="auto-approve" title="Auto-approve all tool calls without confirmation">
-      <input type="checkbox" bind:checked={autoApprove} aria-label="Auto-approve tools" />
-      <span>Auto</span>
-    </label>
     <div class="footer-right">
-      <button class="hint-btn" type="button" title="Screenshot this app window (Ctrl+Shift+S)" onclick={shoot}>📷</button>
+      {#if running}
+        <button
+          class="hint-btn stop-btn"
+          type="button"
+          title="Stop the response (Esc)"
+          onclick={() => stopTurn(sessionId)}
+          aria-label="Stop generating"
+        ><Icon name="stop" size={15} /> Stop</button>
+      {/if}
+      <button class="hint-btn" type="button" title="Screenshot this app window (Ctrl+Shift+S)" onclick={shoot}><Icon name="camera" size={16} /></button>
       <button class="hint-btn" type="button">@ skills</button>
       <button class="hint-btn" type="button">/ cmds</button>
       <button
@@ -139,14 +176,6 @@
     height: 18px;
     background: var(--color-border-default);
   }
-  .auto-approve {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    font-size: var(--font-size-xs);
-    color: var(--color-text-muted);
-    cursor: pointer;
-  }
   .footer-right {
     margin-left: auto;
     display: flex;
@@ -154,6 +183,9 @@
     gap: var(--spacing-2);
   }
   .hint-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
     background: transparent;
     border: none;
     color: var(--color-text-muted);
@@ -177,5 +209,12 @@
   .send-btn:disabled {
     opacity: 0.5;
     cursor: not-allowed;
+  }
+  .stop-btn {
+    color: var(--color-accent-error, #f85149);
+    border: 1px solid color-mix(in srgb, var(--color-accent-error, #f85149) 40%, transparent);
+  }
+  .stop-btn:hover {
+    background: color-mix(in srgb, var(--color-accent-error, #f85149) 10%, transparent);
   }
 </style>

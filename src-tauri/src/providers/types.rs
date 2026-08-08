@@ -74,6 +74,10 @@ pub struct ProviderInfo {
 #[serde(tag = "event", rename_all = "snake_case")]
 pub enum AgentEvent {
     Token { content: String },
+    /// Streaming reasoning/thinking tokens (DeepSeek `reasoning_content`,
+    /// Anthropic `thinking_delta`) — surfaced live in the UI so the user can
+    /// see the model thinking, like other harnesses.
+    Reasoning { content: String },
     #[serde(rename_all = "camelCase")]
     ToolCall {
         run_id: String,
@@ -89,6 +93,8 @@ pub enum AgentEvent {
     },
     Done,
     Error { message: String },
+    /// User pressed Esc / Stop — the loop ended before the turn completed.
+    Interrupted,
     #[serde(rename_all = "camelCase")]
     WorkingDirChanged { new_path: String },
 }

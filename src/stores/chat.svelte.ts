@@ -5,11 +5,14 @@ import {
   getPendingApprovals,
   listMessages as fetchMessages,
   approveTool as apiApprove,
-  denyTool as apiDeny
+  denyTool as apiDeny,
+  interruptSession,
+  revertSession
 } from '../lib/tauri'
-import type { AgentEvent, Message } from '../lib/types'
+import type { AgentEvent, Message, RevertSummary } from '../lib/types'
 import { sessions } from './sessions.svelte'
-
+import { notifyOS } from '../lib/notify'
+import { pushToast } from './toast.svelte'
 // Unlisten functions keyed by sessionId — outlive component HMR reloads.
 const _listeners = new Map<string, () => void>()
 
@@ -20,6 +23,7 @@ function saveLiveState(sessionId: string) {
   try {
     sessionStorage.setItem(`pragma:live:${sessionId}`, JSON.stringify({
       liveBlocks:   chat.liveBlocks[sessionId]   ?? [],
+      liveReasoning: chat.liveReasoning[sessionId] ?? '',
       toolItems:    chat.toolItems[sessionId]     ?? [],
       autoApprove:  chat.autoApprove[sessionId]  ?? false,
       alwaysApprove: [...(chat.alwaysApprove[sessionId] ?? new Set())],
@@ -33,6 +37,7 @@ function restoreLiveState(sessionId: string) {
     if (!raw) return
     const s = JSON.parse(raw)
     chat.liveBlocks[sessionId]  = s.liveBlocks ?? []
+    chat.liveReasoning[sessionId] = s.liveReasoning ?? ''
     chat.toolItems[sessionId]   = s.toolItems  ?? []
     chat.autoApprove[sessionId] = s.autoApprove ?? false
     if (Array.isArray(s.alwaysApprove)) {
@@ -81,12 +86,47 @@ export const chat = $state({
   messages:       {} as Record<string, Message[]>,
   streamingToken: {} as Record<string, string | null>,
   liveBlocks:     {} as Record<string, LiveBlock[]>,
+  /** Streaming reasoning/thinking text for the in-progress turn (DeepSeek
+   *  reasoning_content, Anthropic thinking_delta). Surfaced like other harnesses. */
+  liveReasoning:  {} as Record<string, string>,
   toolItems:      {} as Record<string, ToolItem[]>,
   running:        {} as Record<string, boolean>,
   error:          {} as Record<string, string | null>,
+  /** Neutral notice (e.g. "Turn interrupted by user") — rendered like error, less alarming. */
+  notice:         {} as Record<string, string | null>,
   alwaysApprove:  {} as Record<string, Set<string>>,
   autoApprove:    {} as Record<string, boolean>,
 })
+
+export type AgentState = 'idle' | 'working' | 'waiting' | 'error'
+
+/** Aggregate agent state for a session — shown in the top bar.
+ *  `waiting` (a tool paused on an approval question) outranks `working`,
+ *  a terminal error lingers as `error` until the next turn starts. */
+export function agentState(sessionId: string): AgentState {
+  if ((chat.toolItems[sessionId] ?? []).some((t) => t.status === 'waiting')) return 'waiting'
+  if (chat.running[sessionId]) return 'working'
+  if (chat.error[sessionId]) return 'error'
+  return 'idle'
+}
+
+/** Turn-completion notifications: in-app toast + native OS notification.
+ *  notifyOS stays quiet while the window is focused, so the toast covers the
+ *  case where the app is open but you're on another tab. */
+function notifyTurn(sessionId: string, kind: 'done' | 'error' | 'waiting', detail?: string) {
+  const name = sessions.list.find((s) => s.id === sessionId)?.name ?? 'Session'
+  const trimmed = detail ? (detail.length > 200 ? detail.slice(0, 197) + '…' : detail) : ''
+  if (kind === 'error') {
+    pushToast(`Error — ${name}: ${trimmed}`, 'error')
+    notifyOS('Pragma — error', `${name}: ${trimmed}`, true)
+  } else if (kind === 'waiting') {
+    pushToast(`${name} — needs approval: ${trimmed || 'a tool is waiting for review'}`, 'info')
+    notifyOS('Pragma — needs approval', `${name}: ${trimmed || 'a tool is waiting for review'}`)
+  } else {
+    pushToast(`Done — ${name}`, 'success')
+    notifyOS('Pragma — done', `${name} finished its turn.`)
+  }
+}
 
 /** Re-attach to any agentic loops that are still running on the Rust side.
  *  Call this on app startup / after HMR reloads. */
@@ -121,7 +161,12 @@ export async function reconnectRunningSessions() {
 }
 
 function handleEvent(sessionId: string, ev: AgentEvent) {
-  if (ev.event === 'token') {
+  if (ev.event === 'reasoning') {
+    // Streaming reasoning/thinking tokens — shown live in an expandable card.
+    chat.liveReasoning[sessionId] = (chat.liveReasoning[sessionId] ?? '') + ev.content
+    saveLiveState(sessionId)
+
+  } else if (ev.event === 'token') {
     chat.streamingToken[sessionId] = (chat.streamingToken[sessionId] ?? '') + ev.content
 
     const blocks = chat.liveBlocks[sessionId] ?? []
@@ -173,16 +218,28 @@ function handleEvent(sessionId: string, ev: AgentEvent) {
       s.id === sessionId ? { ...s, workingDir: ev.newPath } : s
     )
 
+  } else if (ev.event === 'interrupted') {
+    chat.notice[sessionId] = 'Turn interrupted by user.'
+    chat.running[sessionId] = false
+    chat.streamingToken[sessionId] = null
+    // Keep the streamed reasoning visible so the interrupted turn doesn't
+    // vanish — it is cleared at the start of the next sendMessage.
+    _listeners.get(sessionId)?.()
+    _listeners.delete(sessionId)
+    loadMessages(sessionId)
+
   } else if (ev.event === 'error') {
     let msg = ev.message
     try {
       const parsed = JSON.parse(msg)
       if (parsed?.error?.message) msg = parsed.error.message
     } catch { /* keep raw */ }
+    if (!msg) msg = 'Model request failed (no error details provided).'
     chat.error[sessionId] = msg
     chat.running[sessionId] = false
     chat.streamingToken[sessionId] = null
-    clearLiveState(sessionId)
+    // Keep the streamed reasoning so the thought the user watched doesn't
+    // vanish on failure — cleared at the start of the next sendMessage.
     _listeners.get(sessionId)?.()
     _listeners.delete(sessionId)
     loadMessages(sessionId)
@@ -190,11 +247,24 @@ function handleEvent(sessionId: string, ev: AgentEvent) {
   } else if (ev.event === 'done') {
     chat.running[sessionId] = false
     chat.streamingToken[sessionId] = null
+    chat.liveReasoning[sessionId] = ''
     clearLiveState(sessionId)
     _listeners.get(sessionId)?.()
     _listeners.delete(sessionId)
     loadMessages(sessionId)
   }
+}
+
+/** Cancel a running turn (Esc / Stop button). Called optimistically — the
+ *  backend also fires `interrupted`; first one wins for the UI cleanup. */
+export async function stopTurn(sessionId: string) {
+  if (!(chat.running[sessionId] ?? false)) return
+  try {
+    await interruptSession(sessionId)
+  } catch { /* backend already idle — ignore */ }
+  // The backend emits `interrupted` which finishes the cleanup; but if the
+  // backend was *between* turns, make sure the UI doesn't stay stuck.
+  chat.running[sessionId] = false
 }
 
 export async function loadMessages(sessionId: string) {
@@ -218,8 +288,10 @@ export async function sendMessage(
   chat.running[sessionId] = true
   chat.streamingToken[sessionId] = ''
   chat.liveBlocks[sessionId] = []
+  chat.liveReasoning[sessionId] = ''
   chat.toolItems[sessionId] = []
   chat.error[sessionId] = null
+  chat.notice[sessionId] = null
   clearLiveState(sessionId)
   // Save autoApprove immediately so it survives HMR even before the first event arrives
   saveLiveState(sessionId)
@@ -246,9 +318,21 @@ export async function sendMessage(
   } catch (err) {
     const msg = String(err)
     if (msg.includes('already has an active agentic loop')) {
-      // A loop is still running on the backend (e.g. leftover from before a
-      // frontend HMR reload, or a second app instance). Keep the UI in the
-      // running state so the input stays disabled, drop our optimistic message
+      // Only trust this if the backend actually reports a live loop in memory.
+      // A DB-only lock (crashed instance, stale row) would otherwise leave the
+      // UI spinning forever with the typed message silently dropped.
+      const live = await getRunningSessionIds()
+      if (!live.includes(sessionId)) {
+        chat.running[sessionId] = false
+        chat.streamingToken[sessionId] = null
+        chat.liveReasoning[sessionId] = ''
+        chat.error[sessionId] =
+          'The previous run left a stale lock and was recovered — please send your message again.'
+        loadMessages(sessionId)
+        return
+      }
+      // A loop IS still running (leftover from before an HMR reload, or a
+      // second app instance). Keep the UI running, drop our optimistic message
       // (it was never persisted), and re-attach the listener if we lost it.
       keepRunning = true
       chat.running[sessionId] = true
@@ -257,7 +341,7 @@ export async function sendMessage(
         reconnectRunningSessions()
       }
     } else {
-      chat.error[sessionId] = msg
+      chat.error[sessionId] = msg || 'Model request failed (no error details provided).'
     }
   } finally {
     // Only reset the running flag if this call owned the loop. If we hit the
@@ -265,9 +349,30 @@ export async function sendMessage(
     if (!keepRunning) {
       chat.running[sessionId] = false
       chat.streamingToken[sessionId] = null
+      chat.liveReasoning[sessionId] = ''
       loadMessages(sessionId)
     }
   }
+}
+
+/** Delete messages after (and possibly restore files touched by) a message. */
+export async function revertToMessage(
+  sessionId: string,
+  toMessageId: string,
+  revertFiles: boolean
+): Promise<RevertSummary> {
+  const summary = await revertSession(sessionId, toMessageId, revertFiles)
+  // Reset transient UI state and reload the shortened conversation.
+  chat.running[sessionId] = false
+  chat.streamingToken[sessionId] = null
+  chat.liveReasoning[sessionId] = ''
+  chat.error[sessionId] = null
+  chat.notice[sessionId] = null
+  chat.liveBlocks[sessionId] = []
+  chat.toolItems[sessionId] = []
+  clearLiveState(sessionId)
+  await loadMessages(sessionId)
+  return summary
 }
 
 export function approveTool(sessionId: string, toolUseId: string) {
