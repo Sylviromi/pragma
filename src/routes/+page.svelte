@@ -1,12 +1,13 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import ChatPanel from '../components/ChatPanel.svelte'
-  import { loadSessions, sessions, openTab } from '../stores/sessions.svelte'
+  import { loadSessions, sessions, restoreTabs } from '../stores/sessions.svelte'
 
   onMount(async () => {
     await loadSessions()
-    const last = localStorage.getItem('pragma:lastTabId')
-    if (last && sessions.list.find((s) => s.id === last)) openTab(last)
+    // Reopen every session tab that was open before the app restarted,
+    // including the previously active one.
+    restoreTabs()
   })
 </script>
 
