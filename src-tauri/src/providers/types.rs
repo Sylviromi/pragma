@@ -50,6 +50,7 @@ pub struct ModelInfo {
 #[serde(rename_all = "snake_case")]
 pub enum ProviderSource {
     Builtin,
+    #[serde(rename_all = "camelCase")]
     Plugin { plugin_id: String },
 }
 
