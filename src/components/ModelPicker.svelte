@@ -2,6 +2,7 @@
   import { onMount } from 'svelte'
   import { loadProviders, providerState } from '../stores/providers.svelte'
   import SlotStack from './SlotStack.svelte'
+  import Icon from './Icon.svelte'
 
   let {
     model = $bindable(''),
@@ -69,7 +70,7 @@
     <span class="dot" aria-hidden="true"></span>
     <span>{current?.name ?? 'Choose model'}</span>
     {#if current}<span class="pname">· {current.pname}</span>{/if}
-    <span aria-hidden="true">▾</span>
+    <span aria-hidden="true"><Icon name="expand_more" size={14} /></span>
   </button>
 
   {#if open}
@@ -100,7 +101,7 @@
               <span class="rname">{m.name}</span>
               {#if m.contextWindow}<span class="rmeta">{(m.contextWindow / 1000).toFixed(0)}k</span>{/if}
               {#if m.isFree}<span class="rmeta free">free</span>{/if}
-              {#if m.id === model && p.id === provider}<span class="check" aria-hidden="true">✓</span>{/if}
+              {#if m.id === model && p.id === provider}<span class="check" aria-hidden="true"><Icon name="check" size={13} /></span>{/if}
             </button>
           {/each}
         {/each}

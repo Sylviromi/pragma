@@ -1,5 +1,6 @@
 <script lang="ts">
   import { approveTool, denyTool, alwaysApproveTool } from '../stores/chat.svelte'
+  import Icon from './Icon.svelte'
   import type { ToolItem } from '../stores/chat.svelte'
 
   let {
@@ -55,13 +56,13 @@
   <div class="header">
     <!-- status icon -->
     {#if tool.status === 'waiting'}
-      <span class="icon warn" aria-hidden="true">⚡</span>
+      <span class="icon warn" aria-hidden="true"><Icon name="bolt" size={13} /></span>
     {:else if tool.status === 'running'}
-      <span class="icon spin" aria-hidden="true">◌</span>
+      <span class="icon spin" aria-hidden="true"><Icon name="sync" size={13} /></span>
     {:else if tool.status === 'done'}
-      <span class="icon ok" aria-hidden="true">✓</span>
+      <span class="icon ok" aria-hidden="true"><Icon name="check" size={13} /></span>
     {:else}
-      <span class="icon err" aria-hidden="true">✗</span>
+      <span class="icon err" aria-hidden="true"><Icon name="close" size={13} /></span>
     {/if}
 
     <span class="name">{tool.name}</span>
@@ -77,7 +78,11 @@
       <span class="muted">running…</span>
     {:else if hasOutput}
       <button class="toggle" onclick={() => outputOpen = !outputOpen} aria-label="Toggle output">
-        {outputOpen ? '▾' : '▸'}
+        {#if outputOpen}
+          <Icon name="expand_more" size={15} />
+        {:else}
+          <Icon name="chevron_right" size={15} />
+        {/if}
       </button>
     {/if}
   </div>
