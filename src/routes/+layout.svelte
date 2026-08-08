@@ -7,6 +7,7 @@
   import Toast from '../components/Toast.svelte';
   import { onMount } from 'svelte';
   import { loadPlugins, initPluginEvents } from '../stores/plugins.svelte';
+  import { reconnectRunningSessions } from '../stores/chat.svelte';
 
   let { children } = $props();
 
@@ -16,6 +17,7 @@
   onMount(() => {
     initPluginEvents();
     loadPlugins();
+    reconnectRunningSessions();
     const saved = localStorage.getItem('pragma:theme');
     if (saved) theme = saved as 'dark' | 'light' | 'high-contrast';
   });
