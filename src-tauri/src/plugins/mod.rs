@@ -115,17 +115,14 @@ impl PluginManager {
         out
     }
 
-    /// Full text of every enabled plugin's skill.md, prefixed with `# <id>`, blank-line separated.
-    pub fn collect_skill_markdown(&self) -> String {
-        let mut parts = Vec::new();
-        for info in self.list().sort_enabled() {
-            if let Ok(md) = self.skill_md(&info.id) {
-                if !md.trim().is_empty() {
-                    parts.push(format!("# Plugin skill: {}\n\n{}", info.id, md.trim()));
-                }
-            }
-        }
-        parts.join("\n\n---\n\n")
+    /// Returns (id, description) for every enabled plugin that has a skill.md.
+    /// Used to build the skill index injected into the system prompt.
+    pub fn skill_index(&self) -> Vec<(String, String)> {
+        self.list()
+            .into_iter()
+            .filter(|p| p.enabled && p.has_skill)
+            .map(|p| (p.id, p.description))
+            .collect()
     }
 
     /// Create the demo plugin folder if the plugins dir has no plugin folders at all.
@@ -166,7 +163,7 @@ impl PluginManager {
     }
 }
 
-/// tiny helper: keep sort by id but enabled first — used by collect_skill_markdown
+/// tiny helper: keep sort by id but enabled first
 trait SortEnabled {
     fn sort_enabled(self) -> Vec<PluginInfo>;
 }
@@ -245,13 +242,14 @@ mod tests {
     }
 
     #[test]
-    fn skills_markdown() {
+    fn skill_index() {
         let (m, _dir) = mk_manager(vec![
-            ("demo/manifest.json", r#"{"id":"demo","name":"Demo","version":"0.1"}"#),
+            ("demo/manifest.json", r#"{"id":"demo","name":"Demo","version":"0.1","description":"A demo skill"}"#),
             ("demo/skill.md", "always be concise"),
         ]);
-        let md = m.collect_skill_markdown();
-        assert!(md.contains("# Plugin skill: demo"));
-        assert!(md.contains("always be concise"));
+        let index = m.skill_index();
+        assert_eq!(index.len(), 1);
+        assert_eq!(index[0].0, "demo");
+        assert_eq!(index[0].1, "A demo skill");
     }
 }
