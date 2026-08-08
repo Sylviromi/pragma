@@ -2,6 +2,7 @@ import {
   runAgenticLoop,
   listenAgentEvents,
   getRunningSessionIds,
+  getPendingApprovals,
   listMessages as fetchMessages,
   approveTool as apiApprove,
   denyTool as apiDeny
@@ -11,6 +12,47 @@ import { sessions } from './sessions.svelte'
 
 // Unlisten functions keyed by sessionId — outlive component HMR reloads.
 const _listeners = new Map<string, () => void>()
+
+// --- sessionStorage persistence for live turn state ---
+// Survives Vite HMR module reloads so in-progress turns aren't wiped.
+
+function saveLiveState(sessionId: string) {
+  try {
+    sessionStorage.setItem(`pragma:live:${sessionId}`, JSON.stringify({
+      liveBlocks:   chat.liveBlocks[sessionId]   ?? [],
+      toolItems:    chat.toolItems[sessionId]     ?? [],
+      autoApprove:  chat.autoApprove[sessionId]  ?? false,
+      alwaysApprove: [...(chat.alwaysApprove[sessionId] ?? new Set())],
+    }))
+  } catch { /* storage quota — ignore */ }
+}
+
+function restoreLiveState(sessionId: string) {
+  try {
+    const raw = sessionStorage.getItem(`pragma:live:${sessionId}`)
+    if (!raw) return
+    const s = JSON.parse(raw)
+    chat.liveBlocks[sessionId]  = s.liveBlocks ?? []
+    chat.toolItems[sessionId]   = s.toolItems  ?? []
+    chat.autoApprove[sessionId] = s.autoApprove ?? false
+    if (Array.isArray(s.alwaysApprove)) {
+      chat.alwaysApprove[sessionId] = new Set(s.alwaysApprove)
+    }
+  } catch { /* corrupt entry — ignore */ }
+}
+
+function clearLiveState(sessionId: string) {
+  sessionStorage.removeItem(`pragma:live:${sessionId}`)
+}
+
+// Clean up all Tauri event listeners before Vite replaces this module.
+// Without this, each HMR cycle adds a new orphaned listener on top of old ones.
+if (import.meta.hot) {
+  import.meta.hot.dispose(() => {
+    for (const [, unlisten] of _listeners) unlisten()
+    _listeners.clear()
+  })
+}
 
 export interface ToolItem {
   toolUseId: string
@@ -50,12 +92,29 @@ export const chat = $state({
  *  Call this on app startup / after HMR reloads. */
 export async function reconnectRunningSessions() {
   const ids = await getRunningSessionIds()
+  if (ids.length === 0) return
+
+  // Fetch which tools are actually still waiting for approval in the backend.
+  // Any tool the frontend thinks is "waiting"/"running" that isn't in this set
+  // was already handled before HMR fired and the result event was missed.
+  const pendingIds = new Set(await getPendingApprovals())
+
   for (const sessionId of ids) {
     if (_listeners.has(sessionId)) continue // already subscribed
-    chat.running[sessionId] = true
+    // Restore live turn state that was saved before HMR reloaded this module
+    restoreLiveState(sessionId)
+    chat.running[sessionId] = true // backend loop is confirmed running — enforce after restore
     chat.streamingToken[sessionId] = chat.streamingToken[sessionId] ?? ''
-    chat.liveBlocks[sessionId] = chat.liveBlocks[sessionId] ?? []
-    chat.toolItems[sessionId] = chat.toolItems[sessionId] ?? []
+    if (!chat.liveBlocks[sessionId]) chat.liveBlocks[sessionId] = []
+    if (!chat.toolItems[sessionId])  chat.toolItems[sessionId]  = []
+    // Reconcile stale tool statuses: tools we think are pending but the backend
+    // already processed should be shown as done (their ToolResult event was lost).
+    chat.toolItems[sessionId] = chat.toolItems[sessionId].map(t => {
+      if ((t.status === 'waiting' || t.status === 'running') && !pendingIds.has(t.toolUseId)) {
+        return { ...t, status: 'done' as const }
+      }
+      return t
+    })
     const unlisten = await listenAgentEvents(sessionId, (ev) => handleEvent(sessionId, ev))
     _listeners.set(sessionId, unlisten)
   }
@@ -75,6 +134,7 @@ function handleEvent(sessionId: string, ev: AgentEvent) {
     } else {
       chat.liveBlocks[sessionId] = [...blocks, { type: 'text', text: ev.content }]
     }
+    saveLiveState(sessionId)
 
   } else if (ev.event === 'tool_call') {
     const alwaysSet = chat.alwaysApprove[sessionId] ?? new Set<string>()
@@ -98,6 +158,7 @@ function handleEvent(sessionId: string, ev: AgentEvent) {
     if (shouldAutoApprove) {
       apiApprove(ev.toolUseId)
     }
+    saveLiveState(sessionId)
 
   } else if (ev.event === 'tool_result') {
     chat.toolItems[sessionId] = (chat.toolItems[sessionId] ?? []).map(t => {
@@ -105,6 +166,7 @@ function handleEvent(sessionId: string, ev: AgentEvent) {
       const status = t.status === 'error' ? 'error' : (ev.isError ? 'error' : 'done')
       return { ...t, output: ev.output, isError: ev.isError, status }
     })
+    saveLiveState(sessionId)
 
   } else if (ev.event === 'working_dir_changed') {
     sessions.list = sessions.list.map(s =>
@@ -120,6 +182,7 @@ function handleEvent(sessionId: string, ev: AgentEvent) {
     chat.error[sessionId] = msg
     chat.running[sessionId] = false
     chat.streamingToken[sessionId] = null
+    clearLiveState(sessionId)
     _listeners.get(sessionId)?.()
     _listeners.delete(sessionId)
     loadMessages(sessionId)
@@ -127,6 +190,7 @@ function handleEvent(sessionId: string, ev: AgentEvent) {
   } else if (ev.event === 'done') {
     chat.running[sessionId] = false
     chat.streamingToken[sessionId] = null
+    clearLiveState(sessionId)
     _listeners.get(sessionId)?.()
     _listeners.delete(sessionId)
     loadMessages(sessionId)
@@ -156,6 +220,9 @@ export async function sendMessage(
   chat.liveBlocks[sessionId] = []
   chat.toolItems[sessionId] = []
   chat.error[sessionId] = null
+  clearLiveState(sessionId)
+  // Save autoApprove immediately so it survives HMR even before the first event arrives
+  saveLiveState(sessionId)
 
   // Show user message immediately — replaced by DB reload on completion
   const optimistic: Message = {
@@ -170,14 +237,36 @@ export async function sendMessage(
   }
   chat.messages[sessionId] = [...(chat.messages[sessionId] ?? []), optimistic]
 
+  // Set when the backend tells us another loop is already running — in that
+  // case the `finally` must leave the running state alone.
+  let keepRunning = false
+
   try {
     await runAgenticLoop(sessionId, content, model, provider, workingDir, autoApprove, (ev) => handleEvent(sessionId, ev))
   } catch (err) {
-    chat.error[sessionId] = String(err)
+    const msg = String(err)
+    if (msg.includes('already has an active agentic loop')) {
+      // A loop is still running on the backend (e.g. leftover from before a
+      // frontend HMR reload, or a second app instance). Keep the UI in the
+      // running state so the input stays disabled, drop our optimistic message
+      // (it was never persisted), and re-attach the listener if we lost it.
+      keepRunning = true
+      chat.running[sessionId] = true
+      chat.messages[sessionId] = (chat.messages[sessionId] ?? []).filter(m => m.id !== optimistic.id)
+      if (!_listeners.has(sessionId)) {
+        reconnectRunningSessions()
+      }
+    } else {
+      chat.error[sessionId] = msg
+    }
   } finally {
-    chat.running[sessionId] = false
-    chat.streamingToken[sessionId] = null
-    loadMessages(sessionId)
+    // Only reset the running flag if this call owned the loop. If we hit the
+    // "already running" branch above, the OTHER loop's events own the state.
+    if (!keepRunning) {
+      chat.running[sessionId] = false
+      chat.streamingToken[sessionId] = null
+      loadMessages(sessionId)
+    }
   }
 }
 
@@ -185,6 +274,7 @@ export function approveTool(sessionId: string, toolUseId: string) {
   chat.toolItems[sessionId] = (chat.toolItems[sessionId] ?? []).map(t =>
     t.toolUseId === toolUseId ? { ...t, status: 'running' as const } : t
   )
+  saveLiveState(sessionId) // persist before HMR can fire during tool execution
   apiApprove(toolUseId)
 }
 
@@ -192,10 +282,12 @@ export function denyTool(sessionId: string, toolUseId: string) {
   chat.toolItems[sessionId] = (chat.toolItems[sessionId] ?? []).map(t =>
     t.toolUseId === toolUseId ? { ...t, status: 'error' as const, output: 'Denied by user.' } : t
   )
+  saveLiveState(sessionId)
   apiDeny(toolUseId)
 }
 
 export function alwaysApproveTool(sessionId: string, toolName: string) {
   const existing = chat.alwaysApprove[sessionId] ?? new Set<string>()
   chat.alwaysApprove[sessionId] = new Set([...existing, toolName])
+  saveLiveState(sessionId)
 }

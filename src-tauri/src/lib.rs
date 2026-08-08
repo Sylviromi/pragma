@@ -113,6 +113,7 @@ pub fn run() {
             commands::providers::get_running_sessions,
             commands::tools::approve_tool,
             commands::tools::deny_tool,
+            commands::tools::get_pending_approvals,
             commands::providers::save_api_key,
             commands::providers::get_api_keys,
             commands::plugins::list_plugins,

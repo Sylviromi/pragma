@@ -39,6 +39,7 @@ export const getApiKeys = () => tauriInvoke<Record<string, string>>('get_api_key
 
 export const approveTool = (toolUseId: string) => tauriInvoke<void>('approve_tool', { toolUseId })
 export const denyTool = (toolUseId: string) => tauriInvoke<void>('deny_tool', { toolUseId })
+export const getPendingApprovals = () => tauriInvoke<string[]>('get_pending_approvals')
 
 export const listPlugins = () => tauriInvoke<PluginInfo[]>('list_plugins')
 export const setPluginEnabled = (id: string, enabled: boolean) =>
