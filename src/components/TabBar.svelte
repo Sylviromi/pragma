@@ -127,12 +127,8 @@
     padding-right: var(--spacing-1);
   }
   .tab.active {
-    border-right-color: transparent;
     background: var(--color-bg-base);
     color: var(--color-text-primary);
-  }
-  .tab.active + .tab {
-    border-left: 1px solid var(--color-border-subtle);
   }
   /* Model-state dot: pulsing while a run is active, visible-but-dull when
      idle, red on error. Sized so it reads on the active tab's darker bg.
