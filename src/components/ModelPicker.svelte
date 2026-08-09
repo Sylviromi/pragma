@@ -13,9 +13,18 @@
   let search = $state('')
   let el = $state<HTMLElement | null>(null)
   let searchInput = $state<HTMLInputElement | null>(null)
+  /* Dropdown is position:fixed so it escapes the footer's overflow clipping
+     (the footer must scroll on narrow windows, which makes it a clipping
+     scroll container — an upward-opening absolute dropdown inside it gets
+     cut off). Anchor it to the chip's on-screen position instead. */
+  let anchor = $state<{ top: number; left: number } | null>(null)
 
   $effect(() => {
-    if (open) searchInput?.focus()
+    if (open) {
+      const r = el?.querySelector('.chip')?.getBoundingClientRect()
+      anchor = r ? { top: r.top - 6, left: r.left } : null
+      searchInput?.focus()
+    }
   })
 
   onMount(async () => {
@@ -74,7 +83,12 @@
   </button>
 
   {#if open}
-    <div class="dropdown" role="listbox">
+    <div
+      class="dropdown"
+      style:top={anchor ? `${anchor.top}px` : 'auto'}
+      style:left={anchor ? `${anchor.left}px` : '0'}
+      role="listbox"
+    >
       <div class="search">
         <input
           type="search"
@@ -151,9 +165,13 @@
     text-overflow: ellipsis;
   }
   .dropdown {
-    position: absolute;
-    bottom: calc(100% + 6px);
+    /* fixed, not absolute: the .footer is a scroll container (overflow-x: auto
+       so the chip row scrolls on narrow windows) and clips everything that
+       overflows it — an absolute dropdown opening upward is cut off entirely. */
+    position: fixed;
+    transform: translateY(-100%);
     left: 0;
+    top: 0;
     width: 280px;
     /* never wider than the window (narrow screens / plugin chips near the edge) */
     max-width: min(280px, calc(100vw - 24px));
