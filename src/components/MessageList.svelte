@@ -180,7 +180,7 @@
     <div class="live-turn">
       <div class="avatar" aria-hidden="true"><Icon name="sparkle" size={13} /></div>
       <div class="live-body">
-        <details class="thought-card" open>
+        <details class="thought-card" class:answered={!running} open={running}>
           <summary>
             <span class="thought-label">Thinking…</span>
             <span class="thought-status">{(liveBlocks.length > 0 ? 'answered — click to expand' : 'streaming')}</span>
@@ -365,6 +365,10 @@
     border-radius: 50%;
     background: var(--color-accent-brand);
     animation: status-pulse 1.4s ease-in-out infinite;
+  }
+  .thought-card.answered .thought-label::before {
+    animation: none;
+    opacity: 0.55;
   }
   .thought-status {
     font-size: var(--font-size-xs);

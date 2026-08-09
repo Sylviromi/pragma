@@ -248,7 +248,8 @@ function handleEvent(sessionId: string, ev: AgentEvent) {
 
   } else if (ev.event === 'done') {
     clearLiveState(sessionId)
-    finishTurn(sessionId)
+    // Keep the streamed reasoning — the live thought card collapses to a chip.
+    finishTurn(sessionId, true)
     loadMessages(sessionId)
   }
 }
@@ -344,8 +345,9 @@ export async function sendMessage(
   } finally {
     // Only reset the running flag if this call owned the loop. If we hit the
     // "already running" branch above, the OTHER loop's events own the state.
+    // Reasoning is preserved so the thought stays visible after the turn ends.
     if (!keepRunning) {
-      finishTurn(sessionId)
+      finishTurn(sessionId, true)
       loadMessages(sessionId)
     }
   }
