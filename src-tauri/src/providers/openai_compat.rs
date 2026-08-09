@@ -1,7 +1,7 @@
+use super::sse;
 use super::types::{
     AgentEvent, ContentBlock, ModelInfo, ProviderInfo, ProviderSource, ToolDefinition,
 };
-use futures_util::StreamExt;
 use tauri::Emitter;
 
 #[derive(Clone)]
@@ -22,9 +22,7 @@ impl OpenAICompatProvider {
             models: self.models.clone(),
         }
     }
-}
 
-impl OpenAICompatProvider {
     pub async fn call(
         &self,
         messages: &[serde_json::Value],
@@ -74,8 +72,7 @@ impl OpenAICompatProvider {
             .send()
             .await
             .map_err(|e| {
-                let msg = format!("Failed to reach {}", self.id);
-                let msg = format!("{msg} at {}: {e}", self.base_url);
+                let msg = format!("Failed to reach {} at {}: {e}", self.id, self.base_url);
                 app_handle.emit(&event_name, AgentEvent::Error { message: msg.clone() }).ok();
                 msg
             })?;
@@ -98,82 +95,53 @@ impl OpenAICompatProvider {
         let mut tool_calls: std::collections::BTreeMap<usize, (String, String, String)> =
             std::collections::BTreeMap::new();
 
-        let mut stream = resp.bytes_stream();
-        // Raw byte buffer — avoids corrupting multi-byte UTF-8 chars split across HTTP chunks.
-        let mut buf: Vec<u8> = Vec::new();
-        // Whether the stream ended cleanly with [DONE]; false means we hit an
+        // Set when the stream ended cleanly with [DONE]; false means we hit an
         // EOF/error mid-stream, in which case the answer may be incomplete.
         let mut saw_done = false;
-        let mut stream_broken = false;
-        'outer: loop {
-            // Idle protection: if the relay stops sending bytes for 60s the
-            // connection is dead — surface it instead of hanging forever.
-            let chunk = tokio::time::timeout(std::time::Duration::from_secs(60), stream.next()).await;
-            let bytes = match chunk {
-                Err(_) => {
-                    stream_broken = true; // no data for 60s
-                    break 'outer;
-                }
-                Ok(None) => break 'outer, // clean EOF — [DONE] handling below
-                Ok(Some(Err(_))) => {
-                    stream_broken = true;
-                    break 'outer;
-                }
-                Ok(Some(Ok(b))) => b,
+        let mut stream = sse::SseStream::new(resp);
+        while let Some(data) = stream.next_data().await {
+            if data.trim() == "[DONE]" {
+                saw_done = true;
+                break;
+            }
+            let Ok(ev) = serde_json::from_str::<serde_json::Value>(&data) else {
+                continue;
             };
-            buf.extend_from_slice(&bytes);
-            loop {
-                let Some(nl) = buf.iter().position(|&b| b == b'\n') else { break };
-                let line_bytes = &buf[..nl];
-                let line_bytes = line_bytes.strip_suffix(b"\r").unwrap_or(line_bytes);
-                let line = String::from_utf8_lossy(line_bytes).into_owned();
-                buf.drain(..=nl);
-                let Some(data) = line.strip_prefix("data: ") else {
-                    continue;
-                };
-                if data.trim() == "[DONE]" {
-                    saw_done = true;
-                    break 'outer;
-                }
-                let Ok(ev) = serde_json::from_str::<serde_json::Value>(data) else {
-                    continue;
-                };
-                let delta = &ev["choices"][0]["delta"];
+            let delta = &ev["choices"][0]["delta"];
 
-                // Reasoning tokens (DeepSeek and compatible models)
-                if let Some(r) = delta["reasoning_content"].as_str() {
-                    if !r.is_empty() {
-                        reasoning_buf.push_str(r);
-                        app_handle
-                            .emit(&event_name, AgentEvent::Reasoning { content: r.to_string() })
-                            .ok();
+            // Reasoning tokens (DeepSeek and compatible models)
+            if let Some(r) = delta["reasoning_content"].as_str() {
+                if !r.is_empty() {
+                    reasoning_buf.push_str(r);
+                    app_handle
+                        .emit(&event_name, AgentEvent::Reasoning { content: r.to_string() })
+                        .ok();
+                }
+            }
+
+            // Text tokens
+            if let Some(t) = delta["content"].as_str() {
+                if !t.is_empty() {
+                    full_text.push_str(t);
+                    app_handle.emit(&event_name, AgentEvent::Token { content: t.to_string() }).ok();
+                }
+            }
+
+            // Tool call deltas
+            if let Some(tcs) = delta["tool_calls"].as_array() {
+                for tc in tcs {
+                    let idx = tc["index"].as_u64().unwrap_or(0) as usize;
+                    let entry = tool_calls.entry(idx).or_insert_with(|| {
+                        (String::new(), String::new(), String::new())
+                    });
+                    if let Some(id) = tc["id"].as_str() {
+                        entry.0 = id.to_string();
                     }
-                }
-
-                // Text tokens
-                if let Some(t) = delta["content"].as_str() {
-                    if !t.is_empty() {
-                        full_text.push_str(t);
-                        app_handle.emit(&event_name, AgentEvent::Token { content: t.to_string() }).ok();
+                    if let Some(name) = tc["function"]["name"].as_str() {
+                        entry.1 = name.to_string();
                     }
-                }
-
-                // Tool call deltas
-                if let Some(tcs) = delta["tool_calls"].as_array() {
-                    for tc in tcs {
-                        let idx = tc["index"].as_u64().unwrap_or(0) as usize;
-                        let entry = tool_calls.entry(idx).or_insert_with(|| {
-                            (String::new(), String::new(), String::new())
-                        });
-                        if let Some(id) = tc["id"].as_str() {
-                            entry.0 = id.to_string();
-                        }
-                        if let Some(name) = tc["function"]["name"].as_str() {
-                            entry.1 = name.to_string();
-                        }
-                        if let Some(args) = tc["function"]["arguments"].as_str() {
-                            entry.2.push_str(args);
-                        }
+                    if let Some(args) = tc["function"]["arguments"].as_str() {
+                        entry.2.push_str(args);
                     }
                 }
             }
@@ -191,7 +159,7 @@ impl OpenAICompatProvider {
             blocks.push(ContentBlock::ToolUse { id, name, input });
         }
 
-        let cut_off = stream_broken || !saw_done;
+        let cut_off = stream.broken() || !saw_done;
         if blocks.is_empty() {
             // An empty body that wasn't cut off is still a dead turn — never
             // end the loop with zero content (that looks like the model dying).

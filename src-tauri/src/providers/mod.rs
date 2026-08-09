@@ -2,6 +2,7 @@ pub mod types;
 pub mod anthropic;
 pub mod catalog;
 pub mod openai_compat;
+pub mod sse;
 
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
@@ -38,8 +39,8 @@ impl ProviderHandle {
         session_id: &str,
     ) -> Result<Vec<ContentBlock>, String> {
         match self {
-            ProviderHandle::Anthropic(_) => {
-                AnthropicProvider::call(messages, model, api_key, tools, app_handle, session_id).await
+            ProviderHandle::Anthropic(p) => {
+                p.call(messages, model, api_key, tools, app_handle, session_id).await
             }
             ProviderHandle::OpenAICompat(p) => {
                 p.call(messages, model, api_key, tools, app_handle, session_id).await
@@ -168,6 +169,26 @@ pub async fn fetch_openai_models(base_url: &str, api_key: &str) -> Vec<ModelInfo
     out
 }
 
+/// Run an async closure on a detached thread with its own current-thread
+/// tokio runtime. Used for best-effort model-discovery fetches that must not
+/// block or outlive the main runtime.
+pub fn run_detached<F, Fut>(f: F)
+where
+    F: FnOnce() -> Fut + Send + 'static,
+    Fut: std::future::Future<Output = ()> + Send + 'static,
+{
+    std::thread::spawn(move || {
+        let rt = match tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+        {
+            Ok(rt) => rt,
+            Err(_) => return,
+        };
+        rt.block_on(f());
+    });
+}
+
 /// Detached best-effort `/v1/models` fetch; enriches with catalog knowledge and
 /// upserts the results into the registry, then tells the UI to refresh.
 pub fn spawn_model_discovery(
@@ -179,24 +200,15 @@ pub fn spawn_model_discovery(
     use tauri::Emitter;
     let provider_id = provider_id.to_string();
     let base_url = base_url.to_string();
-    std::thread::spawn(move || {
-        let rt = match tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-        {
-            Ok(rt) => rt,
-            Err(_) => return,
-        };
-        rt.block_on(async move {
-            let models = fetch_openai_models(&base_url, &api_key).await;
-            if models.is_empty() {
-                return;
-            }
-            if let Some(registry) = app.try_state::<crate::AppState>() {
-                registry.registry.upsert_models(&provider_id, models);
-                let _ = app.emit("providers:changed", (provider_id,));
-            }
-        });
+    run_detached(move || async move {
+        let models = fetch_openai_models(&base_url, &api_key).await;
+        if models.is_empty() {
+            return;
+        }
+        if let Some(registry) = app.try_state::<crate::AppState>() {
+            registry.registry.upsert_models(&provider_id, models);
+            let _ = app.emit("providers:changed", (provider_id,));
+        }
     });
 }
 

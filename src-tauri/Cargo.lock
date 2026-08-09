@@ -3041,6 +3041,7 @@ dependencies = [
 name = "pragma"
 version = "0.1.0"
 dependencies = [
+ "bytes",
  "cairo-sys-rs",
  "chrono",
  "diffy",

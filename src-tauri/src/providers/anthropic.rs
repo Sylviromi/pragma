@@ -1,8 +1,9 @@
 use super::catalog;
+use super::run_detached;
+use super::sse;
 use super::types::{
     AgentEvent, ContentBlock, ModelInfo, ProviderInfo, ProviderSource, ToolDefinition,
 };
-use futures_util::StreamExt;
 use tauri::Emitter;
 use tauri::Manager;
 
@@ -56,77 +57,9 @@ impl AnthropicProvider {
             models: self.models.clone(),
         }
     }
-}
 
-/// Fetch the real model list from https://api.anthropic.com/v1/models.
-/// Returns None when there's no key or the request fails;
-/// `Some(Vec::new())` when the response carried no models.
-pub async fn fetch_models(api_key: Option<String>) -> Option<Vec<ModelInfo>> {
-    let Some(key) = api_key else {
-        return None;
-    };
-    if key.trim().is_empty() {
-        return None;
-    }
-    let Ok(resp) = reqwest::Client::new()
-        .get("https://api.anthropic.com/v1/models")
-        .header("x-api-key", &key)
-        .header("anthropic-version", "2023-06-01")
-        .timeout(std::time::Duration::from_secs(6))
-        .send()
-        .await
-    else {
-        return None;
-    };
-    if !resp.status().is_success() {
-        return None;
-    }
-    let Ok(body) = resp.json::<serde_json::Value>().await else {
-        return None;
-    };
-    let Some(arr) = body["data"].as_array() else {
-        return Some(Vec::new());
-    };
-    let models: Vec<ModelInfo> = arr
-        .iter()
-        .filter_map(|m| {
-            let id = m["id"].as_str()?;
-            let name = m["display_name"].as_str().unwrap_or(id).to_string();
-            let ctx = m["context_window"].as_u64().map(|n| n as u32);
-            Some(catalog::enrich(id, name, ctx, Some(true), Some(false)))
-        })
-        .collect();
-    Some(models)
-}
-
-/// Detached best-effort /v1/models fetch; on success replaces the fallback
-/// list and tells the UI. No key means we keep the curated fallback.
-pub fn spawn_discovery(app: tauri::AppHandle, api_key: Option<String>) {
-    std::thread::spawn(move || {
-        let rt = match tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-        {
-            Ok(rt) => rt,
-            Err(_) => return,
-        };
-        rt.block_on(async move {
-            let Some(models) = fetch_models(api_key).await else {
-                return;
-            };
-            if models.is_empty() {
-                return;
-            }
-            if let Some(state) = app.try_state::<crate::AppState>() {
-                state.registry.upsert_models("anthropic", models);
-                let _ = app.emit("providers:changed", ("anthropic",));
-            }
-        });
-    });
-}
-
-impl AnthropicProvider {
     pub async fn call(
+        &self,
         messages: &[serde_json::Value],
         model: &str,
         api_key: &str,
@@ -220,107 +153,78 @@ impl AnthropicProvider {
         }
 
         // Parse SSE stream, collect content blocks.
-        // SSE lines can span multiple HTTP chunks — buffer and process complete lines only.
         let mut blocks: Vec<ContentBlock> = Vec::new();
         let mut current_text = String::new();
         let mut current_tool: Option<(String, String, String)> = None; // (id, name, input_json)
         let mut current_thinking: Option<(String, String)> = None; // (thinking, signature)
-        let mut stream = resp.bytes_stream();
-        // Raw byte buffer — avoids corrupting multi-byte UTF-8 chars split across HTTP chunks.
-        let mut buf: Vec<u8> = Vec::new();
-        // Whether the stream finished cleanly (message_stop seen, no transport errors).
-        let mut saw_stop = false;
-        let mut stream_broken = false;
 
-        'outer: loop {
-            // Idle protection: if no bytes arrive for 60s the connection is
-            // dead — surface it instead of hanging forever.
-            let chunk = tokio::time::timeout(std::time::Duration::from_secs(60), stream.next()).await;
-            let bytes = match chunk {
-                Err(_) => {
-                    stream_broken = true; // no data for 60s
-                    break 'outer;
-                }
-                Ok(None) => break 'outer, // clean EOF — message_stop handling below
-                Ok(Some(Err(_))) => {
-                    stream_broken = true;
-                    break 'outer;
-                }
-                Ok(Some(Ok(b))) => b,
+        // Whether the stream finished cleanly (message_stop/[DONE] seen); false
+        // means an EOF/error mid-stream, in which case the answer may be incomplete.
+        let mut saw_stop = false;
+        let mut stream = sse::SseStream::new(resp);
+        while let Some(data) = stream.next_data().await {
+            if data == "[DONE]" {
+                saw_stop = true;
+                break;
+            }
+            let Ok(ev) = serde_json::from_str::<serde_json::Value>(&data) else {
+                continue;
             };
-            buf.extend_from_slice(&bytes);
-            loop {
-                let Some(nl) = buf.iter().position(|&b| b == b'\n') else { break };
-                let line_bytes = &buf[..nl];
-                let line_bytes = line_bytes.strip_suffix(b"\r").unwrap_or(line_bytes);
-                let line = String::from_utf8_lossy(line_bytes).into_owned();
-                buf.drain(..=nl);
-                let Some(data) = line.strip_prefix("data: ") else {
-                    continue;
-                };
-                if data == "[DONE]" {
-                    saw_stop = true;
-                    break 'outer;
-                }
-                let Ok(ev) = serde_json::from_str::<serde_json::Value>(data) else {
-                    continue;
-                };
-                if ev["type"].as_str() == Some("message_stop") {
-                    saw_stop = true;
-                    break 'outer;
-                }
-                match ev["type"].as_str().unwrap_or("") {
-                    "content_block_start" => {
-                        let bt = ev["content_block"]["type"].as_str().unwrap_or("");
-                        if bt == "tool_use" {
-                            let id = ev["content_block"]["id"].as_str().unwrap_or("").to_string();
-                            let name = ev["content_block"]["name"].as_str().unwrap_or("").to_string();
-                            current_tool = Some((id, name, String::new()));
-                        } else if bt == "thinking" {
-                            current_thinking = Some((String::new(), String::new()));
-                        }
+            if ev["type"].as_str() == Some("message_stop") {
+                saw_stop = true;
+                break;
+            }
+            match ev["type"].as_str().unwrap_or("") {
+                "content_block_start" => {
+                    let bt = ev["content_block"]["type"].as_str().unwrap_or("");
+                    if bt == "tool_use" {
+                        let id = ev["content_block"]["id"].as_str().unwrap_or("").to_string();
+                        let name = ev["content_block"]["name"].as_str().unwrap_or("").to_string();
+                        current_tool = Some((id, name, String::new()));
+                    } else if bt == "thinking" {
+                        current_thinking = Some((String::new(), String::new()));
                     }
-                    "content_block_delta" => {
-                        let dt = ev["delta"]["type"].as_str().unwrap_or("");
-                        if dt == "text_delta" {
-                            let t = ev["delta"]["text"].as_str().unwrap_or("");
-                            current_text.push_str(t);
-                            app_handle.emit(&event_name, AgentEvent::Token { content: t.to_string() }).ok();
-                        } else if dt == "input_json_delta" {
-                            if let Some((_, _, ref mut json_buf)) = current_tool {
-                                json_buf.push_str(ev["delta"]["partial_json"].as_str().unwrap_or(""));
-                            }
-                        } else if dt == "thinking_delta" {
-                            if let Some((ref mut thinking, _)) = current_thinking {
-                                let t = ev["delta"]["thinking"].as_str().unwrap_or("");
-                                thinking.push_str(t);
-                                if !t.is_empty() {
-                                    app_handle
-                                        .emit(&event_name, AgentEvent::Reasoning { content: t.to_string() })
-                                        .ok();
-                                }
-                            }
-                        } else if dt == "signature_delta" {
-                            if let Some((_, ref mut signature)) = current_thinking {
-                                signature.push_str(ev["delta"]["signature"].as_str().unwrap_or(""));
+                }
+                "content_block_delta" => {
+                    let dt = ev["delta"]["type"].as_str().unwrap_or("");
+                    if dt == "text_delta" {
+                        let t = ev["delta"]["text"].as_str().unwrap_or("");
+                        current_text.push_str(t);
+                        app_handle.emit(&event_name, AgentEvent::Token { content: t.to_string() }).ok();
+                    } else if dt == "input_json_delta" {
+                        if let Some((_, _, ref mut json_buf)) = current_tool {
+                            json_buf.push_str(ev["delta"]["partial_json"].as_str().unwrap_or(""));
+                        }
+                    } else if dt == "thinking_delta" {
+                        if let Some((ref mut thinking, _)) = current_thinking {
+                            let t = ev["delta"]["thinking"].as_str().unwrap_or("");
+                            thinking.push_str(t);
+                            if !t.is_empty() {
+                                app_handle
+                                    .emit(&event_name, AgentEvent::Reasoning { content: t.to_string() })
+                                    .ok();
                             }
                         }
-                    }
-                    "content_block_stop" => {
-                        if let Some((id, name, json_buf)) = current_tool.take() {
-                            let input: serde_json::Value =
-                                serde_json::from_str(&json_buf).unwrap_or(serde_json::Value::Null);
-                            blocks.push(ContentBlock::ToolUse { id, name, input });
-                        } else if let Some((thinking, signature)) = current_thinking.take() {
-                            blocks.push(ContentBlock::Thinking { thinking, signature });
-                        } else if !current_text.is_empty() {
-                            blocks.push(ContentBlock::Text {
-                                text: std::mem::take(&mut current_text),
-                            });
+                    } else if dt == "signature_delta" {
+                        if let Some((_, ref mut signature)) = current_thinking {
+                            signature.push_str(ev["delta"]["signature"].as_str().unwrap_or(""));
                         }
                     }
-                    _ => {}
                 }
+                "content_block_stop" => {
+                    if let Some((id, name, json_buf)) = current_tool.take() {
+                        let input: serde_json::Value =
+                            serde_json::from_str(&json_buf).unwrap_or(serde_json::Value::Null);
+                        blocks.push(ContentBlock::ToolUse { id, name, input });
+                    } else if let Some((thinking, signature)) = current_thinking.take() {
+                        blocks.push(ContentBlock::Thinking { thinking, signature });
+                    } else if !current_text.is_empty() {
+                        blocks.push(ContentBlock::Text {
+                            text: std::mem::take(&mut current_text),
+                        });
+                    }
+                }
+                _ => {}
             }
         }
 
@@ -329,7 +233,7 @@ impl AnthropicProvider {
             blocks.push(ContentBlock::Text { text: current_text });
         }
 
-        let cut_off = stream_broken || !saw_stop;
+        let cut_off = stream.broken() || !saw_stop;
         if blocks.is_empty() {
             return Err(if cut_off {
                 "Connection interrupted before any content arrived — the Anthropic service may be down.".into()
@@ -347,4 +251,62 @@ impl AnthropicProvider {
 
         Ok(blocks)
     }
+}
+
+/// Fetch the real model list from https://api.anthropic.com/v1/models.
+/// Returns None when there's no key or the request fails;
+/// `Some(Vec::new())` when the response carried no models.
+pub async fn fetch_models(api_key: Option<String>) -> Option<Vec<ModelInfo>> {
+    let Some(key) = api_key else {
+        return None;
+    };
+    if key.trim().is_empty() {
+        return None;
+    }
+    let Ok(resp) = reqwest::Client::new()
+        .get("https://api.anthropic.com/v1/models")
+        .header("x-api-key", &key)
+        .header("anthropic-version", "2023-06-01")
+        .timeout(std::time::Duration::from_secs(6))
+        .send()
+        .await
+    else {
+        return None;
+    };
+    if !resp.status().is_success() {
+        return None;
+    }
+    let Ok(body) = resp.json::<serde_json::Value>().await else {
+        return None;
+    };
+    let Some(arr) = body["data"].as_array() else {
+        return Some(Vec::new());
+    };
+    let models: Vec<ModelInfo> = arr
+        .iter()
+        .filter_map(|m| {
+            let id = m["id"].as_str()?;
+            let name = m["display_name"].as_str().unwrap_or(id).to_string();
+            let ctx = m["context_window"].as_u64().map(|n| n as u32);
+            Some(catalog::enrich(id, name, ctx, Some(true), Some(false)))
+        })
+        .collect();
+    Some(models)
+}
+
+/// Detached best-effort /v1/models fetch; on success replaces the fallback
+/// list and tells the UI. No key means we keep the curated fallback.
+pub fn spawn_discovery(app: tauri::AppHandle, api_key: Option<String>) {
+    run_detached(move || async move {
+        let Some(models) = fetch_models(api_key).await else {
+            return;
+        };
+        if models.is_empty() {
+            return;
+        }
+        if let Some(state) = app.try_state::<crate::AppState>() {
+            state.registry.upsert_models("anthropic", models);
+            let _ = app.emit("providers:changed", ("anthropic",));
+        }
+    });
 }
