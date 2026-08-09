@@ -64,7 +64,7 @@
         aria-pressed={autoApprove}
       >
         <span class="track" aria-hidden="true"><span class="knob"></span></span>
-        <span>Auto</span>
+        <span class="auto-label">Auto</span>
       </button>
     {/if}
     <a href="/settings/providers" aria-label="Settings" title="Settings">
@@ -252,5 +252,20 @@
   }
   .auto-pill.on .knob {
     left: calc(100% - 13px);
+  }
+
+  /* ── Narrow windows ─────────────────────────────────────────────────── */
+  @media (max-width: 620px) {
+    .logo {
+      display: none; /* the PRAGMA wordmark eats width the tabs need */
+    }
+  }
+  @media (max-width: 480px) {
+    .new-session span {
+      display: none; /* keep the ＋ button, drop the label */
+    }
+    .auto-pill .auto-label {
+      display: none; /* keep the toggle switch, drop the text */
+    }
   }
 </style>

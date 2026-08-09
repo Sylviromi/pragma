@@ -19,6 +19,7 @@
     display: flex;
     flex-direction: column;
     height: 100%;
+    min-height: 0; /* let children shrink instead of overflowing */
     overflow: hidden;
   }
 </style>

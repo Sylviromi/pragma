@@ -145,6 +145,8 @@
     bottom: calc(100% + 6px);
     left: 0;
     width: 280px;
+    /* never wider than the window (narrow screens / plugin chips near the edge) */
+    max-width: min(280px, calc(100vw - 24px));
     background: var(--color-bg-elevated);
     border: 1px solid var(--color-border-default);
     border-radius: var(--radius-lg);
@@ -166,7 +168,8 @@
     font-size: var(--font-size-sm);
   }
   .list {
-    max-height: 300px;
+    max-height: min(300px, 45vh); /* short windows: cap the list so the
+                                     dropdown always fits above the composer */
     overflow-y: auto;
     padding: var(--spacing-1) 0;
   }

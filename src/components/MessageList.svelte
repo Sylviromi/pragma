@@ -278,6 +278,7 @@
 <style>
   .list {
     flex: 1;
+    min-height: 0; /* never push the composer off-window on short screens */
     overflow-y: auto;
     padding: var(--spacing-4) 0;
   }

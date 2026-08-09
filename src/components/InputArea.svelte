@@ -122,8 +122,8 @@
         ><Icon name="stop" size={15} /> Stop</button>
       {/if}
       <button class="hint-btn" type="button" title="Screenshot this app window (Ctrl+Shift+S)" onclick={shoot}><Icon name="camera" size={16} /></button>
-      <button class="hint-btn" type="button">@ skills</button>
-      <button class="hint-btn" type="button">/ cmds</button>
+      <button class="hint-btn hide-narrow" type="button">@ skills</button>
+      <button class="hint-btn hide-narrow" type="button">/ cmds</button>
       <button
         class="send-btn"
         onclick={submit}
@@ -144,6 +144,9 @@
     flex-direction: column;
     gap: var(--spacing-2);
     background: var(--color-bg-base);
+    /* Never collapse below its content: the composer (textarea + Send) must
+       stay visible even when the window is very short. */
+    flex-shrink: 0;
   }
   textarea {
     width: 100%;
@@ -216,5 +219,37 @@
   }
   .stop-btn:hover {
     background: color-mix(in srgb, var(--color-accent-error, #f85149) 10%, transparent);
+  }
+
+  /* ── Narrow windows ─────────────────────────────────────────────────── *
+   * Keep the composer functional when width is tight: drop dead placeholder
+   * buttons and compress spacing so the footer fits without wrapping off-
+   * screen. */
+  @media (max-width: 640px) {
+    .input-area {
+      padding: var(--spacing-2) var(--spacing-3);
+      gap: var(--spacing-1);
+    }
+    .footer {
+      gap: var(--spacing-1);
+      row-gap: var(--spacing-1);
+    }
+    .hide-narrow {
+      display: none;
+    }
+  }
+  @media (max-width: 480px) {
+    textarea {
+      min-height: 36px;
+    }
+    .divider {
+      display: none;
+    }
+    .hint-btn {
+      padding: var(--spacing-1);
+    }
+    .footer-right {
+      gap: var(--spacing-1);
+    }
   }
 </style>
