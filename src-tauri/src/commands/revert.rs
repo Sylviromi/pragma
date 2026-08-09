@@ -212,7 +212,7 @@ pub async fn revert_session(
     if active.is_some() {
         // Only a *live* loop blocks a revert — a stale row from a crashed
         // process is cleared so the rollback can proceed.
-        let stale = crate::commands::providers::loop_row_is_stale(&state.db, &session_id)
+        let stale = crate::commands::agentic::loop_row_is_stale(&state.db, &session_id)
             .await
             .unwrap_or(false);
         if !stale {

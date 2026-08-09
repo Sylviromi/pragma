@@ -64,7 +64,7 @@ pub fn run() {
                     .await
                     .unwrap_or_default();
                 for sid in stale {
-                    if commands::providers::loop_row_is_stale(&pool, &sid).await.unwrap_or(false) {
+                    if commands::agentic::loop_row_is_stale(&pool, &sid).await.unwrap_or(false) {
                         let _ = sqlx::query("DELETE FROM active_loops WHERE session_id=?")
                             .bind(&sid)
                             .execute(&pool)
@@ -146,9 +146,9 @@ pub fn run() {
             commands::messages::add_message,
             commands::messages::list_messages,
             commands::providers::list_providers,
-            commands::providers::run_agentic_loop,
-            commands::providers::get_running_sessions,
-            commands::providers::interrupt_session,
+            commands::agentic::run_agentic_loop,
+            commands::agentic::get_running_sessions,
+            commands::agentic::interrupt_session,
             commands::tools::approve_tool,
             commands::tools::deny_tool,
             commands::tools::get_pending_approvals,

@@ -1,3 +1,4 @@
+pub mod agentic;
 pub mod sessions;
 pub mod messages;
 pub mod providers;
