@@ -30,12 +30,15 @@ pub async fn list_providers(
 pub async fn save_api_key(
     provider: String,
     key: String,
+    app: tauri::AppHandle,
     state: tauri::State<'_, AppState>,
 ) -> Result<(), String> {
     {
-        state.settings.write().unwrap().api_keys.insert(provider, key);
+        state.settings.write().unwrap().api_keys.insert(provider.clone(), key);
     }
     crate::save_settings(&state);
+    // Fetch fresh model lists for this provider now that the key changed.
+    state.registry.trigger_discovery(&provider, &app);
     Ok(())
 }
 

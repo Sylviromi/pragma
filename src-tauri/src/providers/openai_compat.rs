@@ -345,13 +345,10 @@ pub fn deepseek() -> OpenAICompatProvider {
         name: "DeepSeek".into(),
         base_url: "https://api.deepseek.com/v1".into(),
         source: ProviderSource::Builtin,
-        models: vec![ModelInfo {
-            id: "deepseek-chat".into(),
-            name: "DeepSeek V3".into(),
-            context_window: Some(64_000),
-            is_free: false,
-            is_vision: false,
-        }],
+        models: vec![
+            super::catalog::enrich("deepseek-chat", "DeepSeek Chat".into(), None, None, None),
+            super::catalog::enrich("deepseek-reasoner", "DeepSeek Reasoner".into(), None, None, None),
+        ],
     }
 }
 

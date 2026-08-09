@@ -29,6 +29,12 @@
 
   onMount(async () => {
     await loadProviders()
+  })
+
+  // Default to the first available model once providers are known — also fires
+  // when discovery lands *after* mount (new API key saved, /v1/models response
+  // received), so the chip never sits on "Choose model" when choices exist.
+  $effect(() => {
     if (!model && providerState.providers[0]) {
       provider = providerState.providers[0].id
       model = providerState.providers[0].models[0]?.id ?? ''

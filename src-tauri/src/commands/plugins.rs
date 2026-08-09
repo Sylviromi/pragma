@@ -11,6 +11,7 @@ pub async fn list_plugins(
 pub async fn set_plugin_enabled(
     id: String,
     enabled: bool,
+    app: tauri::AppHandle,
     state: tauri::State<'_, AppState>,
 ) -> Result<(), String> {
     state.plugins.set_disabled(&id, !enabled);
@@ -18,7 +19,7 @@ pub async fn set_plugin_enabled(
     // Rebinding all plugin providers keeps register/unregister idempotent.
     let api_keys = state.settings.read().unwrap().api_keys.clone();
     crate::plugins::provider::unregister_plugin_providers(&state.registry, &state.plugins);
-    crate::plugins::provider::register_plugin_providers(&state.registry, &state.plugins, &api_keys);
+    crate::plugins::provider::register_plugin_providers(&state.registry, &state.plugins, &api_keys, &app);
 
     crate::save_settings(&state);
     Ok(())

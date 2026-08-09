@@ -5,7 +5,7 @@ import {
   readPluginSkill as apiReadSkill
 } from '../lib/tauri'
 import type { PluginInfo } from '../lib/tauri'
-import { loadProviders } from './providers.svelte'
+import { loadProviders, initProviderEvents } from './providers.svelte'
 
 export const plugins = $state({
   list: [] as PluginInfo[],
@@ -60,6 +60,9 @@ let initialized = false
 export function initPluginEvents() {
   if (initialized) return
   initialized = true
+  // Model discovery (Anthropic /v1/models, /v1/models of OpenAI-compat
+  // providers) resolves asynchronously — refresh the picker when it lands.
+  initProviderEvents()
   // Backend reload (file watcher) → re-import all plugin components AND refresh
   // the provider/model list. Without the provider refresh the picker keeps
   // showing a stale list after a plugin re-registers (which is what made it

@@ -58,6 +58,7 @@ pub fn register_plugin_providers(
     registry: &ProviderRegistry,
     manager: &PluginManager,
     api_keys: &std::collections::HashMap<String, String>,
+    app: &tauri::AppHandle,
 ) -> usize {
     let mut registered = 0;
     for info in manager.list() {
@@ -95,7 +96,7 @@ pub fn register_plugin_providers(
         // Best-effort model discovery: GET {base_url}/models with a bearer key.
         if def.discover {
             let key = api_keys.get(&def.id).cloned().unwrap_or_default();
-            spawn_model_discovery(&def.id, &def.base_url, key, registry.clone());
+            crate::providers::spawn_model_discovery(&def.id, &def.base_url, key, app.clone());
         }
     }
     registered
@@ -109,61 +110,6 @@ pub fn unregister_plugin_providers(registry: &ProviderRegistry, manager: &Plugin
             registry.unregister(&def.id);
         }
     }
-}
-
-/// Detached best-effort `/v1/models` fetch; upserts results into the registry.
-fn spawn_model_discovery(
-    provider_id: &str,
-    base_url: &str,
-    api_key: String,
-    registry: ProviderRegistry,
-) {
-    let provider_id = provider_id.to_string();
-    let url = format!("{}/models", base_url.trim_end_matches('/'));
-    std::thread::spawn(move || {
-        let rt = match tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-        {
-            Ok(rt) => rt,
-            Err(_) => return,
-        };
-        rt.block_on(async move {
-            let client = reqwest::Client::new();
-            let mut req = client
-                .get(&url)
-                .timeout(std::time::Duration::from_secs(5));
-            if !api_key.is_empty() {
-                req = req.bearer_auth(&api_key);
-            }
-            let Ok(resp) = req.send().await else {
-                return;
-            };
-            if !resp.status().is_success() {
-                return;
-            }
-            let Ok(body) = resp.json::<serde_json::Value>().await else {
-                return;
-            };
-            let models: Vec<ModelInfo> = body["data"]
-                .as_array()
-                .map(|arr| {
-                    arr.iter()
-                        .filter_map(|m| m["id"].as_str().map(|id| ModelInfo {
-                            id: id.to_string(),
-                            name: id.to_string(),
-                            context_window: None,
-                            is_free: false,
-                            is_vision: false,
-                        }))
-                        .collect()
-                })
-                .unwrap_or_default();
-            if !models.is_empty() {
-                registry.upsert_models(&provider_id, models);
-            }
-        });
-    });
 }
 
 #[cfg(test)]

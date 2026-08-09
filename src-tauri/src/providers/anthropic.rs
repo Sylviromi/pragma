@@ -1,11 +1,51 @@
+use super::catalog;
 use super::types::{
     AgentEvent, ContentBlock, ModelInfo, ProviderInfo, ProviderSource, ToolDefinition,
 };
 use futures_util::StreamExt;
 use tauri::Emitter;
+use tauri::Manager;
 
 #[derive(Clone)]
-pub struct AnthropicProvider;
+pub struct AnthropicProvider {
+    pub models: Vec<ModelInfo>,
+}
+
+/// Curated fallback list — real Anthropic API model ids. Shown until (or when)
+/// the live /v1/models fetch succeeds (which needs an API key).
+pub fn fallback_models() -> Vec<ModelInfo> {
+    [
+        "claude-sonnet-4-5-20250929",
+        "claude-opus-4-1-20250805",
+        "claude-haiku-4-5-20251001",
+        "claude-3-7-sonnet-20250219",
+        "claude-3-5-haiku-20241022",
+    ]
+    .into_iter()
+    .map(|id| {
+        let family = id
+            .split('-') // claude-sonnet-4-5-20250929 → [claude, sonnet, 4, 5, 20250929]
+            .nth(1)
+            .map(|w| {
+                let mut c = w.chars();
+                match c.next() {
+                    Some(f) => f.to_uppercase().collect::<String>() + c.as_str(),
+                    None => w.to_string(),
+                }
+            })
+            .unwrap_or_else(|| id.to_string());
+        catalog::enrich(id, format!("Claude {family}"), None, None, None)
+    })
+    .collect()
+}
+
+impl Default for AnthropicProvider {
+    fn default() -> Self {
+        Self {
+            models: fallback_models(),
+        }
+    }
+}
 
 impl AnthropicProvider {
     pub fn info(&self) -> ProviderInfo {
@@ -13,31 +53,76 @@ impl AnthropicProvider {
             id: "anthropic".into(),
             name: "Anthropic".into(),
             source: ProviderSource::Builtin,
-            models: vec![
-                ModelInfo {
-                    id: "claude-sonnet-4-6".into(),
-                    name: "Claude Sonnet 4.6".into(),
-                    context_window: Some(200_000),
-                    is_free: false,
-                    is_vision: true,
-                },
-                ModelInfo {
-                    id: "claude-opus-4-6".into(),
-                    name: "Claude Opus 4.6".into(),
-                    context_window: Some(200_000),
-                    is_free: false,
-                    is_vision: true,
-                },
-                ModelInfo {
-                    id: "claude-haiku-4-5-20251001".into(),
-                    name: "Claude Haiku 4.5".into(),
-                    context_window: Some(200_000),
-                    is_free: false,
-                    is_vision: true,
-                },
-            ],
+            models: self.models.clone(),
         }
     }
+}
+
+/// Fetch the real model list from https://api.anthropic.com/v1/models.
+/// Returns None when there's no key or the request fails;
+/// `Some(Vec::new())` when the response carried no models.
+pub async fn fetch_models(api_key: Option<String>) -> Option<Vec<ModelInfo>> {
+    let Some(key) = api_key else {
+        return None;
+    };
+    if key.trim().is_empty() {
+        return None;
+    }
+    let Ok(resp) = reqwest::Client::new()
+        .get("https://api.anthropic.com/v1/models")
+        .header("x-api-key", &key)
+        .header("anthropic-version", "2023-06-01")
+        .timeout(std::time::Duration::from_secs(6))
+        .send()
+        .await
+    else {
+        return None;
+    };
+    if !resp.status().is_success() {
+        return None;
+    }
+    let Ok(body) = resp.json::<serde_json::Value>().await else {
+        return None;
+    };
+    let Some(arr) = body["data"].as_array() else {
+        return Some(Vec::new());
+    };
+    let models: Vec<ModelInfo> = arr
+        .iter()
+        .filter_map(|m| {
+            let id = m["id"].as_str()?;
+            let name = m["display_name"].as_str().unwrap_or(id).to_string();
+            let ctx = m["context_window"].as_u64().map(|n| n as u32);
+            Some(catalog::enrich(id, name, ctx, Some(true), Some(false)))
+        })
+        .collect();
+    Some(models)
+}
+
+/// Detached best-effort /v1/models fetch; on success replaces the fallback
+/// list and tells the UI. No key means we keep the curated fallback.
+pub fn spawn_discovery(app: tauri::AppHandle, api_key: Option<String>) {
+    std::thread::spawn(move || {
+        let rt = match tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+        {
+            Ok(rt) => rt,
+            Err(_) => return,
+        };
+        rt.block_on(async move {
+            let Some(models) = fetch_models(api_key).await else {
+                return;
+            };
+            if models.is_empty() {
+                return;
+            }
+            if let Some(state) = app.try_state::<crate::AppState>() {
+                state.registry.upsert_models("anthropic", models);
+                let _ = app.emit("providers:changed", ("anthropic",));
+            }
+        });
+    });
 }
 
 impl AnthropicProvider {

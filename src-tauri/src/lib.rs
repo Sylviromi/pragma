@@ -77,7 +77,7 @@ pub fn run() {
             let settings = load_settings(&settings_path);
 
             let registry = providers::ProviderRegistry::default();
-            registry.register(providers::anthropic::AnthropicProvider);
+            registry.register(providers::anthropic::AnthropicProvider::default());
             registry.register(providers::openai_compat::deepseek());
             registry.register(providers::openai_compat::opencode_local());
 
@@ -87,7 +87,7 @@ pub fn run() {
             if wrote_demo {
                 eprintln!("[plugins] wrote demo plugin into {}", plugins_dir.display());
             }
-            plugins::provider::register_plugin_providers(&registry, &plugin_manager, &settings.api_keys);
+            plugins::provider::register_plugin_providers(&registry, &plugin_manager, &settings.api_keys, &app.handle());
 
             app.manage(AppState {
                 db: pool,
@@ -100,6 +100,11 @@ pub fn run() {
                 plugins: plugin_manager,
             });
 
+            // Model discovery for the built-in providers (Anthropic /v1/models,
+            // DeepSeek and local /v1/models). Runs detached; results replace the
+            // static fallbacks and emit providers:changed so the UI refreshes.
+            providers::spawn_builtin_discovery(&app.handle());
+
             // Hot-reload watcher: rebind providers + tell the frontend to re-scan.
             let app_handle = app.handle().clone();
             let watched_plugins_dir = plugins_dir.clone();
@@ -110,7 +115,7 @@ pub fn run() {
                     let state = handle.state::<AppState>();
                     let api_keys = state.settings.read().unwrap().api_keys.clone();
                     plugins::provider::unregister_plugin_providers(&state.registry, &state.plugins);
-                    plugins::provider::register_plugin_providers(&state.registry, &state.plugins, &api_keys);
+                    plugins::provider::register_plugin_providers(&state.registry, &state.plugins, &api_keys, &handle);
                     let _ = handle.emit(
                         "plugin:reload",
                         serde_json::json!({ "version": chrono::Utc::now().timestamp_millis() }),
