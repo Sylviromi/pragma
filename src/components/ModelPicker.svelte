@@ -218,4 +218,15 @@
     color: var(--color-accent-success);
     margin-left: auto;
   }
+
+  /* Narrow: the provider name suffix (· Anthropic) costs ~80px — drop it so
+     the chip stays short enough for one-row footers. */
+  @media (max-width: 940px) {
+    .chip {
+      padding: 3px var(--spacing-1);
+    }
+    .pname {
+      display: none;
+    }
+  }
 </style>

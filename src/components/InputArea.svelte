@@ -222,10 +222,10 @@
   }
 
   /* ── Narrow windows ─────────────────────────────────────────────────── *
-   * Keep the composer functional when width is tight: drop dead placeholder
-   * buttons and compress spacing so the footer fits without wrapping off-
-   * screen. */
-  @media (max-width: 640px) {
+   * Breakpoints sit above the 800px window minimum so the compact styles
+   * actually apply at the smallest allowed size: placeholder buttons and the
+   * divider drop out, spacing tightens. */
+  @media (max-width: 940px) {
     .input-area {
       padding: var(--spacing-2) var(--spacing-3);
       gap: var(--spacing-1);
@@ -235,15 +235,15 @@
       row-gap: var(--spacing-1);
     }
     .hide-narrow {
+      display: none; /* @ skills / / cmds placeholders */
+    }
+    .divider {
       display: none;
     }
   }
   @media (max-width: 480px) {
     textarea {
       min-height: 36px;
-    }
-    .divider {
-      display: none;
     }
     .hint-btn {
       padding: var(--spacing-1);

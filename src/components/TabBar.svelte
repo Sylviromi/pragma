@@ -110,7 +110,7 @@
     display: flex;
     align-items: center;
     gap: var(--spacing-1);
-    padding: 0 var(--spacing-3);
+    padding: 0 var(--spacing-2);
     background: transparent;
     border: none;
     border-top: 2px solid transparent;
@@ -119,6 +119,15 @@
     font-size: var(--font-size-sm);
     white-space: nowrap;
     transition: padding 0.12s;
+    flex-shrink: 0;
+    min-width: 0;
+  }
+  /* Cap name width so long session names can't force the bar wide; the
+     remaining tabs stay reachable via horizontal scroll. */
+  .tab-name {
+    max-width: 130px;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
   /* When the close X is present (hover or active) shrink the right padding
      so the X hugs the edge; otherwise the right gap mirrors the left. */
@@ -187,6 +196,7 @@
     letter-spacing: 0.02em;
     cursor: pointer;
     transition: border-color 0.12s, background 0.12s, color 0.12s;
+    flex-shrink: 0; /* never let the window squeeze New/Settings/Plugins away */
   }
   .new-session:hover {
     border-color: var(--color-accent-brand);
@@ -203,6 +213,7 @@
     align-items: center;
     gap: 2px;
     padding: 0 var(--spacing-2) 0 0;
+    flex-shrink: 0;
   }
   .actions a,
   .actions button {
@@ -255,17 +266,30 @@
   }
 
   /* ── Narrow windows ─────────────────────────────────────────────────── */
-  @media (max-width: 620px) {
+  /* Breakpoints sit above the 800px window minimum so the compact styles
+     actually apply at the smallest allowed size. */
+  @media (max-width: 1040px) {
     .logo {
       display: none; /* the PRAGMA wordmark eats width the tabs need */
     }
+    .tabs {
+      scrollbar-width: thin; /* make extra tabs discoverable */
+    }
   }
-  @media (max-width: 480px) {
+  @media (max-width: 940px) {
+    .auto-label {
+      display: none; /* keep the toggle switch, drop the text */
+    }
+  }
+  @media (max-width: 860px) {
+    .tab-name {
+      max-width: 96px; /* more tabs fit side-by-side */
+    }
+    .tab-state {
+      display: none; /* the status dot costs ~16px per tab */
+    }
     .new-session span {
       display: none; /* keep the ＋ button, drop the label */
-    }
-    .auto-pill .auto-label {
-      display: none; /* keep the toggle switch, drop the text */
     }
   }
 </style>
