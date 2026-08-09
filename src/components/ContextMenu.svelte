@@ -119,7 +119,6 @@
     gap: 2px;
     animation: menu-in 120ms ease-out;
     transform-origin: top left;
-    /* tiny backdrop triangle-like accent under the cursor feels native */
   }
   @keyframes menu-in {
     from { opacity: 0; transform: translateY(-4px) scale(0.97); }

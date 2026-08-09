@@ -157,9 +157,8 @@
     line-height: 1.6;
   }
 
-  /* Stored model reasoning / thinking block — collapsed, subtle */
-  /* Stored model reasoning — a normal bubble but tinted with the brand accent
-     so the internal monologue stands apart from the final answer. */
+  /* Stored model reasoning / thinking — a normal bubble but tinted with the
+     brand accent so the internal monologue stands apart from the final answer. */
   .reasoning-bubble {
     margin: 2px 0 6px;
     width: fit-content;

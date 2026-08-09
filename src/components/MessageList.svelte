@@ -296,12 +296,6 @@
     flex-shrink: 0;
     margin-top: 2px;
   }
-
-  .bubble {
-    background: var(--color-bg-elevated);
-    border-radius: var(--radius-sm) var(--radius-lg) var(--radius-lg) var(--radius-lg);
-    padding: var(--spacing-2) var(--spacing-3);
-  }
   /* Status pill — shown while the model is thinking (no content yet) */
   .status-pill {
     display: inline-flex;

@@ -41,10 +41,8 @@
     hydrated = true
   })
 
-  // Persist model/provider when they change — but only after hydration and only
-  // when they actually differ from what's stored. This prevents the mount-time
-  // default selection (or an HMR reset) from clobbering a session's plugin
-  // provider, model, or working directory.
+  // Persist model/provider when they change — but only after hydration and
+  // only when they actually differ from what's stored.
   $effect(() => {
     const s = getSession(sessionId)
     if (!hydrated || !s) return

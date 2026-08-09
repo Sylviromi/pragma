@@ -22,8 +22,6 @@ export interface PluginInfo {
   folder: string
 }
 
-export const invoke = tauriInvoke
-
 export const listSessions = () => tauriInvoke<Session[]>('list_sessions')
 export const createSession = (name: string) => tauriInvoke<Session>('create_session', { name })
 export const getSession = (id: string) => tauriInvoke<Session>('get_session', { id })
