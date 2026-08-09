@@ -157,6 +157,9 @@
     width: 280px;
     /* never wider than the window (narrow screens / plugin chips near the edge) */
     max-width: min(280px, calc(100vw - 24px));
+    /* opens upward from the composer; cap total height by the space above
+       the chip so even ultra-short windows keep the dropdown on-screen */
+    max-height: min(400px, calc(100vh - 76px));
     background: var(--color-bg-elevated);
     border: 1px solid var(--color-border-default);
     border-radius: var(--radius-lg);
