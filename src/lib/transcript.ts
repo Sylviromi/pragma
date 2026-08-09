@@ -1,5 +1,5 @@
-import { parseContent } from './types'
-import type { ContentBlock, Message } from './types'
+import { hasToolResults, parseContent, textBlocks } from './types'
+import type { Message, ToolResultBlock, ToolUseBlock } from './types'
 
 /**
  * Build a self-describing transcript of the exchange ending at (or containing)
@@ -17,7 +17,7 @@ export function buildAgentTranscript(messages: Message[], toId: string): string 
   let start = idx
   while (start > 0) {
     const c = parseContent(messages[start - 1].content)
-    if (messages[start - 1].role === 'user' && !isToolResultContent(c)) break
+    if (messages[start - 1].role === 'user' && !hasToolResults(c)) break
     start--
   }
   let end = idx + 1
@@ -39,7 +39,7 @@ export function buildAgentTranscript(messages: Message[], toId: string): string 
     if (!Array.isArray(c)) continue
     for (const b of c) {
       if (b.type === 'tool_result') {
-        const r = b as ContentBlock & { type: 'tool_result' }
+        const r = b as ToolResultBlock
         results.set(r.tool_use_id, { content: r.content, is_error: r.is_error ?? false })
       }
     }
@@ -62,9 +62,8 @@ export function buildAgentTranscript(messages: Message[], toId: string): string 
 
     const blocks = Array.isArray(c) ? c : null
     if (blocks) {
-      const texts = blocks
-        .filter((b) => b.type === 'text')
-        .map((b) => (b as any).text as string)
+      const texts = textBlocks(blocks)
+        .map((b) => b.text)
         .filter(Boolean)
       if (texts.length) {
         out.push('<assistant-reply>')
@@ -73,7 +72,7 @@ export function buildAgentTranscript(messages: Message[], toId: string): string 
       }
       for (const b of blocks) {
         if (b.type !== 'tool_use') continue
-        const t = b as any
+        const t = b as ToolUseBlock
         const res = results.get(t.id)
         out.push(`<tool-call name="${t.name}" use-id="${t.id}">`)
         out.push('<input>')
@@ -93,10 +92,6 @@ export function buildAgentTranscript(messages: Message[], toId: string): string 
 
   out.push('</pragma-transcript>')
   return out.join('\n')
-}
-
-function isToolResultContent(c: ReturnType<typeof parseContent>): boolean {
-  return Array.isArray(c) && c.some((b) => b.type === 'tool_result')
 }
 
 // Keep the transcript digestible: elide any string field over 200 chars in a

@@ -1,6 +1,6 @@
 <script lang="ts">
-  import { parseContent } from '../lib/types'
-  import type { Message, ContentBlock } from '../lib/types'
+  import { isToolResultTurn, parseContent, textBlocks } from '../lib/types'
+  import type { ContentBlock, Message, ToolUseBlock } from '../lib/types'
   import ToolCard from './ToolCard.svelte'
   import Icon from './Icon.svelte'
 
@@ -30,15 +30,10 @@
   const userText = $derived(
     typeof content === 'string'
       ? tidy(content)
-      : Array.isArray(content)
-        ? tidy((content as ContentBlock[]).filter(b => b.type === 'text').map(b => (b as any).text).join(''))
-        : ''
+      : tidy(textBlocks(content).map((b) => b.text).join(''))
   )
 
-  const isToolResultMsg = $derived(
-    Array.isArray(content) &&
-    (content as ContentBlock[]).every(b => b.type === 'tool_result')
-  )
+  const isToolResultMsg = $derived(isToolResultTurn(content))
 
   function onMenu(e: MouseEvent) {
     e.preventDefault()
@@ -61,12 +56,14 @@
       <div class="turn-body" oncontextmenu={onMenu}>
         {#if blocks}
           {#each blocks as block}
-            {#if block.type === 'text' && tidy((block as any).text)}
-              <p class="text-block">{tidy((block as any).text)}</p>
-            {:else if (block.type === 'reasoning' || block.type === 'thinking') && tidy((block as any).content ?? (block as any).thinking)}
-              <div class="reasoning-bubble">{tidy((block as any).content ?? (block as any).thinking)}</div>
+            {#if block.type === 'text' && tidy(block.text)}
+              <p class="text-block">{tidy(block.text)}</p>
+            {:else if block.type === 'reasoning' && tidy(block.content)}
+              <div class="reasoning-bubble">{tidy(block.content)}</div>
+            {:else if block.type === 'thinking' && tidy(block.thinking)}
+              <div class="reasoning-bubble">{tidy(block.thinking)}</div>
             {:else if block.type === 'tool_use'}
-              {@const b = block as any}
+              {@const b = block as ToolUseBlock}
               {@const out = toolOutputs[b.id]}
               <ToolCard
                 sessionId={message.sessionId}

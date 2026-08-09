@@ -160,6 +160,18 @@ export async function reconnectRunningSessions() {
   }
 }
 
+/** End a turn's transient state: stop the spinner and detach the event
+ *  listener (if any). `keepReasoning` preserves the streamed thinking text so
+ *  the watched thought stays visible after the turn ends — it is cleared at
+ *  the start of the next sendMessage and by revertToMessage. */
+function finishTurn(sessionId: string, keepReasoning = false) {
+  chat.running[sessionId] = false
+  chat.streamingToken[sessionId] = null
+  if (!keepReasoning) chat.liveReasoning[sessionId] = ''
+  _listeners.get(sessionId)?.()
+  _listeners.delete(sessionId)
+}
+
 function handleEvent(sessionId: string, ev: AgentEvent) {
   if (ev.event === 'reasoning') {
     // Streaming reasoning/thinking tokens — shown live in an expandable card.
@@ -220,12 +232,7 @@ function handleEvent(sessionId: string, ev: AgentEvent) {
 
   } else if (ev.event === 'interrupted') {
     chat.notice[sessionId] = 'Turn interrupted by user.'
-    chat.running[sessionId] = false
-    chat.streamingToken[sessionId] = null
-    // Keep the streamed reasoning visible so the interrupted turn doesn't
-    // vanish — it is cleared at the start of the next sendMessage.
-    _listeners.get(sessionId)?.()
-    _listeners.delete(sessionId)
+    finishTurn(sessionId, true)
     loadMessages(sessionId)
 
   } else if (ev.event === 'error') {
@@ -236,21 +243,12 @@ function handleEvent(sessionId: string, ev: AgentEvent) {
     } catch { /* keep raw */ }
     if (!msg) msg = 'Model request failed (no error details provided).'
     chat.error[sessionId] = msg
-    chat.running[sessionId] = false
-    chat.streamingToken[sessionId] = null
-    // Keep the streamed reasoning so the thought the user watched doesn't
-    // vanish on failure — cleared at the start of the next sendMessage.
-    _listeners.get(sessionId)?.()
-    _listeners.delete(sessionId)
+    finishTurn(sessionId, true)
     loadMessages(sessionId)
 
   } else if (ev.event === 'done') {
-    chat.running[sessionId] = false
-    chat.streamingToken[sessionId] = null
-    chat.liveReasoning[sessionId] = ''
     clearLiveState(sessionId)
-    _listeners.get(sessionId)?.()
-    _listeners.delete(sessionId)
+    finishTurn(sessionId)
     loadMessages(sessionId)
   }
 }
@@ -347,9 +345,7 @@ export async function sendMessage(
     // Only reset the running flag if this call owned the loop. If we hit the
     // "already running" branch above, the OTHER loop's events own the state.
     if (!keepRunning) {
-      chat.running[sessionId] = false
-      chat.streamingToken[sessionId] = null
-      chat.liveReasoning[sessionId] = ''
+      finishTurn(sessionId)
       loadMessages(sessionId)
     }
   }
@@ -363,14 +359,12 @@ export async function revertToMessage(
 ): Promise<RevertSummary> {
   const summary = await revertSession(sessionId, toMessageId, revertFiles)
   // Reset transient UI state and reload the shortened conversation.
-  chat.running[sessionId] = false
-  chat.streamingToken[sessionId] = null
-  chat.liveReasoning[sessionId] = ''
   chat.error[sessionId] = null
   chat.notice[sessionId] = null
   chat.liveBlocks[sessionId] = []
   chat.toolItems[sessionId] = []
   clearLiveState(sessionId)
+  finishTurn(sessionId)
   await loadMessages(sessionId)
   return summary
 }

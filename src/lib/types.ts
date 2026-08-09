@@ -17,6 +17,12 @@ export type ContentBlock =
   | { type: 'reasoning'; content: string }
   | { type: 'thinking'; thinking: string; signature?: string }
 
+export type TextBlock = Extract<ContentBlock, { type: 'text' }>
+export type ToolUseBlock = Extract<ContentBlock, { type: 'tool_use' }>
+export type ToolResultBlock = Extract<ContentBlock, { type: 'tool_result' }>
+export type ReasoningBlock = Extract<ContentBlock, { type: 'reasoning' }>
+export type ThinkingBlock = Extract<ContentBlock, { type: 'thinking' }>
+
 export type MessageContent = string | ContentBlock[]
 
 export interface Message {
@@ -68,11 +74,36 @@ export interface RevertSummary {
   filesReverted: string[]
 }
 
-// Parsed message content helper
+// Parsed message content helpers — shared by the message components and the
+// transcript builder so text/tool extraction stays in one place.
 export function parseContent(raw: string): MessageContent {
   try {
     return JSON.parse(raw)
   } catch {
     return raw
   }
+}
+
+/** Does this parsed content contain any tool_result block? */
+export function hasToolResults(c: MessageContent): boolean {
+  return Array.isArray(c) && c.some((b) => b.type === 'tool_result')
+}
+
+/** Is this parsed content *only* tool results (i.e. not a real user prompt)? */
+export function isToolResultTurn(c: MessageContent): boolean {
+  return Array.isArray(c) && c.every((b) => b.type === 'tool_result')
+}
+
+/** The text blocks of parsed content, in order. */
+export function textBlocks(c: MessageContent): TextBlock[] {
+  return Array.isArray(c) ? c.filter((b): b is TextBlock => b.type === 'text') : []
+}
+
+/** Concatenated text of a stored message's JSON content, separated by `sep`. */
+export function messageText(raw: string, sep = '\n'): string {
+  const c = parseContent(raw)
+  if (typeof c === 'string') return c
+  return textBlocks(c)
+    .map((b) => b.text)
+    .join(sep)
 }

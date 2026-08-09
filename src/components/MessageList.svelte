@@ -8,8 +8,8 @@
   import { chat } from '../stores/chat.svelte'
   import { pushToast } from '../stores/toast.svelte'
   import { buildAgentTranscript } from '../lib/transcript'
-  import { parseContent } from '../lib/types'
-  import type { ContentBlock, Message } from '../lib/types'
+  import { messageText, isToolResultTurn, parseContent } from '../lib/types'
+  import type { Message, ToolResultBlock } from '../lib/types'
 
   let { sessionId }: { sessionId: string } = $props()
 
@@ -33,9 +33,7 @@
   let ctx = $state<{ msg: Message; x: number; y: number } | null>(null)
 
   function msgText(m: Message): string {
-    const c = parseContent(m.content)
-    if (typeof c === 'string') return c
-    return (c as ContentBlock[]).filter(b => b.type === 'text').map(b => (b as any).text).join('\n')
+    return messageText(m.content)
   }
 
   const ctxItems = $derived.by<MenuItem[]>(() => {
@@ -101,9 +99,7 @@
       const msg = messages[i]
       if (msg.role === 'user') {
         const c = parseContent(msg.content)
-        const isToolResult = Array.isArray(c) &&
-          (c as ContentBlock[]).every(b => b.type === 'tool_result')
-        if (!isToolResult) {
+        if (!isToolResultTurn(c)) {
           return messages.slice(0, i + 1)
         }
       }
@@ -119,13 +115,10 @@
       if (msg.role !== 'user') continue
       const c = parseContent(msg.content)
       if (!Array.isArray(c)) continue
-      for (const b of c as ContentBlock[]) {
-        if (b.type === 'tool_result') {
-          map[(b as any).tool_use_id] = {
-            content: (b as any).content ?? '',
-            isError: (b as any).is_error ?? false,
-          }
-        }
+      for (const b of c) {
+        if (b.type !== 'tool_result') continue
+        const r = b as ToolResultBlock
+        map[r.tool_use_id] = { content: r.content, isError: r.is_error ?? false }
       }
     }
     return map
