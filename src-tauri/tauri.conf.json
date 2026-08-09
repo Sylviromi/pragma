@@ -15,9 +15,7 @@
         "title": "Pragma",
         "label": "main",
         "width": 1200,
-        "height": 800,
-        "minWidth": 800,
-        "minHeight": 600
+        "height": 800
       }
     ],
     "security": {
