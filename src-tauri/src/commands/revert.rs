@@ -22,8 +22,6 @@ struct RowMsg {
 
 #[derive(sqlx::FromRow)]
 struct SnapshotRow {
-    id: i64,
-    tool_use_id: String,
     tool_name: String,
     path: String,
     content_before: String,
@@ -242,7 +240,7 @@ pub async fn revert_session(
     let mut files_reverted: Vec<String> = Vec::new();
     if revert_files {
         let snaps: Vec<SnapshotRow> = sqlx::query_as(
-            "SELECT id, tool_use_id, tool_name, path, content_before, existed_before, extra_before \
+            "SELECT tool_name, path, content_before, existed_before, extra_before \
              FROM file_snapshots WHERE session_id=? AND message_rowid > ? ORDER BY id ASC",
         )
         .bind(&session_id)
@@ -455,8 +453,6 @@ mod tests {
 
         // delete_file snapshot: file existed with "before"
         let snap = SnapshotRow {
-            id: 1,
-            tool_use_id: "c1".into(),
             tool_name: "delete_file".into(),
             path: p.display().to_string(),
             content_before: "before".into(),
@@ -470,8 +466,6 @@ mod tests {
         let p2 = dir.path().join("new.txt");
         std::fs::write(&p2, "created").unwrap();
         let snap = SnapshotRow {
-            id: 2,
-            tool_use_id: "c2".into(),
             tool_name: "write_file".into(),
             path: p2.display().to_string(),
             content_before: String::new(),
@@ -491,8 +485,6 @@ mod tests {
         std::fs::rename(&src, &dest).unwrap();
 
         let snap = SnapshotRow {
-            id: 1,
-            tool_use_id: "c1".into(),
             tool_name: "move_file".into(),
             path: src.display().to_string(),
             content_before: "A-content".into(),

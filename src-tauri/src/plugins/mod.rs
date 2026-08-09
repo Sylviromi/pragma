@@ -163,18 +163,6 @@ impl PluginManager {
     }
 }
 
-/// tiny helper: keep sort by id but enabled first
-trait SortEnabled {
-    fn sort_enabled(self) -> Vec<PluginInfo>;
-}
-impl SortEnabled for Vec<PluginInfo> {
-    fn sort_enabled(self) -> Vec<PluginInfo> {
-        let mut v = self;
-        v.sort_by_key(|p| (!p.enabled, p.id.clone()));
-        v
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

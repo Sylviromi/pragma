@@ -125,7 +125,6 @@ mod tests {
 
     #[test]
     fn test_timeout_kills_hung_command() {
-        let dir = tempdir().unwrap();
         let r = run_with_timeout(
             std::process::Command::new("sh")
                 .arg("-c")

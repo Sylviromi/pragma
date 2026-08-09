@@ -861,12 +861,12 @@ fn sanitize_history(raw: Vec<serde_json::Value>) -> Vec<serde_json::Value> {
                         .iter()
                         .filter(|r| r["type"] == "tool_result")
                         .all(|r| r["content"].as_str() == Some("Tool call denied by user."));
-                if all_denied {
-                    // Don't feed the model a "tried → denied" trail.
-                    held = None;
-                } else if let Some(h) = held.take() {
-                    out.push(h);
-                    out.push(serde_json::json!({"role": "user", "content": results_buf}));
+                if !all_denied {
+                    // all_denied: don't feed the model a "tried -> denied" trail.
+                    if let Some(h) = held.take() {
+                        out.push(h);
+                        out.push(serde_json::json!({"role": "user", "content": results_buf}));
+                    }
                 }
                 held = None;
                 pending.clear();
