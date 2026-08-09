@@ -102,14 +102,27 @@
      clipping abruptly. The mask is anchored to the strip, so it follows
      scrolling — whatever tab is under the right edge fades. When tabs
      don't overflow, the fade zone sits over empty strip space and is
-     invisible. */
+     invisible. Zone is ~64px wide with a steeper tail so the melt reads
+     clearly without weakening tab text too early. */
   .tabs {
     display: flex;
     overflow-x: auto;
     scrollbar-width: none;
     flex: 1;
-    -webkit-mask-image: linear-gradient(to right, #000 0, #000 calc(100% - 28px), transparent 100%);
-    mask-image: linear-gradient(to right, #000 0, #000 calc(100% - 28px), transparent 100%);
+    -webkit-mask-image: linear-gradient(
+      to right,
+      #000 0,
+      #000 calc(100% - 64px),
+      rgba(0, 0, 0, 0.35) calc(100% - 24px),
+      transparent 100%
+    );
+    mask-image: linear-gradient(
+      to right,
+      #000 0,
+      #000 calc(100% - 64px),
+      rgba(0, 0, 0, 0.35) calc(100% - 24px),
+      transparent 100%
+    );
   }
   .tabs::-webkit-scrollbar {
     display: none;
