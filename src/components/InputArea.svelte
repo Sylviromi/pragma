@@ -147,6 +147,9 @@
     /* Never collapse below its content: the composer (textarea + Send) must
        stay visible even when the window is very short. */
     flex-shrink: 0;
+    /* No effective min width: the footer handles narrow windows by wrapping
+       (and, for a single element wider than the window, by scrolling). */
+    min-width: 0;
   }
   textarea {
     width: 100%;
@@ -173,6 +176,15 @@
     flex-wrap: wrap;
     row-gap: var(--spacing-1);
     gap: var(--spacing-2);
+    min-width: 0;
+    /* Plugin toolbar slots (input-toolbar / chat-toolbar-extra) can ship
+       elements wider than the window; they can't wrap, so let the row scroll
+       horizontally instead of clipping the plugin buttons off-screen. */
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .footer::-webkit-scrollbar {
+    display: none;
   }
   .divider {
     width: 1px;
@@ -184,6 +196,8 @@
     display: flex;
     align-items: center;
     gap: var(--spacing-2);
+    min-width: 0;
+    flex-shrink: 0;
   }
   .hint-btn {
     display: inline-flex;

@@ -68,7 +68,7 @@
     aria-expanded={open}
   >
     <span class="dot" aria-hidden="true"></span>
-    <span>{current?.name ?? 'Choose model'}</span>
+    <span class="mname">{current?.name ?? 'Choose model'}</span>
     {#if current}<span class="pname">· {current.pname}</span>{/if}
     <span aria-hidden="true"><Icon name="expand_more" size={14} /></span>
   </button>
@@ -126,6 +126,14 @@
     color: var(--color-text-primary);
     font-size: var(--font-size-sm);
     white-space: nowrap;
+    min-width: 0;
+    max-width: 100%;
+  }
+  /* Model text ellipsizes when the window is narrower than the name. */
+  .chip .mname {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
   .chip:hover {
     border-color: var(--color-border-focus);
@@ -139,6 +147,8 @@
   }
   .pname {
     color: var(--color-text-muted);
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
   .dropdown {
     position: absolute;
