@@ -5,6 +5,20 @@ fn abs(working_dir: &Path, rel: &str) -> PathBuf {
     working_dir.join(rel)
 }
 
+/// Path relative to the working directory (for display in results).
+fn rel_of(wd: &Path, path: &Path) -> String {
+    path.strip_prefix(wd)
+        .unwrap_or(path)
+        .display()
+        .to_string()
+}
+
+fn glob_matches(pattern: &str, rel: &str) -> bool {
+    glob::Pattern::new(pattern)
+        .map(|p| p.matches(rel))
+        .unwrap_or(false)
+}
+
 pub fn read_file(wd: &Path, input: &serde_json::Value) -> Result<String, String> {
     let path = input["path"].as_str().ok_or("missing path")?;
     let full = abs(wd, path);
@@ -71,18 +85,10 @@ pub fn list_files(wd: &Path, input: &serde_json::Value) -> Result<String, String
     for entry in walker {
         let entry = entry.map_err(|e| e.to_string())?;
         let is_dir = entry.file_type().is_dir();
-        let rel = entry
-            .path()
-            .strip_prefix(wd)
-            .unwrap_or(entry.path())
-            .display()
-            .to_string();
+        let rel = rel_of(wd, entry.path());
         let display = if is_dir { format!("{rel}/") } else { rel.clone() };
         if let Some(pat) = pattern {
-            if !glob::Pattern::new(pat)
-                .map(|p| p.matches(&rel))
-                .unwrap_or(false)
-            {
+            if !glob_matches(pat, &rel) {
                 continue;
             }
         }
@@ -107,17 +113,9 @@ pub fn search_files(wd: &Path, input: &serde_json::Value) -> Result<String, Stri
         if !entry.file_type().is_file() {
             continue;
         }
-        let rel = entry
-            .path()
-            .strip_prefix(wd)
-            .unwrap_or(entry.path())
-            .display()
-            .to_string();
+        let rel = rel_of(wd, entry.path());
         if let Some(g) = file_glob {
-            if !glob::Pattern::new(g)
-                .map(|p| p.matches(&rel))
-                .unwrap_or(false)
-            {
+            if !glob_matches(g, &rel) {
                 continue;
             }
         }
