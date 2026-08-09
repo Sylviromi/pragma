@@ -9,7 +9,12 @@ export default defineConfig({
 		port: 1420,
 		strictPort: true,
 		watch: {
-			ignored: ['**/src-tauri/**']
+			ignored: ['**/src-tauri/**'],
+			/* /mnt is an automount with flaky inotify; fall back to polling so
+			   edits always reach the running app (stale-serve has bitten us
+			   repeatedly). */
+			usePolling: true,
+			interval: 300
 		}
 	},
 	test: {
