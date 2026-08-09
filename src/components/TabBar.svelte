@@ -10,11 +10,27 @@
     if (!id) return
     chat.autoApprove[id] = !(chat.autoApprove[id] ?? false)
   }
+
+  /* Tabs overflow into a hidden-scrollbar strip; route the wheel (and
+     trackpad vertical gesture) over the strip into horizontal scrolling
+     so extra sessions stay reachable without a visible scrollbar. */
+  function tabsScroll(el: HTMLElement) {
+    const onWheel = (e: WheelEvent) => {
+      if (el.scrollWidth <= el.clientWidth) return
+      const dx = e.deltaX !== 0 ? e.deltaX : e.deltaY
+      el.scrollLeft += dx
+      e.preventDefault()
+    }
+    el.addEventListener('wheel', onWheel, { passive: false })
+    return {
+      destroy: () => el.removeEventListener('wheel', onWheel)
+    }
+  }
 </script>
 
 <div class="tab-bar" role="tablist" aria-label="Sessions">
   <span class="logo" aria-label="Pragma">PRAGMA</span>
-  <div class="tabs">
+  <div class="tabs" use:tabsScroll>
     {#each sessions.openTabs as id (id)}
       {@const s = sessions.list.find((s) => s.id === id)}
       {@const running = chat.running[id] ?? false}
@@ -292,9 +308,6 @@
   @media (max-width: 1040px) {
     .logo {
       display: none; /* the PRAGMA wordmark eats width the tabs need */
-    }
-    .tabs {
-      scrollbar-width: thin; /* make extra tabs discoverable */
     }
   }
   @media (max-width: 940px) {
