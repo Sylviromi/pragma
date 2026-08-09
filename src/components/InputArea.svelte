@@ -18,16 +18,26 @@
   // so we never persist transient defaults (mount / HMR resets) over the real
   // selection.
   let hydrated = $state(false)
+  // Which session id the local model/provider were hydrated from. Prevents the
+  // hydration effect (below) from re-applying the stored values over the
+  // user's fresh pick from the model picker.
+  let hydratedFor: string | null = null
 
   const session = $derived(getSession(sessionId))
   const running = $derived(chat.running[sessionId] ?? false)
 
-  // Initialise model/provider from persisted session once it's available
+  // Initialise model/provider from persisted session — but only once per
+  // session (or after a reset such as HMR, when model is ''). Never clobber a
+  // selection the user just made: the effect re-runs whenever model/provider
+  // change, and without the hydratedFor guard it would immediately reset the
+  // freshly-picked model back to the stored one.
   $effect(() => {
     const s = getSession(sessionId)
     if (!s) return
+    if (hydratedFor === s.id && model !== '') return
     if (s.model && model !== s.model) model = s.model
     if (s.provider && provider !== s.provider) provider = s.provider
+    hydratedFor = s.id
     hydrated = true
   })
 
