@@ -28,6 +28,22 @@ function configure() {
  *  Markdown HTML for `{@html}`. */
 export function renderMarkdown(prose: string): string {
   configure()
+  const cached = _mdCache.get(prose)
+  if (cached !== undefined) return cached
+  const html = buildMarkdownHtml(prose)
+  if (_mdCache.size >= MD_CACHE_MAX) _mdCache.clear() // crude bound — full clear beats eviction bookkeeping
+  _mdCache.set(prose, html)
+  return html
+}
+
+// `marked.parse` is synchronous and costs ~2–6ms per block; loading a long
+// session re-parses every text block on the main thread. Cache by exact text
+// so revisiting a session or re-rendering a message is a Map hit, not a
+// blocking re-parse. Bounded to keep memory in check.
+const MD_CACHE_MAX = 200
+const _mdCache = new Map<string, string>()
+
+function buildMarkdownHtml(prose: string): string {
   const raw = marked.parse(escapeHtml(prose), { async: false }) as string
   return (
     raw
