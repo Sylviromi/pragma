@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte'
+  import { fly } from 'svelte/transition'
   import { loadProviders, providerState } from '../stores/providers.svelte'
   import SlotStack from './SlotStack.svelte'
   import Icon from './Icon.svelte'
@@ -136,6 +137,7 @@
       class="dropdown"
       style:top={anchor ? `${anchor.top}px` : 'auto'}
       style:left={anchor ? `${anchor.left}px` : '0'}
+      transition:fly={{ y: -4, duration: 200, easing: (t) => 1 - Math.pow(1 - t, 3) }}
       role="listbox"
     >
       <div class="search">

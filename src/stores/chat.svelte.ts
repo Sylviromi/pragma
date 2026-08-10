@@ -113,6 +113,9 @@ export const chat = $state({
    *  'auto' uses the model's default level; 'low'/'medium'/'high' request a
    *  graduated thinking level where the model supports levels. Default 'auto'. */
   thinking:       {} as Record<string, ThinkingPref>,
+  /** When the current run started (ms epoch) — drives the live indicator's
+   *  elapsed timer. Cleared in finishTurn. */
+  startedAt:      {} as Record<string, number>,
   /** Aggregate session status for the design's status dots / labels. */
   status:         {} as Record<string, AgentStatus>,
 })
@@ -186,6 +189,7 @@ function finishTurn(sessionId: string) {
   chat.running[sessionId] = false
   chat.status[sessionId] = 'idle'
   chat.streamingToken[sessionId] = null
+  chat.startedAt[sessionId] = 0
   _listeners.get(sessionId)?.()
   _listeners.delete(sessionId)
 }
@@ -369,6 +373,7 @@ export async function sendMessage(
   // Clear live turn state from the previous run
   chat.running[sessionId] = true
   chat.status[sessionId] = 'thinking'
+  chat.startedAt[sessionId] = Date.now()
   chat.streamingToken[sessionId] = ''
   chat.liveBlocks[sessionId] = []
   chat.toolItems[sessionId] = []

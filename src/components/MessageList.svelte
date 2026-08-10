@@ -3,9 +3,10 @@
   import ChatMessage from './ChatMessage.svelte'
   import ToolCard from './ToolCard.svelte'
   import QuestionBlock from './QuestionBlock.svelte'
+  import ThoughtCard from './ThoughtCard.svelte'
   import ReturnModal from './ReturnModal.svelte'
   import ContextMenu, { type MenuItem } from './ContextMenu.svelte'
-  import { chat, answerQuestion, STATUS_META, type AgentStatus } from '../stores/chat.svelte'
+  import { chat, answerQuestion, stopTurn, STATUS_META, type AgentStatus } from '../stores/chat.svelte'
   import { pushToast } from '../stores/toast.svelte'
   import { buildAgentTranscript } from '../lib/transcript'
   import { messageText, isToolResultTurn, parseContent } from '../lib/types'
@@ -79,18 +80,45 @@
 
   const thinking = $derived(running && liveBlocks.length === 0)
 
-  // Cycling status label shown while the model is thinking (no content yet)
-  const statusWords = ['Thinking', 'Working', 'Generating']
-  let statusIndex = $state(0)
+  // Design streaming meta for the thought card: "<effort> effort" while the
+  // model is thinking (off/auto/low/med/high), empty once sealed.
+  const effort = $derived((chat.thinking[sessionId] ?? 'auto') as string)
+  const thoughtMeta = $derived(thinking ? `${effort} effort` : '')
+
+  // Live indicator (design `Pragma UI Kit`): per-status icon + mono label +
+  // bouncing dots (except the waiting-for-you state) + elapsed timer + Stop.
+  const INDICATOR: Record<AgentStatus, { icon: string; spin: boolean; still: boolean }> = {
+    thinking:   { icon: 'neurology',          spin: false, still: false },
+    working:    { icon: 'progress_activity',  spin: true,  still: false },
+    generating: { icon: 'edit',               spin: false, still: false },
+    waiting:    { icon: 'front_hand',         spin: false, still: true },
+    idle:       { icon: 'bolt',               spin: false, still: false },
+  }
+  const indMeta = $derived(INDICATOR[status] ?? INDICATOR.idle)
+  // Design indicator colors: slot while thinking, warning while working or
+  // waiting on the user, accent while generating (differs from STATUS_META,
+  // which keeps waiting → danger for the tab dots / session rows).
+  const IND_COLORS: Record<AgentStatus, string> = {
+    thinking: 'var(--slot)',
+    working: 'var(--warning)',
+    generating: 'var(--accent)',
+    waiting: 'var(--warning)',
+    idle: 'var(--accent)',
+  }
+  const indColor = $derived(IND_COLORS[status] ?? 'var(--accent)')
+  let elapsed = $state(0)
   $effect(() => {
-    if (!thinking) return
-    statusIndex = 0
+    if (!running) {
+      elapsed = 0
+      return
+    }
+    const started = chat.startedAt[sessionId] ?? Date.now()
+    elapsed = Math.max(0, Math.round((Date.now() - started) / 100) / 10)
     const t = setInterval(() => {
-      statusIndex = (statusIndex + 1) % statusWords.length
-    }, 1400)
+      elapsed = Math.max(0, Math.round((Date.now() - (chat.startedAt[sessionId] ?? Date.now())) / 100) / 10)
+    }, 200)
     return () => clearInterval(t)
   })
-  const statusWord = $derived(statusWords[statusIndex])
 
   // When a live turn is in progress (liveBlocks non-empty), hide the DB messages for
   // that turn so they don't duplicate what liveBlocks already shows. Only show messages
@@ -131,6 +159,9 @@
   // list height: messages, live blocks (incl. growing thought + text text),
   // tool outputs (which arrive after the tool card itself, growing it later),
   // errors.
+  const lastMsgId = $derived(
+    visibleMessages.length > 0 ? visibleMessages[visibleMessages.length - 1].id : ''
+  )
   const liveChars = $derived.by(() =>
     (chat.liveBlocks[sessionId] ?? []).reduce((n, b) => {
       if (b.type === 'thinking' || b.type === 'text') return n + b.text.length
@@ -185,6 +216,7 @@
       message={msg}
       {toolOutputs}
       highlighted={ctx?.msg.id === msg.id}
+      animate={msg.id === lastMsgId}
       onContextMenu={(e) => {
         e.preventDefault()
         ctx = { msg, x: e.clientX, y: e.clientY }
@@ -198,10 +230,11 @@
       <div class="live-body">
         {#each liveBlocks as block, bi (block.type === 'tool' ? block.toolUseId : block.type === 'thinking' ? `th-${bi}` : `${block.type}-${bi}`)}
           {#if block.type === 'thinking'}
-            <div class="thought" class:live={!block.done}>
-              <span class="msr thought-icon" aria-hidden="true">neurology</span>
-              <span class="thought-text">{block.text}{#if running && !block.done && bi === liveBlocks.length - 1}<span class="caret" aria-hidden="true">▌</span>{/if}</span>
-            </div>
+            <ThoughtCard
+              title={block.done ? 'Thought process' : 'Thinking'}
+              meta={block.done ? '' : thoughtMeta}
+              streaming={!block.done}
+            >{block.text}</ThoughtCard>
           {:else if block.type === 'text'}
             <div class="live-bubble">{block.text}{#if running && bi === liveBlocks.length - 1}<span class="caret" aria-hidden="true">▌</span>{/if}</div>
           {:else if block.type === 'tool'}
@@ -219,15 +252,33 @@
           {/if}
         {/each}
 
-        {#if thinking}
-          <div class="status-row" role="status" aria-label="Assistant is thinking">
-            <span class="dot live" style={`background:var(--accent)`} aria-hidden="true"></span>
-            <span class="status-label">{#key statusWord}{statusWord}{/key}…</span>
-          </div>
-        {:else if running}
-          <div class="status-row" role="status" aria-label={statusMeta.label}>
-            <span class="dot live" style={`background:${statusMeta.color}`} aria-hidden="true"></span>
-            <span class="status-label">{statusMeta.label}</span>
+        {#if running}
+          <div
+            class="indicator"
+            role="status"
+            aria-label={statusMeta.label}
+            style={`border-color:${indColor}`}
+          >
+            <span class="ind-icon" class:spin={indMeta.spin} style={`color:${indColor}`} aria-hidden="true">
+              <span class="msr">{indMeta.icon}</span>
+            </span>
+            <span class="ind-label">{statusMeta.label}</span>
+            {#if !indMeta.still}
+              <span class="ind-dots" aria-hidden="true">
+                {#each [0, 1, 2] as i (i)}
+                  <span class="ind-dot" style={`background:${indColor}; animation-delay:${i * 0.16}s`}></span>
+                {/each}
+              </span>
+            {/if}
+            {#if elapsed > 0}<span class="ind-elapsed">{elapsed.toFixed(1)}s</span>{/if}
+            <button
+              class="ind-stop"
+              onclick={() => stopTurn(sessionId)}
+              title="Stop the response"
+              aria-label="Stop generating"
+            >
+              <span class="msr" aria-hidden="true">stop</span>Stop
+            </button>
           </div>
         {/if}
       </div>
@@ -306,35 +357,6 @@
     gap: 7px;
   }
 
-  /* Live reasoning — design thought block */
-  .thought {
-    display: flex;
-    gap: 8px;
-    align-items: flex-start;
-    font-family: var(--font-body);
-    font-size: 12.5px;
-    font-style: italic;
-    color: var(--text-muted);
-    line-height: 1.5;
-    padding-left: 2px;
-  }
-  .thought-icon {
-    font-size: 15px;
-    line-height: 1.3;
-    flex: none;
-    font-style: normal;
-  }
-  /* Streaming thought: accent icon marks it as in-progress until sealed. */
-  .thought.live .thought-icon {
-    color: var(--accent);
-  }
-  .thought-text {
-    white-space: pre-wrap;
-    overflow-wrap: anywhere;
-    max-height: 40vh;
-    overflow-y: auto;
-  }
-
   /* Live text — design text bubble */
   .live-bubble {
     background: var(--bg-elevated);
@@ -354,26 +376,83 @@
     animation: cursorblink 1s step-start infinite;
   }
 
-  /* Status footer row — design live meta (dot pulse + mono label) */
-  .status-row {
+  /* Live indicator — design: thinkGlow bubble, icon + mono label + bounce
+     dots (except while waiting for the user) + elapsed + Stop. */
+  .indicator {
     display: flex;
     align-items: center;
-    gap: 7px;
+    gap: 9px;
+    background: var(--bg-elevated);
+    border: 1px solid var(--accent);
+    border-radius: 5px 16px 16px 16px;
+    padding: 7px 12px 7px 11px;
+    align-self: flex-start;
+    animation: bubbleIn 0.3s cubic-bezier(0.22, 0.8, 0.3, 1) both,
+      thinkGlow 2.4s ease-in-out infinite;
+    transition: border-color 0.3s ease;
+    max-width: 100%;
+  }
+  .ind-icon {
+    flex: none;
+    display: flex;
+    animation: dotPulse 1.5s ease-in-out infinite;
+  }
+  .ind-icon .msr {
+    font-size: 16px;
+    line-height: 1;
+  }
+  .ind-icon.spin {
+    animation: spin 1.1s linear infinite;
+  }
+  .ind-label {
     font-family: var(--font-mono);
     font-size: 11px;
-    color: var(--text-muted);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--text-secondary);
+    white-space: nowrap;
   }
-  .dot {
-    width: 6px;
-    height: 6px;
+  .ind-dots {
+    display: flex;
+    align-items: center;
+    gap: 3px;
+  }
+  .ind-dot {
+    width: 5px;
+    height: 5px;
     border-radius: 50%;
     flex: none;
+    animation: bounceDot 1.1s ease-in-out infinite;
   }
-  .dot.live {
-    animation: dotPulse 1.2s ease-in-out infinite;
+  .ind-elapsed {
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    color: var(--text-muted);
+    flex: none;
+    font-variant-numeric: tabular-nums;
   }
-  .status-label {
-    text-transform: capitalize;
+  .ind-stop {
+    display: flex;
+    align-items: center;
+    gap: 3px;
+    margin-left: 4px;
+    background: none;
+    border: 1px solid var(--border-default);
+    border-radius: 11px;
+    color: var(--text-muted);
+    font-family: var(--font-body);
+    font-size: 11px;
+    padding: 2px 9px 2px 6px;
+    cursor: pointer;
+    transition: color 0.2s ease, border-color 0.2s ease;
+  }
+  .ind-stop:hover {
+    color: var(--text-primary);
+    border-color: var(--text-muted);
+  }
+  .ind-stop .msr {
+    font-size: 12px;
+    line-height: 1;
   }
 
   .error-row {

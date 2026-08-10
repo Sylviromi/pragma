@@ -1,20 +1,45 @@
 <script lang="ts">
+  import { onMount } from 'svelte'
   import { sessions, openTab, closeTab, newSession } from '../stores/sessions.svelte'
   import { chat, STATUS_META } from '../stores/chat.svelte'
   import { toggleSidebar } from '../stores/ui.svelte'
-  import Icon from './Icon.svelte'
+  // Brand mark (single source in src/lib/logo.svg) — inlined raw so the
+  // theme tokens in the SVG resolve against the active family×mode.
+  import logo from '$lib/logo.svg?raw'
 
-  const autoApprove = $derived(chat.autoApprove[sessions.activeTabId ?? ''] ?? false)
+  // Design tab bar (`Pragma UI Kit.dc.html`): logo block + session tabs with
+  // status dots, overflow beyond maxVisible (5 wide / 3 narrow / 1 tight,
+  // active tab kept in view) collapses into a "+N" menu listing hidden tabs.
+  let winWidth = $state(typeof window !== 'undefined' ? window.innerWidth : 1200)
+  onMount(() => {
+    const onResize = () => (winWidth = window.innerWidth)
+    window.addEventListener('resize', onResize)
+    return () => window.removeEventListener('resize', onResize)
+  })
+  const maxVisible = $derived(winWidth < 640 ? 1 : winWidth < 900 ? 3 : 5)
 
-  function toggleAuto() {
-    const id = sessions.activeTabId
-    if (!id) return
-    chat.autoApprove[id] = !(chat.autoApprove[id] ?? false)
-  }
+  // Keep the active tab centered in the visible window; push the rest into the
+  // overflow menu. No windowing when everything fits.
+  const tabWindow = $derived.by(() => {
+    const ids = sessions.openTabs
+    if (ids.length <= maxVisible) return { visible: ids, hidden: [] as string[] }
+    const activeIdx = Math.max(0, ids.indexOf(sessions.activeTabId ?? ''))
+    const start = Math.min(
+      Math.max(0, activeIdx - Math.floor((maxVisible - 1) / 2)),
+      ids.length - maxVisible
+    )
+    return {
+      visible: ids.slice(start, start + maxVisible),
+      hidden: ids.filter((id) => !ids.slice(start, start + maxVisible).includes(id)),
+    }
+  })
 
-  /* Tabs overflow into a hidden-scrollbar strip; route the wheel (and
-     trackpad vertical gesture) over the strip into horizontal scrolling
-     so extra sessions stay reachable without a visible scrollbar. */
+  let menuOpen = $state(false)
+  let el = $state<HTMLElement | null>(null)
+
+  // Tabs overflow into a hidden-scrollbar strip; route the wheel (and
+  // trackpad vertical gesture) over the strip into horizontal scrolling
+  // so extra sessions stay reachable without a visible scrollbar.
   function tabsScroll(el: HTMLElement) {
     const onWheel = (e: WheelEvent) => {
       if (el.scrollWidth <= el.clientWidth) return
@@ -27,12 +52,28 @@
       destroy: () => el.removeEventListener('wheel', onWheel)
     }
   }
+
+  function pickHidden(id: string) {
+    openTab(id)
+    menuOpen = false
+  }
 </script>
 
+<svelte:window
+  onclick={(e) => {
+    if (menuOpen && el && !e.composedPath().includes(el)) menuOpen = false
+  }}
+/>
+
 <div class="tab-bar" role="tablist" aria-label="Sessions">
-  <span class="logo" aria-label="Pragma">PRAGMA</span>
+  <!-- Design logo block: P-mark SVG + PRAGMA wordmark. -->
+  <span class="logo" aria-label="Pragma">
+    {@html logo}
+    <span class="wordmark">PRAGMA</span>
+  </span>
+
   <div class="tabs" use:tabsScroll>
-    {#each sessions.openTabs as id (id)}
+    {#each tabWindow.visible as id (id)}
       {@const s = sessions.list.find((s) => s.id === id)}
       {@const st = chat.status[id] ?? 'idle'}
       {@const meta = STATUS_META[st]}
@@ -62,12 +103,40 @@
               closeTab(id)
             }}
             onkeydown={(e) => e.key === 'Enter' && (e.stopPropagation(), closeTab(id))}
-          ><span class="msr" aria-hidden="true">close</span></span
-          >
+          ><span class="msr" aria-hidden="true">close</span></span>
         </button>
       {/if}
     {/each}
   </div>
+
+  {#if tabWindow.hidden.length > 0}
+    <div class="more-wrap" bind:this={el}>
+      <button
+        class="more"
+        aria-haspopup="menu"
+        aria-expanded={menuOpen}
+        onclick={() => (menuOpen = !menuOpen)}
+        title="More sessions"
+      >+{tabWindow.hidden.length}</button>
+      {#if menuOpen}
+        <div class="more-menu" role="menu" aria-label="More sessions">
+          {#each tabWindow.hidden as id (id)}
+            {@const s = sessions.list.find((s) => s.id === id)}
+            {@const st = chat.status[id] ?? 'idle'}
+            {@const meta = STATUS_META[st]}
+            {#if s}
+              <button class="m-row" role="menuitem" onclick={() => pickHidden(id)}>
+                <span class="m-dot" class:live={st !== 'idle'} style={`background:${meta.color}`} aria-hidden="true"></span>
+                <span class="m-name">{s.name}</span>
+                <span class="m-status">{meta.label}</span>
+              </button>
+            {/if}
+          {/each}
+        </div>
+      {/if}
+    </div>
+  {/if}
+
   <button
     class="new-session"
     onclick={() => newSession()}
@@ -77,19 +146,8 @@
     <span class="msr" aria-hidden="true">add</span>
     <span class="new-label">New</span>
   </button>
+
   <div class="actions">
-    {#if sessions.activeTabId}
-      <button
-        class="auto-toggle"
-        class:on={autoApprove}
-        onclick={toggleAuto}
-        title="Auto-approve all tool calls without confirmation (active session)"
-        aria-pressed={autoApprove}
-      >
-        <span class="track" aria-hidden="true"><span class="knob"></span></span>
-        <span class="auto-label">Auto</span>
-      </button>
-    {/if}
     <a href="/settings/appearance" aria-label="Settings" title="Settings">
       <span class="msr" aria-hidden="true">settings</span>
     </a>
@@ -113,19 +171,27 @@
     user-select: none;
     flex-shrink: 0;
   }
+  /* Design logo block: P-mark + wordmark, right-separated. */
   .logo {
-    padding: 0 16px;
     display: flex;
     align-items: center;
-    font-family: var(--font-heading);
-    font-weight: 600;
-    font-size: 20px;
-    letter-spacing: 0.02em;
-    color: var(--text-primary);
+    gap: 9px;
+    padding: 0 14px 0 7.5px;
     border-right: 1px solid var(--border-default);
     flex-shrink: 0;
   }
-  /* Fade-out at the right edge (see original impl note) */
+  .logo :global(svg) {
+    flex: none;
+    overflow: visible;
+  }
+  .wordmark {
+    font-family: var(--font-heading);
+    font-weight: 600;
+    font-size: 15px;
+    letter-spacing: 0.1em;
+    color: var(--text-primary);
+    white-space: nowrap;
+  }
   .tabs {
     display: flex;
     overflow-x: auto;
@@ -165,6 +231,8 @@
     min-width: 0;
     max-width: 180px;
     cursor: pointer;
+    animation: fadeIn 0.3s ease both;
+    transition: background 0.25s ease, color 0.25s ease, border-color 0.25s ease;
   }
   .tab:hover,
   .tab.active {
@@ -212,6 +280,85 @@
     background: var(--surface-hover);
     color: var(--text-primary);
   }
+  /* Design "+N" overflow pill + session menu. */
+  .more-wrap {
+    position: relative;
+    flex: none;
+    display: flex;
+    align-items: stretch;
+  }
+  .more {
+    height: 100%;
+    padding: 0 11px;
+    background: none;
+    border: none;
+    border-right: 1px solid var(--border-default);
+    color: var(--text-muted);
+    cursor: pointer;
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    white-space: nowrap;
+    transition: color 0.2s ease, background 0.2s ease;
+  }
+  .more:hover {
+    color: var(--text-primary);
+    background: var(--surface-hover);
+  }
+  .more-menu {
+    position: absolute;
+    top: calc(100% + 4px);
+    right: 0;
+    width: 230px;
+    max-height: 300px;
+    overflow-y: auto;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-lg);
+    padding: 5px;
+    z-index: 40;
+    animation: dropIn 0.24s cubic-bezier(0.22, 0.8, 0.3, 1) both;
+  }
+  .m-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 6px 8px;
+    background: none;
+    border: none;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    text-align: left;
+    color: var(--text-primary);
+    transition: background 0.2s ease;
+  }
+  .m-row:hover {
+    background: var(--surface-hover);
+  }
+  .m-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    flex: none;
+  }
+  .m-dot.live {
+    animation: cursorblink 1.2s ease-in-out infinite;
+  }
+  .m-name {
+    flex: 1;
+    min-width: 0;
+    font-family: var(--font-body);
+    font-size: 12.5px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .m-status {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--text-muted);
+  }
   .new-session {
     display: flex;
     align-items: center;
@@ -219,6 +366,7 @@
     gap: 6px;
     width: 34px;
     flex: none;
+    align-self: stretch;
     background: none;
     border: none;
     color: var(--text-muted);
@@ -259,56 +407,11 @@
     color: var(--text-primary);
     background: var(--surface-hover);
   }
-  .auto-toggle {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    width: auto !important;
-    padding: 0 6px;
-    font-size: var(--font-size-xs);
-    font-weight: 600;
-    letter-spacing: 0.02em;
-    color: var(--text-secondary);
-    background: none;
-    border: none;
-    cursor: pointer;
-  }
-  .track {
-    position: relative;
-    width: 26px;
-    height: 15px;
-    border-radius: 2px;
-    background: var(--border-default);
-    transition: background 0.12s;
-    flex-shrink: 0;
-  }
-  .auto-toggle.on .track {
-    background: var(--accent);
-  }
-  .knob {
-    position: absolute;
-    top: 2px;
-    left: 2px;
-    width: 11px;
-    height: 11px;
-    border-radius: 1px;
-    background: var(--bg-elevated);
-    transition: left 0.12s;
-  }
-  .auto-toggle.on .knob {
-    left: calc(100% - 13px);
-    background: var(--accent-on);
-  }
 
   /* ── Narrow windows ─────────────────────────────────────────────────── */
   @media (max-width: 1040px) {
-    .logo {
+    .wordmark {
       display: none; /* the PRAGMA wordmark eats width the tabs need */
-    }
-  }
-  @media (max-width: 940px) {
-    .auto-label {
-      display: none;
     }
   }
   @media (max-width: 860px) {

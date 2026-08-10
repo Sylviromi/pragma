@@ -107,12 +107,18 @@
     {/if}
   </div>
 
-  {#if hasOutput && outputOpen}
-    <div class="output">
-      {#each outputLines as line, i (i)}
-        <div class="line" style={`color:${line.color}`}>{line.text}</div>
-      {/each}
-      {#if (tool.output ?? '').length > 4000}<div class="more">… (truncated)</div>{/if}
+  {#if hasOutput}
+    <!-- Design output collapse: grid-rows 0fr↔1fr transition (smooth height
+         open/close instead of a hard v-if pop). Inner div keeps the scroll. -->
+    <div class="out-grid" class:closed={!outputOpen}>
+      <div class="out-inner">
+        <div class="output">
+          {#each outputLines as line, i (i)}
+            <div class="line" style={`color:${line.color}`}>{line.text}</div>
+          {/each}
+          {#if (tool.output ?? '').length > 4000}<div class="more">… (truncated)</div>{/if}
+        </div>
+      </div>
     </div>
   {/if}
 </div>
@@ -131,6 +137,7 @@
     margin: 1px 0;
     transition: border-color 0.25s ease;
     max-width: 100%;
+    animation: blockIn 0.32s cubic-bezier(0.22, 0.8, 0.3, 1) both;
   }
   .tool-card.open {
     border-left-color: var(--accent);
@@ -176,15 +183,7 @@
     display: flex;
     animation: spin 1s linear infinite;
   }
-  .chev {
-    background: none;
-    border: none;
-    color: var(--text-muted);
-    cursor: pointer;
-    padding: 0;
-    display: flex;
-    flex: none;
-  }
+  .chev { background: none; border: none; color: var(--text-muted); cursor: pointer; padding: 0; display: flex; flex: none; transition: transform 0.22s ease, color 0.2s ease; }
   .chev:hover { color: var(--text-primary); }
   .chev.open { transform: rotate(180deg); }
   .btn {
@@ -199,6 +198,19 @@
   .btn.ghost { background: transparent; color: var(--text-secondary); border: 1px solid var(--border-default); }
   .btn.danger { background: transparent; color: var(--danger); border: 1px solid currentColor; }
   .btn:hover { filter: brightness(1.1); }
+  /* Grid-rows collapse — animated height between open/closed. */
+  .out-grid {
+    display: grid;
+    grid-template-rows: 1fr;
+    transition: grid-template-rows 0.3s cubic-bezier(0.22, 0.8, 0.3, 1);
+  }
+  .out-grid.closed {
+    grid-template-rows: 0fr;
+  }
+  .out-inner {
+    min-height: 0;
+    overflow: hidden;
+  }
   .output {
     border-top: 1px solid var(--border-subtle);
     background: var(--bg-base);
@@ -208,7 +220,6 @@
     display: flex;
     flex-direction: column;
     gap: 2px;
-    animation: outputIn 0.28s cubic-bezier(0.22, 0.8, 0.3, 1) both;
   }
   .line {
     font-family: var(--font-mono);

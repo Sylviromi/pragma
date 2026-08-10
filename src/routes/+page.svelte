@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import ChatPanel from '../components/ChatPanel.svelte'
+  import DirBar from '../components/DirBar.svelte'
   import SidebarPanel from '../components/SidebarPanel.svelte'
   import { loadSessions, sessions, restoreTabs } from '../stores/sessions.svelte'
   import { ui } from '../stores/ui.svelte'
@@ -30,13 +31,16 @@
 {#if sessions.activeTabId}
   <div class="app-view">
     <div class="chat-col">
+      <DirBar sessionId={sessions.activeTabId} />
       <ChatPanel sessionId={sessions.activeTabId} />
     </div>
-    {#if ui.sidebarOpen}
-      <div class="sidebar-wrap" class:overlay={narrow}>
+    <!-- Sidebar stays mounted so the design's open/close animation plays
+         (width 0.34s + inner translateX slide); overlay mode on narrow windows. -->
+    <div class="sidebar-wrap" class:closed={!ui.sidebarOpen} class:overlay={narrow}>
+      <div class="sidebar-inner">
         <SidebarPanel sessionId={sessions.activeTabId} />
       </div>
-    {/if}
+    </div>
   </div>
 {:else}
   <div class="empty">Open or create a session to start.</div>
@@ -56,9 +60,30 @@
     flex: 1;
     min-width: 0;
   }
+  /* Design sidebar: 300px (270px when overlaying a narrow window), slides in
+     with a width + inner-translate transition; closed collapses to 0. */
   .sidebar-wrap {
     display: flex;
     flex: none;
+    width: 300px;
+    overflow: hidden;
+    opacity: 1;
+    transition: width 0.34s cubic-bezier(0.22, 0.8, 0.3, 1), opacity 0.26s ease;
+  }
+  .sidebar-inner {
+    display: flex;
+    flex: none;
+    width: 300px;
+    height: 100%;
+    transition: transform 0.34s cubic-bezier(0.22, 0.8, 0.3, 1);
+  }
+  .sidebar-wrap.closed {
+    width: 0;
+    opacity: 0;
+    pointer-events: none;
+  }
+  .sidebar-wrap.closed .sidebar-inner {
+    transform: translateX(18px);
   }
   /* Narrow: the sidebar docks over the conversation (design: 270px overlay
      with shadow-lg), still driven by the tab-bar toggle. */
@@ -69,6 +94,10 @@
     bottom: 0;
     z-index: 30;
     box-shadow: var(--shadow-lg);
+  }
+  .sidebar-wrap.overlay,
+  .sidebar-wrap.overlay .sidebar-inner {
+    width: 270px;
   }
   .sidebar-wrap.overlay :global(.sidebar) {
     width: 270px;

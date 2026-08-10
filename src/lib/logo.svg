@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="27" height="27" viewBox="0 0 32 32" fill="none" role="img" aria-label="Pragma">
+  <!-- Pragma brand mark (prototype_design UI kit): square + P + corner ticks.
+       Uses theme tokens with fixed fallbacks so the same file works inline
+       (themeable, document CSS vars resolve) and as a standalone asset. -->
+  <rect x="4" y="4" width="24" height="24" stroke="var(--accent, #d1deeb)" stroke-width="1.4"></rect>
+  <path d="M10.6 24V8h5.75a5 5 0 0 1 0 10H10.6" stroke="var(--text-primary, #f8fbfe)" stroke-width="1.8" stroke-linecap="square" stroke-linejoin="miter"></path>
+  <path d="M1 4h2M4 1v2M29 28h2M28 29v2" stroke="var(--accent, #d1deeb)" stroke-width="1" opacity="0.7"></path>
+</svg>

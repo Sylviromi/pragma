@@ -1,10 +1,12 @@
 <script lang="ts">
   import Icon from './Icon.svelte'
 
-  // The design's "Needs your answer" block: rendered from both the live
-  // `question` agent event (picking calls answerQuestion → resumes the paused
-  // loop) and from a persisted ask_question tool_use in a completed message
-  // (answer recovered from "User answered: …").
+  // The design's "Needs your answer" block (`Pragma UI Kit` → buildBlock kind
+  // 'question'): rendered from both the live `question` agent event (picking
+  // calls answerQuestion → resumes the paused loop) and from a persisted
+  // ask_question tool_use in a completed message (answer recovered from
+  // "User answered: …"). Pending = warning border + thinkGlow + numbered
+  // chips + hint; answered = success icon + answer pill + subtle border.
   let {
     text,
     options,
@@ -16,6 +18,18 @@
     answer?: string | null
     onSelect?: (option: string) => void
   } = $props()
+
+  const answered = $derived(answer !== null && answer !== undefined && answer !== '')
+  const pending = $derived(!answered)
+
+  const chip = $derived.by(() =>
+    options.map((label, oi) => ({
+      label,
+      badge: String(oi + 1),
+      picked: answer === label,
+    }))
+  )
+
   // Free-text fallback: questions without options (e.g. "which folder?") get a
   // text input instead of chips; the answer flows through onSelect →
   // answerQuestion the same way a chip pick does.
@@ -34,24 +48,32 @@
   }
 </script>
 
-<div class="question">
+<div class="question" class:pending class:answered>
   <div class="q-head">
-    <Icon name="help" size={14} />
-    <span>Needs your answer</span>
+    <span class="q-ico" aria-hidden="true"><Icon name={answered ? 'task_alt' : 'help'} size={16} /></span>
+    <span class="q-label">{answered ? 'Answered' : 'Needs your answer'}</span>
+    <span class="q-pill" title={answered ? answer : undefined}>
+      {answered ? answer : 'run paused'}
+    </span>
   </div>
   <div class="q-text">{text}</div>
   {#if options.length > 0}
     <div class="q-options">
-      {#each options as opt (opt)}
+      {#each chip as c (c.label)}
         <button
           class="chip"
-          class:picked={answer === opt}
-          onclick={() => !answer && onSelect?.(opt)}
-          disabled={!!answer}
-        >{opt}</button>
+          class:picked={c.picked}
+          disabled={answered}
+          onclick={() => pending && onSelect?.(c.label)}
+        >
+          <span class="badge" class:picked={c.picked}>{c.badge}</span>
+          <span class="chip-label">{c.label}</span>
+          {#if c.picked}<span class="check" aria-hidden="true"><Icon name="check" size={15} /></span>{/if}
+        </button>
       {/each}
     </div>
-  {:else if answer}
+    {#if pending}<div class="q-hint">Pick one, press {options.length === 1 ? '1' : `1–${options.length}`}, or type your own answer below.</div>{/if}
+  {:else if answered}
     <div class="q-answer">
       <Icon name="check" size={14} />
       <span>{answer}</span>
@@ -72,59 +94,105 @@
 </div>
 
 <style>
-  /* Design: elevated card with accent border, uppercase mono label, pill chips. */
+  /* Design: warning-bordered card while pending (thinkGlow), success-pill "run
+     paused / Answered" header, mono label, numbered pill chips. */
   .question {
     background: var(--bg-elevated);
-    border: 1px solid var(--accent);
+    border: 1px solid var(--warning);
     border-radius: 5px 18px 18px 18px;
-    padding: 12px 16px 13px;
+    padding: 13px 16px 14px;
     display: flex;
     flex-direction: column;
-    gap: 10px;
+    gap: 11px;
+    transition: border-color 0.35s ease;
+    animation: bubbleIn 0.34s cubic-bezier(0.22, 0.8, 0.3, 1) both;
+  }
+  /* Pending: breathing warning glow; answered: quiet subtle border. */
+  .question.pending {
+    animation: bubbleIn 0.34s cubic-bezier(0.22, 0.8, 0.3, 1) both,
+      thinkGlow 2.4s ease-in-out infinite;
+  }
+  .question.answered {
+    border-color: var(--border-subtle);
   }
   .q-head {
     display: flex;
     align-items: center;
     gap: 7px;
+    min-width: 0;
+  }
+  .q-ico {
+    flex: none;
+    display: flex;
+    color: var(--warning);
+  }
+  .question.answered .q-ico {
+    color: var(--success);
+  }
+  .q-ico :global(.msr) {
+    font-size: 16px;
+    line-height: 1;
+  }
+  .question.pending .q-ico {
+    animation: dotPulse 1.6s ease-in-out infinite;
+  }
+  .q-label {
+    flex: none;
     font-family: var(--font-mono);
     font-size: 10px;
-    letter-spacing: 0.08em;
+    letter-spacing: 0.09em;
     text-transform: uppercase;
-    color: var(--accent);
+    color: var(--warning);
   }
-  .q-head :global(.msr) {
-    font-size: 14px;
-    line-height: 1;
+  .question.answered .q-label {
+    color: var(--text-muted);
+  }
+  .q-pill {
+    margin-left: auto;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--text-muted);
+    background: var(--bg-overlay);
+    border-radius: 9px;
+    padding: 2px 9px;
+    white-space: nowrap;
+    max-width: 150px;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
   .q-text {
     font-family: var(--font-body);
     font-size: 14px;
     color: var(--text-primary);
-    line-height: 1.5;
+    line-height: 1.55;
   }
   .q-options {
     display: flex;
     flex-wrap: wrap;
-    gap: 7px;
+    gap: 8px;
   }
+  /* Pill chips with mono number badges (design opt.style). */
   .chip {
-    padding: 6px 13px;
-    border-radius: 14px;
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    padding: 7px 13px 7px 8px;
+    border-radius: 16px;
     cursor: pointer;
     font-family: var(--font-body);
     font-size: 12.5px;
     border: 1px solid var(--border-default);
     background: transparent;
     color: var(--text-primary);
-    transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+    transition: border-color 0.2s ease, background 0.2s ease, color 0.2s ease;
   }
   .chip:hover:not(:disabled) {
-    border-color: var(--accent);
+    border-color: var(--warning);
   }
   .chip.picked {
-    border-color: var(--accent);
-    background: var(--accent);
-    color: var(--accent-on);
+    border-color: var(--success);
+    background: color-mix(in oklch, var(--success) 16%, transparent);
+    color: var(--text-primary);
   }
   .chip:disabled {
     cursor: default;
@@ -132,9 +200,44 @@
     border-color: var(--border-subtle);
   }
   .chip.picked:disabled {
-    color: var(--accent-on);
-    background: var(--accent);
-    border-color: var(--accent);
+    color: var(--text-primary);
+    border-color: var(--success);
+    background: color-mix(in oklch, var(--success) 16%, transparent);
+  }
+  /* Unpicked chips dim once answered (design: opacity 0.5). */
+  .question.answered .chip:not(.picked) {
+    opacity: 0.5;
+  }
+  .badge {
+    width: 17px;
+    height: 17px;
+    flex: none;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 3px;
+    font-family: var(--font-mono);
+    font-size: 9.5px;
+    color: var(--text-muted);
+    background: var(--bg-overlay);
+  }
+  .badge.picked {
+    color: var(--success);
+  }
+  .chip-label {
+    white-space: nowrap;
+  }
+  .check {
+    display: flex;
+    flex: none;
+  }
+  .check :global(.msr) {
+    color: var(--success);
+  }
+  .q-hint {
+    font-family: var(--font-body);
+    font-size: 11.5px;
+    color: var(--text-muted);
   }
   .q-input {
     display: flex;

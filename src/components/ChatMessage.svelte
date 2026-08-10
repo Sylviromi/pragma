@@ -4,6 +4,7 @@
   import { renderMarkdown } from '../lib/markdown'
   import ToolCard from './ToolCard.svelte'
   import QuestionBlock from './QuestionBlock.svelte'
+  import ThoughtCard from './ThoughtCard.svelte'
   import Icon from './Icon.svelte'
 
   let {
@@ -12,6 +13,7 @@
     onContextMenu,
     highlighted = false,
     onAnswerQuestion,
+    animate = false,
   }: {
     message: Message
     toolOutputs: Record<string, { content: string; isError: boolean }>
@@ -19,6 +21,9 @@
     highlighted?: boolean
     /** Answer callback for the question-block skeleton (option chips). */
     onAnswerQuestion?: (option: string) => void
+    /** Entrance animation — design animates bubbles as they appear; history
+     *  only animates the newest message so tab switches stay quiet. */
+    animate?: boolean
   } = $props()
 
   // Trim trailing whitespace/newlines from text before display — the stored
@@ -79,7 +84,7 @@
 </script>
 
 {#if !isToolResultMsg && (isUser ? !!userText : true)}
-  <div class="msg-row" class:highlighted data-role={isUser ? 'user' : 'assistant'}>
+  <div class="msg-row" class:highlighted class:animate data-role={isUser ? 'user' : 'assistant'}>
   {#if isUser}
     <div class="user-row">
       <div class="user-bubble" oncontextmenu={onMenu} role="group" aria-label="User message">
@@ -116,15 +121,9 @@
                 </div>
               {/if}
             {:else if block.type === 'reasoning' && tidy(block.content)}
-              <div class="thought">
-                <Icon name="neurology" size={15} />
-                <span>{tidy(block.content)}</span>
-              </div>
+              <ThoughtCard title="Thought process">{tidy(block.content)}</ThoughtCard>
             {:else if block.type === 'thinking' && tidy(block.thinking)}
-              <div class="thought">
-                <Icon name="neurology" size={15} />
-                <span>{tidy(block.thinking)}</span>
-              </div>
+              <ThoughtCard title="Thought process">{tidy(block.thinking)}</ThoughtCard>
             {:else if block.type === 'tool_use'}
               {@const b = block as ToolUseBlock}
               {@const out = toolOutputs[b.id]}
@@ -175,6 +174,10 @@
     background: color-mix(in srgb, var(--accent) 8%, transparent);
     box-shadow: inset 2px 0 0 0 var(--accent);
   }
+  /* Design bubble entrance — applied to the newest message only. */
+  .msg-row.animate {
+    animation: bubbleIn 0.34s cubic-bezier(0.22, 0.8, 0.3, 1) both;
+  }
 
   /* User bubble — right aligned, accent-soft fill, asymmetric radius. */
   .user-row {
@@ -223,26 +226,6 @@
     display: flex;
     flex-direction: column;
     gap: 7px;
-  }
-
-  /* Thought block: muted italic with neurology icon. */
-  .thought {
-    display: flex;
-    gap: 8px;
-    align-items: flex-start;
-    font-family: var(--font-body);
-    font-size: 12.5px;
-    font-style: italic;
-    color: var(--text-muted);
-    line-height: 1.5;
-    padding-left: 2px;
-  }
-  .thought :global(.msr) {
-    font-size: 15px;
-    line-height: 1.3;
-    flex: none;
-    font-style: normal;
-    color: var(--text-muted);
   }
 
   /* Text block: elevated bubble, asymmetric radius, prose + inline code. */

@@ -80,6 +80,62 @@
   0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent, #58a6ff) 55%, transparent); }
   50% { box-shadow: 0 0 0 5px color-mix(in srgb, var(--accent, #58a6ff) 0%, transparent); }
 }
+/* Design kit additions — remaining keyframes from `Pragma UI Kit.dc.html`,
+   consumed by the thought card, live indicator, question block, dir picker,
+   drop-downs, staggered rows and toast exit. All inherit the global
+   reduce-motion kill-switches below (selector-based, no per-animation work). */
+@keyframes shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+@keyframes railPulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+@keyframes thinkGlow {
+  0%, 100% { box-shadow: 0 0 0 0 color-mix(in oklch, var(--slot) 0%, transparent); }
+  50% { box-shadow: 0 0 14px 1px color-mix(in oklch, var(--slot) 30%, transparent); }
+}
+@keyframes bounceDot {
+  0%, 100% { transform: translateY(0); opacity: 0.6; }
+  50% { transform: translateY(-3px); opacity: 1; }
+}
+@keyframes rowIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes slideDown {
+  from { opacity: 0; transform: translateY(-8px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes dialogIn {
+  from { opacity: 0; transform: translateY(10px) scale(0.985); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes dialogOut {
+  from { opacity: 1; transform: none; }
+  to { opacity: 0; transform: translateY(10px) scale(0.985); }
+}
+@keyframes dropIn {
+  from { opacity: 0; transform: translateY(-5px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes dropOut {
+  from { opacity: 1; transform: none; }
+  to { opacity: 0; transform: translateY(-5px); }
+}
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes fadeOut {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+@keyframes toastOut {
+  from { opacity: 1; transform: translateY(0); }
+  to { opacity: 0; transform: translateY(6px); }
+}
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {

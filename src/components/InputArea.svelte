@@ -2,7 +2,6 @@
   import { sendMessage, stopTurn, chat } from '../stores/chat.svelte'
   import ModelPicker from './ModelPicker.svelte'
   import Icon from './Icon.svelte'
-  import DirChip from './DirChip.svelte'
   import SlotStack from './SlotStack.svelte'
   import { getSession } from '../stores/sessions.svelte'
   import { updateSession, captureAppScreenshot } from '../lib/tauri'
@@ -151,7 +150,6 @@
 
   <div class="footer">
     <ModelPicker bind:model bind:provider bind:thinking />
-    <DirChip {sessionId} />
 
     <!-- Plugins can contribute their own controls here (design's composer-center). -->
     <SlotStack slot="composer-center" context={sessionId} />
@@ -162,16 +160,6 @@
     <SlotStack slot="chat-toolbar-extra" context={sessionId} />
 
     <div class="footer-right">
-      {#if running}
-        <button
-          class="hint-btn stop-btn"
-          type="button"
-          title="Stop the response (Esc)"
-          onclick={() => stopTurn(sessionId)}
-          aria-label="Stop generating"
-        ><Icon name="stop" size={15} /> Stop</button>
-      {/if}
-      <button class="hint-btn" type="button" title="Screenshot this app window (Ctrl+Shift+S)" onclick={shoot}><Icon name="camera" size={16} /></button>
       <button class="hint-btn hide-narrow" type="button">@ skills</button>
       <button class="hint-btn hide-narrow" type="button">/ cmds</button>
       <!-- Auto-approve (compact toggle; moved into the composer so the tab
@@ -296,14 +284,6 @@
   .send-btn:disabled {
     opacity: 0.5;
     cursor: not-allowed;
-  }
-  .stop-btn {
-    color: var(--danger);
-    border: 1px solid color-mix(in srgb, var(--danger) 40%, transparent);
-  }
-  .stop-btn:hover {
-    background: color-mix(in srgb, var(--danger) 10%, transparent);
-    color: var(--danger);
   }
   /* Compact auto-approve switch */
   .auto-dot {

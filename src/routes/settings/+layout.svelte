@@ -28,10 +28,11 @@
   <div class="body">
     <nav aria-label="Settings navigation">
       <div class="label">SETTINGS</div>
-      {#each nav as item}
+      {#each nav as item, i}
         <a
           href={item.href}
-          class="item"
+          class="item stagger"
+          style={`--i:${i}`}
           class:active={isActive(item.href)}
           aria-current={isActive(item.href) ? 'page' : undefined}
         >{item.label}</a>
@@ -39,10 +40,11 @@
 
       {#if plugins.list.length > 0}
         <div class="label plugins-label">PLUGINS</div>
-        {#each plugins.list as p (p.id)}
+        {#each plugins.list as p, i (p.id)}
           <a
             href={`/settings/plugin/${p.id}`}
-            class="item plugin-item"
+            class="item plugin-item stagger"
+            style={`--i:${i + 6}`}
             class:active={$page.url.pathname === `/settings/plugin/${p.id}`}
             aria-current={$page.url.pathname === `/settings/plugin/${p.id}` ? 'page' : undefined}
           >
@@ -117,6 +119,11 @@
     letter-spacing: 0.08em;
     color: var(--text-muted);
     padding: 6px 8px 4px;
+  }
+  /* Design settings nav entrance: rows fade up 45ms apart. */
+  .stagger {
+    animation: rowIn 0.34s cubic-bezier(0.22, 0.8, 0.3, 1) both;
+    animation-delay: calc(var(--i) * 45ms);
   }
   .plugins-label {
     margin-top: 10px;

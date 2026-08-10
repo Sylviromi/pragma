@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { fly } from 'svelte/transition'
   import { toasts, dismissToast } from '../stores/toast.svelte'
 </script>
 
@@ -8,6 +9,7 @@
       class="toast"
       class:error={t.kind === 'error'}
       class:success={t.kind === 'success'}
+      transition:fly={{ y: 8, duration: 200, easing: (t) => 1 - Math.pow(1 - t, 3) }}
       onclick={() => dismissToast(t.id)}
     >
       <span class="dot" aria-hidden="true"></span>
@@ -47,7 +49,6 @@
     line-height: 1.4;
     text-align: left;
     cursor: pointer;
-    animation: toast-in 0.18s ease-out;
   }
   .dot {
     width: 7px;
@@ -64,15 +65,5 @@
   }
   .toast:hover {
     border-color: var(--text-muted);
-  }
-  @keyframes toast-in {
-    from {
-      opacity: 0;
-      transform: translateY(6px);
-    }
-    to {
-      opacity: 1;
-      transform: translateY(0);
-    }
   }
 </style>

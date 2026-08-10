@@ -77,6 +77,7 @@
               cx="42" cy="42" r="35" fill="none"
               stroke={seg.color} stroke-width="9"
               stroke-dasharray={seg.dash} stroke-dashoffset={seg.offset}
+              style="transition: stroke-dasharray 0.9s cubic-bezier(0.22, 0.8, 0.3, 1), stroke-dashoffset 0.9s cubic-bezier(0.22, 0.8, 0.3, 1);"
             ></circle>
           {/each}
         </svg>
@@ -86,8 +87,8 @@
         </div>
       </div>
       <div class="legend">
-        {#each segments as seg (seg.label)}
-          <div class="legend-row">
+        {#each segments as seg, i (seg.label)}
+          <div class="legend-row stagger" style={`--i:${i}`}>
             <span class="legend-dot" style={`background:${seg.color}`} aria-hidden="true"></span>
             <span class="legend-label">{seg.label}</span>
             <span class="legend-tokens">{seg.tokensLabel}</span>
@@ -104,8 +105,8 @@
         <span class="section-label">Session cost</span>
         <span class="cost-total">{st.cost.total}</span>
       </div>
-      {#each st.cost.rows as row (row.model)}
-        <div class="cost-row">
+      {#each st.cost.rows as row, i (row.model)}
+        <div class="cost-row stagger" style={`--i:${i}`}>
           <span class="cost-model">{row.model}</span>
           <span class="cost-meta">{row.tokens}</span>
           <span class="cost-amt">{row.cost}</span>
@@ -122,8 +123,8 @@
     <section class="sec">
       <div class="sec-label">Sessions</div>
       <div class="sec-body">
-        {#each sessionRows as row (row.id)}
-          <button class="row-btn" class:active={row.id === sessionId} onclick={row.onClick}>
+        {#each sessionRows as row, i (row.id)}
+          <button class="row-btn stagger" class:active={row.id === sessionId} style={`--i:${i}`} onclick={row.onClick}>
             <span class="dot" class:live={row.live} style={`background:${row.dot}`} aria-hidden="true"></span>
             <span class="row-name">{row.name}</span>
             <span class="row-status">{row.status}</span>
@@ -140,8 +141,8 @@
         <span class="sec-meta">{st.plan.progress}</span>
       </div>
       <div class="sec-body">
-        {#each st.plan.items as item (item.label)}
-          <div class="plan-row">
+        {#each st.plan.items as item, i (item.label)}
+          <div class="plan-row stagger" style={`--i:${i}`}>
             <span
               class="plan-icon"
               style={`--plan-color: ${item.state === 'done' ? 'var(--success)' : item.state === 'active' ? 'var(--accent)' : 'var(--text-muted)'}`}
@@ -166,8 +167,8 @@
         <span class="sec-meta">{st.files.length}</span>
       </div>
       <div class="sec-body">
-        {#each st.files as f (f.path)}
-          <button class="file-row" onclick={() => onOpenFile(f.path)}>
+        {#each st.files as f, i (f.path)}
+          <button class="file-row stagger" style={`--i:${i}`} onclick={() => onOpenFile(f.path)}>
             <span class="file-badge" style={`--badge: ${badgeColor[f.kind]}`}>{badgeLetter[f.kind]}</span>
             <span class="file-path" title={f.path}>{f.path}</span>
             {#if hasDiff(f.added, f.removed)}
@@ -195,11 +196,14 @@
         <span class="git-files">{st.git.files} files</span>
       </div>
       <div class="git-rows">
-        {#each st.git.rows as g (g.path)}
-          <div class="git-row">
+        {#each st.git.rows as g, i (g.path)}
+          <div class="git-row stagger" style={`--i:${i}`}>
             <span class="git-mark" style={`--mark: ${g.mark === 'A' ? 'var(--success)' : 'var(--warning)'}`}>{g.mark}</span>
             <span class="git-path">{g.path}</span>
-            <span class="git-bar" style={`--bar: ${g.mark === 'A' ? 'var(--success)' : 'var(--warning)'}; --w: ${Math.round(38 * g.weight)}px`}></span>
+            <span
+              class="git-bar"
+              style={`--bar: ${g.mark === 'A' ? 'var(--success)' : 'var(--warning)'}; --w: ${Math.round(38 * g.weight)}px; --d: ${i * 70}ms`}
+            ></span>
           </div>
         {/each}
       </div>
@@ -326,6 +330,12 @@
     font-family: var(--font-mono);
     font-size: 10.5px;
     color: var(--text-secondary);
+  }
+  /* Design stagger entrance: rows fade up 45ms apart (sidebar only renders
+     when opened, so the animation plays once per open). */
+  .stagger {
+    animation: rowIn 0.34s cubic-bezier(0.22, 0.8, 0.3, 1) both;
+    animation-delay: calc(var(--i) * 45ms);
   }
   .cost-model {
     flex: 1;
@@ -526,6 +536,9 @@
     height: 4px;
     border-radius: 2px;
     background: var(--bar);
+    transition: width 0.7s cubic-bezier(0.22, 0.8, 0.3, 1);
+    transition-delay: var(--d, 0ms);
+    flex: none;
   }
   .empty-hint {
     font-family: var(--font-mono);
