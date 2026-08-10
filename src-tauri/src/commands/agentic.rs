@@ -5,6 +5,7 @@
 use crate::providers::types::{AgentEvent, ContentBlock};
 use crate::tools::{definitions::standard_tools, ToolExecutor};
 use crate::AppState;
+use futures_util::StreamExt;
 use sqlx::SqlitePool;
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -49,15 +50,25 @@ fn no_working_dir_fact(tool_name: &str, user_said: Option<&str>) -> String {
 
 /// Cap a single tool result that gets persisted into history and fed back to the
 /// model. Prevents one huge output (run_command, search_files, read_file …)
-/// from blowing the context window for the whole conversation.
-const MAX_TOOL_RESULT_CHARS: usize = 24_000;
+/// from blowing the context window for the whole conversation. Kept generous
+/// (≈16K tokens) so full file reads / build outputs survive; the read_file
+/// windowing and search_file caps already keep the pathological cases small.
+const MAX_TOOL_RESULT_CHARS: usize = 64_000;
 
 /// Soft budget for the conversation history sent to the model on every
 /// iteration. The history grows without bound over a long session (every tool
 /// exchange is re-sent in full), so we trim the oldest complete tool exchanges
 /// once the serialized size exceeds this. Always keeps the system prompt and
-/// the newest user message.
-const MAX_HISTORY_CHARS: usize = 100_000;
+/// the newest user message. 320K chars ≈ 80K tokens — comfortably inside a
+/// 200K-context model (Claude, DeepSeek) while still trimming pathological
+/// sessions instead of overflowing the window.
+const MAX_HISTORY_CHARS: usize = 320_000;
+
+/// Total wall-clock budget for executing one batch of read-only tool calls in
+/// parallel. Bounds the "N tools × 60s" blowup: a batch of 50 tools can no
+/// longer stall the loop for 50 minutes — anything still running when this
+/// expires is reported to the model as timed out.
+const BATCH_EXEC_BUDGET_SECS: u64 = 300;
 
 /// RAII guard releasing the agentic-loop lock on drop, so a panic mid-loop can
 /// never leave a session permanently stuck (which would otherwise silently
@@ -668,7 +679,11 @@ You converse with the user in turns. In each turn you can write text and call to
         // Handle tool calls
         let run_id = Uuid::new_v4().to_string();
         let mut tool_results: Vec<serde_json::Value> = Vec::new();
-        let mut any_denied = false;
+        // Plain (executor-backed) tool calls are queued here during the loop
+        // and flushed as a parallel batch afterwards: read-only calls run
+        // concurrently, so a multi-file exploration turn takes one round trip
+        // instead of N. (tool_use_id, name, input, approved, working_dir)
+        let mut plain_queue: Vec<(String, String, serde_json::Value, bool, std::path::PathBuf)> = Vec::new();
 
         for (tool_use_id, name, input) in &tool_calls {
             // ask_question is a control-flow tool: no tool card in the UI and
@@ -761,10 +776,6 @@ You converse with the user in turns. In each turn you can write text and call to
                 };
                 result
             };
-
-            if !approved {
-                any_denied = true;
-            }
 
             let (mut output, is_error) = if !approved {
                 ("Tool call denied by user.".to_string(), true)
@@ -886,36 +897,17 @@ You converse with the user in turns. In each turn you can write text and call to
                     }
                 }
             } else {
-                // Journal the pre-op file state so a later "return to this
-                // point" can restore the filesystem.
-                if crate::commands::revert::is_mutating_file_tool(name) {
-                    let _ = crate::commands::revert::record_snapshot(
-                        &state.db,
-                        session_id,
-                        asst_rowid,
-                        tool_use_id,
-                        name,
-                        input,
-                        &executor.working_dir,
-                    )
-                    .await
-                    .map_err(|e| eprintln!("[revert] snapshot failed: {e}"));
-                }
-                match executor.execute(name, input) {
-                    Ok(out) => {
-                        // Milestone 6 telemetry: describe what the tool did
-                        // to the project tree (kind/± counts from its input).
-                        let _ = crate::commands::stats::record_tool_touch(
-                            &state.db,
-                            &session_id,
-                            name,
-                            input,
-                        )
-                        .await;
-                        (out, false)
-                    }
-                    Err(e) => (e, true),
-                }
+                // Plain tool (file/shell/git/web): queue for the parallel
+                // batch after the loop — snapshots, execution and telemetry
+                // happen at flush time so read-only calls run concurrently.
+                plain_queue.push((
+                    tool_use_id.clone(),
+                    name.clone(),
+                    input.clone(),
+                    approved,
+                    executor.working_dir.clone(),
+                ));
+                continue;
             };
             // Cap oversized outputs so one big result can't blow the context
             // window (and the persisted history) for the whole conversation.
@@ -935,6 +927,166 @@ You converse with the user in turns. In each turn you can write text and call to
             }));
         }
 
+        // ── Flush the plain batch: parallel-safe execution ───────────────
+        // Denied + mutating calls run serially (writes must not race);
+        // read-only calls run concurrently under one budget. Results are
+        // collected by call index so the persisted turn keeps the model's
+        // original order, and every ToolResult event fires before the turn
+        // is persisted.
+        if !plain_queue.is_empty() {
+            let mut flush_results: std::collections::BTreeMap<usize, serde_json::Value> =
+                std::collections::BTreeMap::new();
+            let mut read_only: Vec<(usize, String, String, serde_json::Value, std::path::PathBuf)> =
+                Vec::new();
+
+            // 1. Serial pass: denied (instant) and mutating (ordered) calls.
+            for (i, (tool_use_id, name, input, approved, wd)) in plain_queue.iter().enumerate() {
+                let is_mutating = crate::commands::revert::is_mutating_file_tool(name)
+                    || matches!(name.as_str(), "run_command" | "git_add" | "git_commit");
+                if *approved && !is_mutating {
+                    read_only.push((i, tool_use_id.clone(), name.clone(), input.clone(), wd.clone()));
+                    continue;
+                }
+                let (mut output, is_error) = if !approved {
+                    ("Tool call denied by user.".to_string(), true)
+                } else {
+                    let ex = ToolExecutor::with_ledger(wd, &session_id, ledger.clone());
+                    // Journal the pre-op file state so a later "return to
+                    // this point" can restore the filesystem.
+                    if crate::commands::revert::is_mutating_file_tool(name) {
+                        let _ = crate::commands::revert::record_snapshot(
+                            &state.db,
+                            session_id,
+                            asst_rowid,
+                            tool_use_id,
+                            name,
+                            input,
+                            &ex.working_dir,
+                        )
+                        .await
+                        .map_err(|e| eprintln!("[revert] snapshot failed: {e}"));
+                    }
+                    match ex.execute(name, input) {
+                        Ok(out) => {
+                            // Telemetry: what the tool did to the project tree.
+                            let _ = crate::commands::stats::record_tool_touch(
+                                &state.db,
+                                &session_id,
+                                name,
+                                input,
+                            )
+                            .await;
+                            (out, false)
+                        }
+                        Err(e) => (e, true),
+                    }
+                };
+                output = truncate_output(&output);
+                emit(app_handle, session_id, AgentEvent::ToolResult {
+                    tool_use_id: tool_use_id.clone(),
+                    output: output.clone(),
+                    is_error,
+                });
+                flush_results.insert(i, serde_json::json!({
+                    "type": "tool_result",
+                    "tool_use_id": tool_use_id,
+                    "content": output,
+                    "is_error": is_error,
+                }));
+            }
+
+            // 2. Parallel pass for read-only calls, streamed as each finishes,
+            //    under one batch budget (Esc cancels the whole batch).
+            if !read_only.is_empty() {
+                let mut futs: futures_util::stream::FuturesUnordered<_> = read_only
+                    .iter()
+                    .map(|(i, id, name, input, wd)| {
+                        let ex = ToolExecutor::with_ledger(wd, &session_id, ledger.clone());
+                        let id = id.clone();
+                        let name = name.clone();
+                        let input = input.clone();
+                        async move {
+                            let name_arg = name.clone();
+                            let input_arg = input.clone();
+                            let res =
+                                tokio::task::spawn_blocking(move || ex.execute(&name_arg, &input_arg))
+                                    .await;
+                            (*i, id, name, res)
+                        }
+                    })
+                    .collect();
+                let deadline = tokio::time::Instant::now()
+                    + tokio::time::Duration::from_secs(BATCH_EXEC_BUDGET_SECS);
+                let mut completed: HashSet<usize> = HashSet::new();
+                loop {
+                    tokio::select! {
+                        maybe = futs.next() => {
+                            let Some((i, id, name, res)) = maybe else { break };
+                            completed.insert(i);
+                            let (mut output, is_error) = match res {
+                                Ok(Ok(out)) => {
+                                    let _ = crate::commands::stats::record_tool_touch(
+                                        &state.db,
+                                        &session_id,
+                                        &name,
+                                        &read_only[i].3,
+                                    )
+                                    .await;
+                                    (out, false)
+                                }
+                                Ok(Err(e)) => (e, true),
+                                Err(e) => (format!("tool execution panicked: {e}"), true),
+                            };
+                            output = truncate_output(&output);
+                            emit(app_handle, session_id, AgentEvent::ToolResult {
+                                tool_use_id: id.clone(),
+                                output: output.clone(),
+                                is_error,
+                            });
+                            flush_results.insert(i, serde_json::json!({
+                                "type": "tool_result",
+                                "tool_use_id": id,
+                                "content": output,
+                                "is_error": is_error,
+                            }));
+                        }
+                        _ = tokio::time::sleep_until(deadline) => break,
+                        _ = cancel.changed() => {
+                            for (_, id, _, _, _) in &read_only {
+                                state.pending_approvals.lock().await.remove(id);
+                            }
+                            emit(app_handle, session_id, AgentEvent::Interrupted);
+                            return Ok(());
+                        }
+                    }
+                }
+                // Anything still pending hit the batch budget — tell the model
+                // so it doesn't silently lose an answer.
+                for (i, id, name, _, _) in &read_only {
+                    if completed.contains(i) {
+                        continue;
+                    }
+                    let msg = format!(
+                        "Tool {name} did not finish within the {BATCH_EXEC_BUDGET_SECS}s batch budget and was cancelled. Retry it, or narrow the request."
+                    );
+                    emit(app_handle, session_id, AgentEvent::ToolResult {
+                        tool_use_id: id.clone(),
+                        output: msg.clone(),
+                        is_error: true,
+                    });
+                    flush_results.insert(*i, serde_json::json!({
+                        "type": "tool_result",
+                        "tool_use_id": id,
+                        "content": msg,
+                        "is_error": true,
+                    }));
+                }
+            }
+
+            // Emitted in the model's original call order.
+            tool_results.extend(flush_results.into_values());
+        }
+
         // Add tool results as user turn
         let results_content = serde_json::to_string(&tool_results).unwrap();
         persist_message(&state.db, &session_id, "user", &results_content, "", "").await?;
@@ -949,8 +1101,10 @@ You converse with the user in turns. In each turn you can write text and call to
         )
         .await;
 
-        // Stop the loop if any tool was denied — don't let the AI re-ask unprompted.
-        if any_denied || *exit_app {
+        // Stop only when the app is reloading. A denied tool is fed back as an
+        // error result and the model is expected to adapt (the system prompt
+        // forbids re-issuing it) — the turn continues with the approved ones.
+        if *exit_app {
             emit(app_handle, session_id, AgentEvent::Done);
             break;
         }
