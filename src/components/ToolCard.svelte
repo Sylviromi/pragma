@@ -66,15 +66,45 @@
 
   const summary = $derived(summarize(tool.name, tool.input))
   const hasOutput = $derived(tool.output !== undefined && tool.output !== '')
-  const outputTrimmed = $derived((tool.output ?? '').slice(0, 4000))
   const running = $derived(tool.status === 'running')
   const waiting = $derived(tool.status === 'waiting')
 
+  // Output preview is bounded to keep the DOM small: tool results can be tens
+  // of KB to MBs (git diffs, file reads, command output). Splitting the FULL
+  // output into one <div> per line would otherwise build thousands of nodes
+  // inside the scrollable list — the scroll repaint cost that makes the UI
+  // jank even when the app is idle. Cap both characters and line count.
+  const OUTPUT_CHAR_LIMIT = 4000
+  const OUTPUT_LINE_LIMIT = 300
+
   // Diff-ish coloring per output line (design: + green / − red / failures red).
-  const outputLines = $derived((tool.output ?? '').trimEnd().split('\n').map((text) => {
-    const add = text.startsWith('+'), rm = text.startsWith('-'), fail = /FAIL|●|Expected:|error:/i.test(text)
-    return { text, color: add ? 'var(--success)' : rm ? 'var(--danger)' : fail ? 'var(--danger)' : 'var(--text-secondary)' }
-  }))
+  const outputLines = $derived.by(() => {
+    const raw = tool.output ?? ''
+    const sliced = raw.trimEnd().slice(0, OUTPUT_CHAR_LIMIT)
+    const lines = sliced.split('\n')
+    const clipped = lines.length > OUTPUT_LINE_LIMIT
+    const shown = clipped ? lines.slice(0, OUTPUT_LINE_LIMIT) : lines
+    const rows = shown.map((text) => {
+      const add = text.startsWith('+'), rm = text.startsWith('-')
+      const fail = /FAIL|●|Expected:|error:/i.test(text)
+      return {
+        text,
+        color: add
+          ? 'var(--success)'
+          : rm
+            ? 'var(--danger)'
+            : fail
+              ? 'var(--danger)'
+              : 'var(--text-secondary)',
+      }
+    })
+    return {
+      rows,
+      charsTruncated: raw.length > OUTPUT_CHAR_LIMIT,
+      linesTruncated: clipped,
+      hiddenLines: lines.length - shown.length,
+    }
+  })
 </script>
 
 <div
@@ -113,10 +143,15 @@
     <div class="out-grid" class:closed={!outputOpen}>
       <div class="out-inner">
         <div class="output">
-          {#each outputLines as line, i (i)}
+          {#each outputLines.rows as line, i (i)}
             <div class="line" style={`color:${line.color}`}>{line.text}</div>
           {/each}
-          {#if (tool.output ?? '').length > 4000}<div class="more">… (truncated)</div>{/if}
+          {#if outputLines.linesTruncated || outputLines.charsTruncated}
+            <div class="more">
+              … truncated
+              {#if outputLines.hiddenLines > 0}{outputLines.hiddenLines} more lines{/if}
+            </div>
+          {/if}
         </div>
       </div>
     </div>
