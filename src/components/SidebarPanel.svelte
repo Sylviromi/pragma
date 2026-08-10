@@ -14,20 +14,21 @@
     loadSessionStats(sessionId)
   })
 
-  // All sessions from the DB (newest first), so the sidebar shows the full
-  // session history immediately on launch — not just tabs open in this run.
-  // Clicking a row opens (or switches to) that session's tab.
+  // Sidebar lists only the *open* sessions (the restored tabs above); the
+  // full history stays on the tab bar side and in the DB. Clicking a row
+  // switches to that session's already-open tab.
   const sessionRows = $derived(
-    sessions.list.map((s) => {
-      const status = (chat.status[s.id] ?? 'idle') as AgentStatus
+    sessions.openTabs.map((id) => {
+      const s = sessions.list.find((x) => x.id === id)
+      const status = (chat.status[id] ?? 'idle') as AgentStatus
       const meta = STATUS_META[status]
       return {
-        id: s.id,
-        name: s.name,
+        id,
+        name: s?.name ?? id,
         status: meta.label,
         dot: meta.color,
         live: status !== 'idle',
-        onClick: () => openTab(s.id),
+        onClick: () => openTab(id),
       }
     })
   )
