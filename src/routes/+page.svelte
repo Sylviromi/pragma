@@ -17,8 +17,9 @@
   $effect(() => {
     const onResize = () => {
       narrow = window.innerWidth < 900
-      // On narrow windows the sidebar becomes an overlay and starts closed.
-      if (narrow) ui.sidebarOpen = false
+      // Don't force-close here: the sidebar stays open by default at any
+      // window size (on narrow windows it becomes an overlay until the user
+      // toggles it).
     }
     onResize()
     window.addEventListener('resize', onResize)

@@ -40,11 +40,16 @@
   // Default to the first available model once providers are known — also fires
   // when discovery lands *after* mount (new API key saved, /v1/models response
   // received), so the chip never sits on "Choose model" when choices exist.
+  // Prefers a provider with a free model (zen-proxy style free tiers) so a
+  // fresh app without API keys lands on a model that actually works, instead
+  // of Anthropic's fallback list which needs an API key.
   $effect(() => {
-    if (!model && providerState.providers[0]) {
-      provider = providerState.providers[0].id
-      model = providerState.providers[0].models[0]?.id ?? ''
-    }
+    if (model || !providerState.providers.length) return
+    const prov =
+      providerState.providers.find((p) => p.models.some((m) => m.isFree)) ??
+      providerState.providers[0]
+    provider = prov.id
+    model = prov.models[0]?.id ?? ''
   })
 
   const filtered = $derived(
@@ -104,7 +109,12 @@
 
 <svelte:window
   onclick={(e) => {
-    if (el && !el.contains(e.target as Node)) open = false
+    // composedPath() is snapshotted when the event dispatches, so it still
+    // contains the picker even for clicks that unmount part of the DOM before
+    // bubbling reaches window (e.g. picking a thinking level removes the menu,
+    // detaching the clicked button — el.contains would then return false and
+    // wrongly close the whole picker).
+    if (el && !e.composedPath().includes(el)) open = false
   }}
 />
 

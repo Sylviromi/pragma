@@ -4,7 +4,14 @@
 
   let { slot, context = '' }: { slot: string; context?: string } = $props()
 
-  const apps = $derived(pluginsForSlot(slot))
+  // settings-page is a per-plugin slot: only the plugin whose settings page is
+  // being viewed renders there. Every other slot stacks all claiming plugins
+  // (multiple status strips, multiple toolbar buttons, …).
+  const apps = $derived(
+    slot === 'settings-page'
+      ? pluginsForSlot(slot).filter((p) => p.id === context)
+      : pluginsForSlot(slot)
+  )
 </script>
 
 {#if apps.length > 0}
