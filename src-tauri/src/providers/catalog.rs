@@ -97,6 +97,8 @@ pub fn enrich(
         context_window: api_context.or_else(|| context_for(id)),
         is_free: api_free.unwrap_or(false),
         is_vision: api_vision.unwrap_or_else(|| vision_for(id)),
+        max_tokens: None,
+        reasoning_effort: None,
     }
 }
 

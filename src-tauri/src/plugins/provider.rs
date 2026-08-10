@@ -16,6 +16,10 @@ pub struct ProviderDef {
     /// When true, fetch {base_url}/models at load time and replace the static list.
     #[serde(default)]
     pub discover: bool,
+    /// Provider-level reasoning effort applied to all models (unless a model
+    /// declares its own). e.g. "low" | "medium" | "high".
+    #[serde(default)]
+    pub reasoning_effort: Option<String>,
     #[serde(default)]
     pub models: Vec<ModelInfo>,
 }
@@ -89,6 +93,7 @@ pub fn register_plugin_providers(
                 plugin_id: info.id.clone(),
             },
             models: def.models.clone(),
+            reasoning_effort: def.reasoning_effort.clone(),
         };
         registry.register(provider);
         registered += 1;

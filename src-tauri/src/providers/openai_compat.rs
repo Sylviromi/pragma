@@ -12,6 +12,9 @@ pub struct OpenAICompatProvider {
     pub base_url: String,
     pub source: ProviderSource,
     pub models: Vec<ModelInfo>,
+    /// Provider-level reasoning effort, applied to every model unless a model
+    /// declares its own `reasoningEffort`. None = never send the field.
+    pub reasoning_effort: Option<String>,
 }
 
 impl OpenAICompatProvider {
@@ -39,13 +42,26 @@ impl OpenAICompatProvider {
         // Convert history to OpenAI format (handles Anthropic-style tool_use/tool_result blocks)
         let oai_messages = to_openai_messages(messages);
 
+        // Per-model settings (provider.json): `maxTokens` ceiling and optional
+        // `reasoningEffort` (e.g. "low"/"medium"/"high" for gpt-5, Qwen3,
+        // GLM-z1 and other reasoning-capable OpenAI-compat endpoints). The
+        // provider-level reasoning_effort is the fallback when the model has
+        // none. deepseek-reasoner needs no field (it reasons by default);
+        // opaque upstream servers that reject unknown params stay safe because
+        // the field is only sent when explicitly configured.
+        let (max_tokens, reasoning_effort) =
+            model_request_options(&self.models, model, self.reasoning_effort.as_deref());
+
         let mut body = serde_json::json!({
             "model": model,
             "stream": true,
             "temperature": 0.0,
-            "max_tokens": 16384,
+            "max_tokens": max_tokens.unwrap_or(16_384),
             "messages": oai_messages,
         });
+        if let Some(effort) = reasoning_effort {
+            body["reasoning_effort"] = serde_json::Value::String(effort.to_string());
+        }
 
         if !tools.is_empty() {
             body["tools"] = serde_json::to_value(
@@ -229,6 +245,25 @@ impl OpenAICompatProvider {
     }
 }
 
+/// Resolve per-model request options for an OpenAI-compat call:
+/// - `max_tokens`: the model's own `maxTokens` when configured, else None
+///   (caller falls back to the provider default).
+/// - `reasoning_effort`: the model's own `reasoningEffort`, else the
+///   provider-level fallback, else None (field not sent).
+fn model_request_options(
+    models: &[ModelInfo],
+    model_id: &str,
+    provider_effort: Option<&str>,
+) -> (Option<u32>, Option<String>) {
+    let cfg = models.iter().find(|m| m.id == model_id);
+    let max_tokens = cfg.and_then(|m| m.max_tokens);
+    let effort = cfg
+        .and_then(|m| m.reasoning_effort.as_deref())
+        .or(provider_effort)
+        .map(|s| s.to_string());
+    (max_tokens, effort)
+}
+
 /// Convert a history array (which may contain Anthropic-style content blocks) into
 /// standard OpenAI message format.
 fn to_openai_messages(messages: &[serde_json::Value]) -> Vec<serde_json::Value> {
@@ -362,6 +397,7 @@ pub fn deepseek() -> OpenAICompatProvider {
             super::catalog::enrich("deepseek-chat", "DeepSeek Chat".into(), None, None, None),
             super::catalog::enrich("deepseek-reasoner", "DeepSeek Reasoner".into(), None, None, None),
         ],
+        reasoning_effort: None,
     }
 }
 
@@ -372,6 +408,7 @@ pub fn opencode_local() -> OpenAICompatProvider {
         base_url: "http://localhost:4000/v1".into(),
         source: ProviderSource::Builtin,
         models: vec![],
+        reasoning_effort: None,
     }
 }
 
@@ -419,5 +456,37 @@ mod tests {
         assert_eq!(out.len(), 3);
         assert_eq!(out[1]["tool_calls"].as_array().unwrap().len(), 1);
         assert_eq!(out[2]["role"], "tool");
+    }
+
+    #[test]
+    fn request_options_resolution() {
+        let models = vec![
+            crate::providers::catalog::enrich("plain", "Plain".into(), None, None, None),
+            crate::providers::types::ModelInfo {
+                id: "reasoner".into(),
+                name: "Reasoner".into(),
+                context_window: None,
+                is_free: false,
+                is_vision: false,
+                max_tokens: Some(32_000),
+                reasoning_effort: Some("high".into()),
+            },
+        ];
+        // Model-level settings win.
+        let (mt, eff) = model_request_options(&models, "reasoner", Some("medium"));
+        assert_eq!(mt, Some(32_000));
+        assert_eq!(eff.as_deref(), Some("high"));
+        // Provider-level fallback when the model has none.
+        let (mt, eff) = model_request_options(&models, "plain", Some("medium"));
+        assert_eq!(mt, None);
+        assert_eq!(eff.as_deref(), Some("medium"));
+        // Nothing configured → no reasoning_effort field.
+        let (mt, eff) = model_request_options(&models, "plain", None);
+        assert_eq!(mt, None);
+        assert_eq!(eff, None);
+        // Unknown model → provider fallback still applies.
+        let (mt, eff) = model_request_options(&models, "ghost", Some("low"));
+        assert_eq!(mt, None);
+        assert_eq!(eff.as_deref(), Some("low"));
     }
 }

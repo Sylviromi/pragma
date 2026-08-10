@@ -57,6 +57,15 @@ pub struct ModelInfo {
     pub is_free: bool,
     #[serde(default)]
     pub is_vision: bool,
+    /// Optional per-model output-token ceiling (provider.json `maxTokens`).
+    /// None = fall back to the provider's default max_tokens.
+    #[serde(default)]
+    pub max_tokens: Option<u32>,
+    /// Optional reasoning effort for reasoning-capable OpenAI-compat models
+    /// (provider.json `reasoningEffort`, e.g. "low" | "medium" | "high").
+    /// None = don't send a reasoning_effort field.
+    #[serde(default)]
+    pub reasoning_effort: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

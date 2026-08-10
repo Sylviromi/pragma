@@ -13,6 +13,29 @@ pub struct AnthropicProvider {
     pub models: Vec<ModelInfo>,
 }
 
+/// Budget for extended thinking, in tokens — how much the model may deliberate
+/// per turn before producing output. Only sent for models that support it.
+const THINKING_BUDGET_TOKENS: u32 = 8_192;
+/// max_tokens when thinking is enabled: the API requires max_tokens to exceed
+/// the thinking budget so there is room left for text/tool calls after thinking.
+const THINKING_MAX_TOKENS: u32 = 25_600;
+
+/// The thinking budget to use for a model id, or `None` when the model does
+/// not support extended thinking. Gate is conservative: known thinking-capable
+/// families only, haiku-family models excluded.
+fn thinking_budget_for(model: &str) -> Option<u32> {
+    let id = model.to_ascii_lowercase();
+    if id.contains("haiku") {
+        return None;
+    }
+    let capable = id.contains("opus-4")
+        || id.contains("sonnet-4-5")
+        || id.contains("sonnet-4-6")
+        || id.contains("sonnet-4.")
+        || id.contains("claude-3-7");
+    capable.then_some(THINKING_BUDGET_TOKENS)
+}
+
 /// Curated fallback list — real Anthropic API model ids. Shown until (or when)
 /// the live /v1/models fetch succeeds (which needs an API key).
 pub fn fallback_models() -> Vec<ModelInfo> {
@@ -79,20 +102,27 @@ impl AnthropicProvider {
             .filter_map(|m| m["content"].as_str())
             .collect::<Vec<_>>()
             .join("\n\n");
-        // Strip thinking blocks from assistant messages — the API rejects requests that contain
-        // thinking blocks in history unless thinking mode is explicitly enabled in the request.
+        // When extended thinking is enabled for this model, thinking blocks
+        // (with their signatures) must be passed back verbatim in history — the
+        // API requires it. For models without thinking support (haiku family),
+        // any thinking blocks in history are stripped so the API doesn't reject
+        // the request (it rejects them unless thinking is enabled).
+        let thinking_budget = thinking_budget_for(model);
+        let strip_thinking = thinking_budget.is_none();
         let stripped_messages: Vec<serde_json::Value> = messages
             .iter()
             .filter(|m| m["role"].as_str() != Some("system"))
             .map(|m| {
-                if m["role"].as_str() == Some("assistant") {
-                    if let Some(blocks) = m["content"].as_array() {
-                        let clean: Vec<_> = blocks
-                            .iter()
-                            .filter(|b| b["type"].as_str() != Some("thinking"))
-                            .cloned()
-                            .collect();
-                        return serde_json::json!({ "role": "assistant", "content": clean });
+                if strip_thinking {
+                    if m["role"].as_str() == Some("assistant") {
+                        if let Some(blocks) = m["content"].as_array() {
+                            let clean: Vec<_> = blocks
+                                .iter()
+                                .filter(|b| b["type"].as_str() != Some("thinking"))
+                                .cloned()
+                                .collect();
+                            return serde_json::json!({ "role": "assistant", "content": clean });
+                        }
                     }
                 }
                 m.clone()
@@ -100,13 +130,20 @@ impl AnthropicProvider {
             .collect();
         let chat_messages: Vec<&serde_json::Value> = stripped_messages.iter().collect();
 
+        // Extended thinking requires temperature == 1 and max_tokens > budget.
         let mut body = serde_json::json!({
             "model": model,
-            "max_tokens": 16384,
-            "temperature": 0.0,
+            "max_tokens": thinking_budget.map_or(16384, |_| THINKING_MAX_TOKENS),
+            "temperature": thinking_budget.map_or(0.0, |_| 1.0),
             "stream": true,
             "messages": chat_messages,
         });
+        if let Some(budget) = thinking_budget {
+            body["thinking"] = serde_json::json!({
+                "type": "enabled",
+                "budget_tokens": budget,
+            });
+        }
         if !system_text.is_empty() {
             body["system"] = serde_json::Value::String(system_text.clone());
         }
@@ -348,4 +385,40 @@ pub fn spawn_discovery(app: tauri::AppHandle, api_key: Option<String>) {
             let _ = app.emit("providers:changed", ("anthropic",));
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn thinking_only_for_capable_models() {
+        // Thinking-capable families get a budget.
+        for m in [
+            "claude-sonnet-4-5-20250929",
+            "claude-opus-4-1-20250805",
+            "claude-sonnet-4-6-20251022",
+            "claude-3-7-sonnet-20250219",
+        ] {
+            assert!(thinking_budget_for(m).is_some(), "{m} should support thinking");
+        }
+        // Base Sonnet 4 (pre-4.5) does not support extended thinking.
+        assert_eq!(thinking_budget_for("claude-sonnet-4-20250514"), None);
+        // Haiku family never: no thinking support, small output cap.
+        for m in [
+            "claude-haiku-4-5-20251001",
+            "claude-3-5-haiku-20241022",
+        ] {
+            assert!(thinking_budget_for(m).is_none(), "{m} must not get thinking");
+        }
+        // Unknown ids: conservative — no thinking.
+        assert_eq!(thinking_budget_for("totally-unknown-model"), None);
+    }
+
+    #[test]
+    fn thinking_max_tokens_exceeds_budget() {
+        assert!(THINKING_MAX_TOKENS > THINKING_BUDGET_TOKENS);
+        // Leaves room for output after the full budget is spent.
+        assert!(THINKING_MAX_TOKENS - THINKING_BUDGET_TOKENS >= 8_000);
+    }
 }

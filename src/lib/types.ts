@@ -62,6 +62,8 @@ export interface ModelInfo {
   contextWindow: number | null  // camelCase — Rust sends contextWindow
   isFree: boolean
   isVision: boolean
+  maxTokens?: number | null      // per-model output ceiling (provider.json)
+  reasoningEffort?: string | null // 'low' | 'medium' | 'high' (provider.json)
 }
 
 export interface ProviderInfo {

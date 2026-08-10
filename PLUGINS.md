@@ -53,13 +53,16 @@ model picker.
   "base_url": "http://localhost:1234/v1",
   "auth": "none",
   "discover": false,
+  "reasoningEffort": "medium",
   "models": [
     {
       "id": "model-id",
       "name": "Display Name",
       "contextWindow": 32768,
       "isFree": true,
-      "isVision": false
+      "isVision": false,
+      "maxTokens": 32000,
+      "reasoningEffort": "high"
     }
   ]
 }
@@ -69,7 +72,13 @@ model picker.
 - `base_url`: must start with `http://` or `https://`.
 - `auth`: `"api-key"` (reads key from Settings > Providers) or `"none"`.
 - `discover`: if `true`, fetches `{base_url}/models` at startup to populate the model list.
-- `models`: static fallback model list.
+- `reasoningEffort` (optional): provider-level reasoning effort — `"low"` / `"medium"` /
+  `"high"`. Sent as the OpenAI-compat `reasoning_effort` request field on every call.
+  Use for reasoning-capable endpoints (gpt-5, Qwen3, GLM-z1, local relays). Omit when
+  the upstream rejects unknown params or reasons by default (e.g. `deepseek-reasoner`).
+- `models`: static fallback model list. Per model (all optional):
+  - `maxTokens`: output-token ceiling sent as `max_tokens` (default 16384).
+  - `reasoningEffort`: overrides the provider-level `reasoningEffort` for this model.
 
 ## component.js (optional)
 
