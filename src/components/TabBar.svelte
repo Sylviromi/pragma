@@ -114,12 +114,12 @@
     flex-shrink: 0;
   }
   .logo {
-    padding: 0 14px;
+    padding: 0 16px;
     display: flex;
     align-items: center;
     font-family: var(--font-heading);
     font-weight: 600;
-    font-size: 15px;
+    font-size: 20px;
     letter-spacing: 0.02em;
     color: var(--text-primary);
     border-right: 1px solid var(--border-default);
