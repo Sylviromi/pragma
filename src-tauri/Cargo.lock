@@ -3042,13 +3042,10 @@ name = "pragma"
 version = "0.1.0"
 dependencies = [
  "bytes",
- "cairo-sys-rs",
  "chrono",
  "diffy",
  "futures-util",
- "gio-sys",
  "glob",
- "gtk",
  "notify",
  "regex",
  "reqwest 0.12.28",
@@ -3065,8 +3062,6 @@ dependencies = [
  "unicode-normalization",
  "uuid",
  "walkdir",
- "webkit2gtk",
- "webkit2gtk-sys",
 ]
 
 [[package]]

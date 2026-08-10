@@ -12,6 +12,41 @@ use std::time::Duration;
 use tauri::Emitter;
 use uuid::Uuid;
 
+/// Tools that operate relative to the working directory — they have nothing
+/// to act on when the session has no working dir set, and running them in the
+/// app's own cwd (the "..." fallback) would be a silent guess.
+/// Deliberately NOT gated: web_search/fetch_url (network), load_skill,
+/// reload_app, ask_question (control flow), and change_directory (the fix).
+const PATH_GATED_TOOLS: &[&str] = &[
+    "read_file", "write_file", "patch_file", "create_directory", "delete_file",
+    "move_file", "list_files", "search_files", "run_command",
+    "git_status", "git_diff", "git_log", "git_add", "git_commit",
+];
+
+/// True when a tool needs a working directory and the session doesn't have
+/// one — the harness blocks it (no execution) and asks the user for a path.
+fn path_gated(name: &str, has_wd: bool) -> bool {
+    !has_wd && PATH_GATED_TOOLS.contains(&name)
+}
+
+/// The "no working directory" fact handed to the model instead of running the
+/// tool — named, not an error: the model should change_directory to a path the
+/// user has named, or ask_question for one.
+fn no_working_dir_fact(tool_name: &str, user_said: Option<&str>) -> String {
+    match user_said {
+        Some(path) if !path.trim().is_empty() => {
+            format!(
+                "[tool blocked]: no working directory is set for this session, so {tool_name} has nothing to operate on. The user said to use: {} — call change_directory \"{}\" first, then retry {tool_name}.",
+                path.trim(),
+                path.trim()
+            )
+        }
+        _ => format!(
+            "[tool blocked]: no working directory is set for this session, so {tool_name} has nothing to operate on. If the user already named a project folder, call change_directory <path> first; otherwise ask the user which folder to open (ask_question), then change_directory there before retrying {tool_name}."
+        ),
+    }
+}
+
 /// Cap a single tool result that gets persisted into history and fed back to the
 /// model. Prevents one huge output (run_command, search_files, read_file …)
 /// from blowing the context window for the whole conversation.
@@ -144,6 +179,46 @@ pub async fn interrupt_session(
 /// Event name: `agent:{session_id}` — survives HMR page reloads.
 fn emit(app: &tauri::AppHandle, session_id: &str, ev: AgentEvent) {
     app.emit(&format!("agent:{session_id}"), ev).ok();
+}
+
+/// Pause the loop and ask the user something — renders the "Needs your answer"
+/// block (chips when options are given, free text otherwise) and fires an OS
+/// notification when the window is in the background. Returns the answer, or
+/// None on timeout. On cancel/interrupt, emits Interrupted and returns Err so
+/// the caller unwinds the loop.
+async fn ask_user(
+    app_handle: &tauri::AppHandle,
+    state: &AppState,
+    session_id: &str,
+    text: &str,
+    options: Vec<String>,
+    timeout_secs: u64,
+    cancel: &mut tokio::sync::watch::Receiver<bool>,
+) -> Result<Option<String>, ()> {
+    let question_id = Uuid::new_v4().to_string();
+    emit(
+        app_handle,
+        session_id,
+        AgentEvent::Question {
+            question_id: question_id.clone(),
+            text: text.to_string(),
+            options,
+        },
+    );
+    crate::notify::notify(app_handle, "Pragma needs your answer", text);
+    let (tx, rx) = tokio::sync::oneshot::channel::<Option<String>>();
+    state.question_channels.lock().await.insert(question_id.clone(), tx);
+    let answer = tokio::select! {
+        v = rx => v.unwrap_or(None),
+        _ = tokio::time::sleep(Duration::from_secs(timeout_secs)) => None,
+        _ = cancel.changed() => {
+            state.question_channels.lock().await.remove(&question_id);
+            emit(app_handle, session_id, AgentEvent::Interrupted);
+            return Err(());
+        }
+    };
+    state.question_channels.lock().await.remove(&question_id);
+    Ok(answer)
 }
 
 /// The core agentic loop. Runs until the AI produces a final response with no tool_use blocks.
@@ -307,11 +382,19 @@ async fn run_loop(
         );
     }
     let tools = standard_tools();
-    let mut executor = ToolExecutor::new(if working_dir.is_empty() {
-        ".".into()
-    } else {
-        working_dir
-    });
+    let ledger = state.seen_ledger.clone();
+    // The session's working dir. Empty = no project is open: path-gated tools
+    // are blocked (never silently run in the app's own cwd) until the model
+    // calls change_directory with a real folder.
+    let mut has_wd = !working_dir.is_empty();
+    // Ask the user for a folder at most once per run (the answer rides into
+    // every subsequent blocked-tool fact, so it can't get lost).
+    let mut path_question_asked = false;
+    let mut executor = ToolExecutor::with_ledger(
+        if working_dir.is_empty() { ".".into() } else { working_dir },
+        &session_id,
+        ledger.clone(),
+    );
 
     let provider_handle = state
         .registry
@@ -342,6 +425,7 @@ You converse with the user in turns. In each turn you can write text and call to
 - git_status / git_diff / git_log are read-only. NEVER run git_add or git_commit unless the user explicitly asks.\n\
 - web_search / fetch_url only when you need external documentation.\n\
 - change_directory switches the working directory when a task targets another subproject.\n\
+- **Working directory is required for file/shell/git tools.** If the session has no working directory set, those tools are blocked and the user is asked which folder to use — immediately call change_directory <path> with the folder they name (or that you asked for), then retry the tool. Never guess a path or run file tools in an unset directory.\n\
 - reload_app: after Rust/backend changes, it verifies the build then restarts the whole app so the new code takes effect. It ends this run, so call it LAST — never for frontend-only or plugin-only changes (those hot-reload automatically).\n\
 - ask_question pauses the loop and asks the user a question when a decision genuinely blocks the work — the user gets an app notification when the window is in the background. Use it only for blocking ambiguity or plan branches the user must decide; NEVER for routine confirmation of work already requested, and never when you can decide by reading more context.\n\
 \n\
@@ -593,6 +677,47 @@ You converse with the user in turns. In each turn you can write text and call to
             // model's context stays consistent with what it called.
             let is_question = name == "ask_question";
 
+            // A path-gated tool with no working directory is blocked BEFORE
+            // the approval gate: no approval prompt for something that can't
+            // run, and no ToolCall card — the auto-asked question is the UI.
+            // Ask the user for the folder once per run; the fact carries their
+            // answer so the model change_directory's and retries.
+            if path_gated(&name, has_wd) {
+                let answer = if !path_question_asked {
+                    path_question_asked = true;
+                    ask_user(
+                        app_handle,
+                        &state,
+                        &session_id,
+                        "Which project folder should I use as the working directory? I can't read or write any files until one is set — give me a path.",
+                        Vec::new(),
+                        600,
+                        &mut cancel,
+                    )
+                    .await
+                } else {
+                    Ok(None)
+                };
+                match answer {
+                    Err(()) => return Ok(()), // user pressed Esc during the ask
+                    Ok(user_said) => {
+                        let fact = no_working_dir_fact(&name, user_said.as_deref());
+                        emit(app_handle, session_id, AgentEvent::ToolResult {
+                            tool_use_id: tool_use_id.clone(),
+                            output: fact.clone(),
+                            is_error: false,
+                        });
+                        tool_results.push(serde_json::json!({
+                            "type": "tool_result",
+                            "tool_use_id": tool_use_id,
+                            "content": fact,
+                            "is_error": false,
+                        }));
+                        continue;
+                    }
+                }
+            }
+
             // Emit tool call event to frontend (questions render from the
             // `question` event instead — no ToolCall, no approval buttons).
             if !is_question {
@@ -726,7 +851,8 @@ You converse with the user in turns. In each turn you can write text and call to
                     .bind(&session_id)
                     .execute(&state.db)
                     .await;
-                    executor = ToolExecutor::new(&path_str);
+                    executor = ToolExecutor::with_ledger(&path_str, &session_id, ledger.clone());
+                    has_wd = true;
                     emit(app_handle, session_id, AgentEvent::WorkingDirChanged { new_path: path_str.clone() });
                     (format!("Working directory changed to: {path_str}"), false)
                 }
@@ -748,34 +874,15 @@ You converse with the user in turns. In each turn you can write text and call to
                         .and_then(|v| v.as_u64())
                         .unwrap_or(600)
                         .max(10);
-                    let question_id = Uuid::new_v4().to_string();
-                    emit(app_handle, session_id, AgentEvent::Question {
-                        question_id: question_id.clone(),
-                        text: text.clone(),
-                        options: options.clone(),
-                    });
-                    // OS notification so the user knows the agent is waiting.
-                    crate::notify::notify(app_handle, "Pragma needs your answer", &text);
-                    let (tx, rx) = tokio::sync::oneshot::channel::<Option<String>>();
-                    state.question_channels.lock().await.insert(question_id.clone(), tx);
-                    let answer = tokio::select! {
-                        v = rx => v.unwrap_or(None),
-                        _ = tokio::time::sleep(Duration::from_secs(timeout_secs)) => None,
-                        _ = cancel.changed() => {
-                            state.question_channels.lock().await.remove(&question_id);
-                            emit(app_handle, session_id, AgentEvent::Interrupted);
-                            return Ok(());
-                        }
-                    };
-                    state.question_channels.lock().await.remove(&question_id);
-                    match answer {
-                        Some(ans) if !ans.trim().is_empty() => {
+                    match ask_user(app_handle, &state, &session_id, &text, options, timeout_secs, &mut cancel).await {
+                        Ok(Some(ans)) if !ans.trim().is_empty() => {
                             (format!("User answered: {ans}"), false)
                         }
-                        _ => {
+                        Ok(_) => {
                             // Timeout (or an explicit no-answer) — continue with best judgment.
                             ("User did not answer within the timeout — proceed with your best judgment, and do not re-ask the same question.".to_string(), false)
                         }
+                        Err(()) => return Ok(()), // Esc pressed — unwind
                     }
                 }
             } else {
@@ -1310,5 +1417,40 @@ mod tests {
         assert_eq!(history[0]["role"], "system");
         assert_eq!(history[1]["content"], "newest prompt");
     }
-}
+    #[test]
+    fn path_tools_are_gated_without_wd() {
+        for t in ["read_file", "write_file", "patch_file", "create_directory", "delete_file",
+                  "move_file", "list_files", "search_files", "run_command",
+                  "git_status", "git_diff", "git_log", "git_add", "git_commit"] {
+            assert!(path_gated(t, false), "{t} must be gated without a working dir");
+        }
+    }
 
+    #[test]
+    fn control_tools_are_never_gated() {
+        // change_directory IS the fix — blocking it would deadlock the flow.
+        for t in ["change_directory", "ask_question", "web_search", "fetch_url", "load_skill", "reload_app"] {
+            assert!(!path_gated(t, false), "{t} must never be gated");
+        }
+        // Unknown tools fall through to the normal unknown-tool error.
+        assert!(!path_gated("bogus_tool", false));
+    }
+
+    #[test]
+    fn nothing_is_gated_with_a_wd() {
+        for t in ["read_file", "run_command", "git_commit", "search_files", "write_file"] {
+            assert!(!path_gated(t, true), "{t} runs normally once a working dir is set");
+        }
+    }
+
+    #[test]
+    fn no_wd_fact_carries_the_user_answer() {
+        let with = no_working_dir_fact("read_file", Some("/mnt/Projects/app  "));
+        assert!(with.contains("change_directory \"/mnt/Projects/app\""), "fact: {with}");
+        assert!(with.contains("retry read_file"), "fact: {with}");
+        let none = no_working_dir_fact("write_file", None);
+        assert!(none.contains("ask_question"), "fact: {none}");
+        assert!(none.contains("change_directory"), "fact: {none}");
+    }
+
+}

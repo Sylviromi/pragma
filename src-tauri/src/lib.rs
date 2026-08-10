@@ -7,7 +7,6 @@ mod db;
 mod commands;
 mod plugins;
 mod providers;
-mod screenshot;
 mod tools;
 mod notify;
 
@@ -41,6 +40,8 @@ pub struct AppState {
     pub question_channels: Arc<tokio::sync::Mutex<HashMap<String, tokio::sync::oneshot::Sender<Option<String>>>>>,
     // session IDs with an active agentic loop — used by frontend to reconnect after HMR
     pub running_sessions: Arc<tokio::sync::Mutex<std::collections::HashSet<String>>>,
+    // per-session "what the model has SEEN" of each file: write gate + dedup
+    pub seen_ledger: tools::SeenLedger,
     // one-shot cancel signal per session — interrupt_session() flips it; the
     // agentic loop selects on it while waiting on the provider / approvals
     pub loop_cancels: Arc<tokio::sync::Mutex<HashMap<String, tokio::sync::watch::Sender<bool>>>>,
@@ -116,6 +117,7 @@ pub fn run() {
                 pending_approvals: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
                 question_channels: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
                 running_sessions: Arc::new(tokio::sync::Mutex::new(std::collections::HashSet::new())),
+                seen_ledger: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
                 loop_cancels: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
                 plugin_processes: commands::process::new_process_map(),
                 plugin_confirmations: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
@@ -129,10 +131,8 @@ pub fn run() {
 
             // Hot-reload watcher: rebind providers + tell the frontend to re-scan.
             let app_handle = app.handle().clone();
-            let watched_plugins_dir = plugins_dir.clone();
             plugins::watcher::spawn_plugin_watcher(&plugins_dir, move || {
                 let handle = app_handle.clone();
-                let plugin_watch = watched_plugins_dir.clone();
                 std::thread::spawn(move || {
                     let state = handle.state::<AppState>();
                     let api_keys = state.settings.read().unwrap().api_keys.clone();
@@ -143,17 +143,6 @@ pub fn run() {
                         serde_json::json!({ "version": chrono::Utc::now().timestamp_millis() }),
                     );
 
-                    // Dev convenience: dropping a file named ".shot" inside the
-                    // plugins dir makes the app capture its own window to the
-                    // app-data screenshots folder, then deletes the marker.
-                    let marker = plugin_watch.join(".shot");
-                    if marker.exists() {
-                        let _ = std::fs::remove_file(&marker);
-                        match screenshot::capture_core(&handle) {
-                            Ok(path) => eprintln!("[shot] saved {path}"),
-                            Err(e) => eprintln!("[shot] failed: {e}"),
-                        }
-                    }
                 });
             });
 
@@ -196,7 +185,6 @@ pub fn run() {
             commands::plugins::set_plugin_config,
             commands::plugins::request_plugin_confirmation,
             commands::plugins::respond_plugin_confirmation,
-            screenshot::capture_app_screenshot,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

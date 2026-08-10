@@ -217,7 +217,8 @@ pub async fn record_tool_touch(
             let path = input["path"].as_str().unwrap_or("").to_string();
             let mut add = 0i64;
             let mut rem = 0i64;
-            if let Some(patch) = input["patch"].as_str() {
+            // The tool's schema key is "diff" (unified patch text).
+            if let Some(patch) = input["diff"].as_str() {
                 for line in patch.lines() {
                     let l = line.trim_start();
                     if l.starts_with("+") && !l.starts_with("+++") {
@@ -237,8 +238,9 @@ pub async fn record_tool_touch(
         ),
         "move_file" => (
             "edited",
-            input["to"]
+            input["dest"]
                 .as_str()
+                .or_else(|| input["to"].as_str())
                 .or_else(|| input["destination"].as_str())
                 .unwrap_or("")
                 .to_string(),
