@@ -2,8 +2,8 @@ use super::catalog;
 use super::run_detached;
 use super::sse;
 use super::types::{
-    AgentEvent, ContentBlock, ModelInfo, ProviderInfo, ProviderSource, ToolDefinition, Usage,
-    estimate_usage,
+    AgentEvent, ContentBlock, ModelInfo, ProviderInfo, ProviderSource, ThinkingPref, ToolDefinition,
+    Usage, estimate_usage,
 };
 use tauri::Emitter;
 use tauri::Manager;
@@ -35,6 +35,29 @@ fn thinking_cfg(models: &[ModelInfo], model: &str) -> Option<u32> {
     }
 }
 
+/// The `thinking_level` for this request: the user's explicit low/medium/high
+/// when the model supports graduated levels (declared list entry or catalog
+/// fallback), `None` for off/auto (auto leaves the level to the API). For
+/// models like Claude 3.7 — capable of thinking but not levels — the level is
+/// ignored rather than sent to an API that would reject it.
+fn thinking_level_for(
+    models: &[ModelInfo],
+    model: &str,
+    pref: &ThinkingPref,
+) -> Option<&'static str> {
+    let level = pref.level()?;
+    let supports = models
+        .iter()
+        .find(|m| m.id == model)
+        .map(|m| m.supports_thinking_levels)
+        .unwrap_or_else(|| super::catalog::thinking_levels_for(model));
+    if supports {
+        Some(level)
+    } else {
+        None
+    }
+}
+
 /// Curated fallback list — real Anthropic API model ids. Shown until (or when)
 /// the live /v1/models fetch succeeds (which needs an API key).
 pub fn fallback_models() -> Vec<ModelInfo> {
@@ -58,7 +81,7 @@ pub fn fallback_models() -> Vec<ModelInfo> {
                 }
             })
             .unwrap_or_else(|| id.to_string());
-        catalog::enrich(id, format!("Claude {family}"), None, None, None, None)
+        catalog::enrich(id, format!("Claude {family}"), None, None, None, None, None)
     })
     .collect()
 }
@@ -87,7 +110,7 @@ impl AnthropicProvider {
         model: &str,
         api_key: &str,
         tools: &[ToolDefinition],
-        thinking: bool,
+        thinking: ThinkingPref,
         app_handle: &tauri::AppHandle,
         session_id: &str,
     ) -> Result<(Vec<ContentBlock>, Usage), String> {
@@ -103,13 +126,15 @@ impl AnthropicProvider {
             .collect::<Vec<_>>()
             .join("\n\n");
         // Extended thinking is driven by the model's declared capability (model
-        // list → discovery metadata → family catalog), NOT hardcoded ids, and
-        // can be force-disabled by the user (thinking==false) to save money.
-        // When enabled, thinking blocks (with their signatures) must be passed
-        // back verbatim in history — the API requires it. When disabled, any
-        // thinking blocks in history are stripped so the API doesn't reject
-        // the request (it rejects them unless thinking is enabled).
-        let thinking_budget = if thinking {
+        // list → discovery metadata → family catalog), NOT hardcoded ids.
+        // The user pref gates it: off means never enable (cost control), auto
+        // leaves the thinking level to the API, and low/medium/high set
+        // thinking_level when the model supports graduated levels (Sonnet
+        // 4.5+/Opus 4.x). Older capable models (Claude 3.7) get the budget but
+        // no level. When thinking is off, any thinking blocks in history are
+        // stripped so the API doesn't reject the request (it rejects them
+        // unless thinking is enabled).
+        let thinking_budget = if thinking.enabled() {
             thinking_cfg(&self.models, model)
         } else {
             None
@@ -145,10 +170,17 @@ impl AnthropicProvider {
             "messages": chat_messages,
         });
         if let Some(budget) = thinking_budget {
-            body["thinking"] = serde_json::json!({
+            // thinking_level is only valid on models that support graduated
+            // levels; auto omits it (API default), low/medium/high set it.
+            let level = thinking_level_for(&self.models, model, &thinking);
+            let mut thinking_body = serde_json::json!({
                 "type": "enabled",
                 "budget_tokens": budget,
             });
+            if let Some(level) = level {
+                thinking_body["thinking_level"] = serde_json::Value::String(level.into());
+            }
+            body["thinking"] = thinking_body;
         }
         if !system_text.is_empty() {
             body["system"] = serde_json::Value::String(system_text.clone());
@@ -201,7 +233,9 @@ impl AnthropicProvider {
         let resp = client
             .post("https://api.anthropic.com/v1/messages")
             .header("x-api-key", api_key)
-            .header("anthropic-version", "2023-06-01")
+            // 2025-10-22+ unlocks thinking_level (and post-4.5 features); the
+            // older 2023-06-01 header predates extended thinking entirely.
+            .header("anthropic-version", "2025-10-22")
             .header("content-type", "application/json")
             .header("accept-encoding", "identity")
             .json(&body)
@@ -399,7 +433,7 @@ pub async fn fetch_models(api_key: Option<String>) -> Option<Vec<ModelInfo>> {
             let id = m["id"].as_str()?;
             let name = m["display_name"].as_str().unwrap_or(id).to_string();
             let ctx = m["context_window"].as_u64().map(|n| n as u32);
-            Some(catalog::enrich(id, name, ctx, Some(true), Some(false), None))
+            Some(catalog::enrich(id, name, ctx, Some(true), Some(false), None, None))
         })
         .collect();
     Some(models)
@@ -465,9 +499,10 @@ mod tests {
                 max_tokens: None,
                 reasoning_effort: None,
                 supports_thinking: true,
+                supports_thinking_levels: true,
                 thinking_budget: Some(20_000),
             },
-            crate::providers::catalog::enrich("plain-model", "Plain".into(), None, None, None, None),
+            crate::providers::catalog::enrich("plain-model", "Plain".into(), None, None, None, None, None),
         ];
         // Declared budget wins.
         assert_eq!(thinking_cfg(&models, "my-custom-reasoner"), Some(20_000));
@@ -475,6 +510,61 @@ mod tests {
         assert_eq!(thinking_cfg(&models, "plain-model"), None);
         // Catalog fallback for ids absent from the list.
         assert!(thinking_cfg(&models, "claude-sonnet-4-5-20250929").is_some());
+    }
+
+    #[test]
+    fn thinking_levels_gated_by_model_capability() {
+        use super::ThinkingPref;
+        let models = vec![
+            crate::providers::types::ModelInfo {
+                id: "custom-levels".into(),
+                name: "Custom".into(),
+                context_window: None,
+                is_free: false,
+                is_vision: false,
+                max_tokens: None,
+                reasoning_effort: None,
+                supports_thinking: true,
+                supports_thinking_levels: true,
+                thinking_budget: None,
+            },
+            crate::providers::types::ModelInfo {
+                id: "custom-no-levels".into(),
+                name: "Custom".into(),
+                context_window: None,
+                is_free: false,
+                is_vision: false,
+                max_tokens: None,
+                reasoning_effort: None,
+                supports_thinking: true,
+                supports_thinking_levels: false,
+                thinking_budget: None,
+            },
+        ];
+        // Explicit level on a levels-capable model → sent.
+        assert_eq!(
+            thinking_level_for(&models, "custom-levels", &ThinkingPref::High),
+            Some("high")
+        );
+        // Off / auto → no level field.
+        assert_eq!(thinking_level_for(&models, "custom-levels", &ThinkingPref::Off), None);
+        assert_eq!(thinking_level_for(&models, "custom-levels", &ThinkingPref::Auto), None);
+        // A model that thinks but has no graduated levels (Claude 3.7) ignores
+        // the explicit level instead of sending it to a rejecting API.
+        assert_eq!(
+            thinking_level_for(&models, "custom-no-levels", &ThinkingPref::Medium),
+            None
+        );
+        // Catalog fallback for ids absent from the list: Sonnet 4.5 → levels,
+        // Claude 3.7 → no levels.
+        assert_eq!(
+            thinking_level_for(&models, "claude-sonnet-4-5-20250929", &ThinkingPref::Low),
+            Some("low")
+        );
+        assert_eq!(
+            thinking_level_for(&models, "claude-3-7-sonnet-20250219", &ThinkingPref::Low),
+            None
+        );
     }
 
     #[test]

@@ -41,6 +41,49 @@ impl Usage {
     }
 }
 
+/// User preference for how much thinking/reasoning a model may do. Not all
+/// values apply to all models — the backend maps them per provider and
+/// silently ignores what the model can't do:
+/// - `off`:    never enable thinking, even on capable models (cost control)
+/// - `auto`:   model default — Anthropic sends no `thinking_level`, OpenAI-compat
+///             sends the configured `reasoning_effort` (provider.json)
+/// - `low` / `medium` / `high`: explicit thinking level — Anthropic
+///             `thinking_level` ({low,medium,high}), OpenAI-compat
+///             `reasoning_effort`, only for models that support levels
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ThinkingPref {
+    Off,
+    Auto,
+    Low,
+    Medium,
+    High,
+}
+
+impl ThinkingPref {
+    /// Whether thinking may be enabled at all (anything but `Off`).
+    pub fn enabled(&self) -> bool {
+        !matches!(self, ThinkingPref::Off)
+    }
+
+    /// Explicit level for OpenAI-compat `reasoning_effort`: `None` for
+    /// off/auto (auto falls back to the configured effort).
+    pub fn effort(&self) -> Option<&'static str> {
+        match self {
+            ThinkingPref::Low => Some("low"),
+            ThinkingPref::Medium => Some("medium"),
+            ThinkingPref::High => Some("high"),
+            ThinkingPref::Off | ThinkingPref::Auto => None,
+        }
+    }
+
+    /// Explicit level for Anthropic `thinking_level`: same as `effort()`
+    /// (Anthropic accepts low/medium/high).
+    pub fn level(&self) -> Option<&'static str> {
+        self.effort()
+    }
+}
+
 /// Best-effort estimate when the API omits usage data (chars/4, cf. OpenAI).
 pub fn estimate_usage(text: &str) -> u64 {
     (text.chars().count() / 4).max(1) as u64
@@ -73,6 +116,12 @@ pub struct ModelInfo {
     /// badge, and the reasoning_effort behavior for OpenAI-compat models.
     #[serde(default)]
     pub supports_thinking: bool,
+    /// Whether the model also supports *graduated* thinking levels (Anthropic
+    /// `thinking_level` on Sonnet 4.5+/Opus 4.x; `reasoning_effort` on
+    /// OpenAI-compat reasoning families). False for e.g. Claude 3.7 which only
+    /// takes a budget.
+    #[serde(default)]
+    pub supports_thinking_levels: bool,
     /// Optional thinking budget in tokens (Anthropic `budget_tokens`). None =
     /// the harness default.
     #[serde(default)]

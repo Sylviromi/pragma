@@ -8,7 +8,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 use tauri::Manager;
 
-use types::{ContentBlock, ModelInfo, ProviderInfo, ToolDefinition, Usage};
+use types::{ContentBlock, ModelInfo, ProviderInfo, ThinkingPref, ToolDefinition, Usage};
 use anthropic::AnthropicProvider;
 use openai_compat::OpenAICompatProvider;
 
@@ -35,7 +35,7 @@ impl ProviderHandle {
         model: &str,
         api_key: &str,
         tools: &[ToolDefinition],
-        thinking: bool,
+        thinking: ThinkingPref,
         app_handle: &tauri::AppHandle,
         session_id: &str,
     ) -> Result<(Vec<ContentBlock>, Usage), String> {
@@ -192,7 +192,18 @@ pub async fn fetch_openai_models(base_url: &str, api_key: &str) -> Vec<ModelInfo
             .as_u64()
             .or_else(|| m["maxTokens"].as_u64())
             .map(|n| n as u32);
-        let mut info = catalog::enrich(id, name, ctx, None, free, thinking);
+        // Graduated thinking levels (thinking_level / reasoning_effort).
+        let levels = ["supports_thinking_levels", "supportsThinkingLevels", "thinking_levels"]
+            .iter()
+            .find_map(|k| m.get(*k).and_then(boolish))
+            .or_else(|| {
+                m.get("metadata").and_then(|md| {
+                    ["supports_thinking_levels", "supportsThinkingLevels", "thinking_levels"]
+                        .iter()
+                        .find_map(|k| md.get(*k).and_then(boolish))
+                })
+            });
+        let mut info = catalog::enrich(id, name, ctx, None, free, thinking, levels);
         info.thinking_budget = thinking_budget;
         info.max_tokens = max_tokens;
         info.reasoning_effort = m["reasoning_effort"]

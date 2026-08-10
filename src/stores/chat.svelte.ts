@@ -10,7 +10,7 @@ import {
   answerQuestion as apiAnswerQuestion,
   revertSession
 } from '../lib/tauri'
-import type { AgentEvent, Message, RevertSummary } from '../lib/types'
+import type { AgentEvent, Message, RevertSummary, ThinkingPref } from '../lib/types'
 import { sessions } from './sessions.svelte'
 import { pushToast } from './toast.svelte'
 // Unlisten functions keyed by sessionId — outlive component HMR reloads.
@@ -106,9 +106,10 @@ export const chat = $state({
   notice:         {} as Record<string, string | null>,
   alwaysApprove:  {} as Record<string, Set<string>>,
   autoApprove:    {} as Record<string, boolean>,
-  /** Per-session thinking preference: false forces thinking off (cost control);
-   *  true enables it when the model supports it. Default true per session. */
-  thinking:       {} as Record<string, boolean>,
+  /** Per-session thinking preference: 'off' forces thinking off (cost control);
+   *  'auto' uses the model's default level; 'low'/'medium'/'high' request a
+   *  graduated thinking level where the model supports levels. Default 'auto'. */
+  thinking:       {} as Record<string, ThinkingPref>,
   /** Aggregate session status for the design's status dots / labels. */
   status:         {} as Record<string, AgentStatus>,
 })
@@ -356,7 +357,7 @@ export async function sendMessage(
   provider: string,
   workingDir: string,
   autoApprove: boolean,
-  thinking = true
+  thinking: ThinkingPref = 'auto'
 ) {
   // Persist autoApprove in store so handleEvent can access it after HMR
   chat.autoApprove[sessionId] = autoApprove

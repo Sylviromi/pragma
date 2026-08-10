@@ -65,8 +65,12 @@ export interface ModelInfo {
   maxTokens?: number | null      // per-model output ceiling (provider.json)
   reasoningEffort?: string | null // 'low' | 'medium' | 'high' (provider.json)
   supportsThinking: boolean      // thinking/reasoning capability (catalog/discovery/provider.json)
+  supportsThinkingLevels: boolean // graduated levels: anthropic thinking_level, openai reasoning_effort
   thinkingBudget?: number | null // Anthropic budget_tokens override
 }
+
+/** User thinking preference: off / auto (model default) / explicit level. */
+export type ThinkingPref = 'off' | 'auto' | 'low' | 'medium' | 'high'
 
 export interface ProviderInfo {
   id: string

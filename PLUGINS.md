@@ -64,6 +64,7 @@ model picker.
       "maxTokens": 32000,
       "reasoningEffort": "high",
       "supportsThinking": true,
+      "supportsThinkingLevels": true,
       "thinkingBudget": 8192
     }
   ]
@@ -89,9 +90,17 @@ model picker.
     qwen3, glm-z1) and everything else defaults to off.
   - `thinkingBudget`: Anthropic `budget_tokens` for this model (default 8192). Only
     meaningful when `supportsThinking` is true.
+  - `supportsThinkingLevels`: declare that the model supports *graduated* thinking
+    levels (Anthropic `thinking_level` on Sonnet 4.5+ / Opus 4.x; `reasoning_effort`
+    on OpenAI-compat reasoning families). Omit and the harness detects known
+    families automatically; thinking-capable models without levels (e.g. Claude
+    3.7, budget-only) ignore explicit levels.
 
-The user-facing **Thinking** toggle in the model picker (default on) never forces
-thinking onto a model that doesn't support it — it's an off switch for cost control.
+The user-facing **Thinking** selector in the model picker (Off · Auto · Low · Med ·
+High) never forces thinking onto a model that doesn't support it. `Off` disables
+thinking entirely (cost control); `Auto` sends no level (API default; OpenAI-compat
+ends up using the configured `reasoningEffort`); `Low`/`Med`/`High` are sent only
+when the model supports graduated levels.
 
 ## component.js (optional)
 

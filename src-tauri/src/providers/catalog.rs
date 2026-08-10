@@ -112,6 +112,30 @@ pub fn thinking_for(id: &str) -> bool {
     false
 }
 
+/// Whether a model can also take *graduated* thinking levels, not just
+/// on/off. Anthropic: Sonnet 4.5/4.6 + Opus 4.x accept `thinking_level`
+/// (low/medium/high); Claude 3.7 and everything before only takes a budget.
+/// OpenAI-compat reasoning families accept `reasoning_effort`.
+pub fn thinking_levels_for(id: &str) -> bool {
+    let id = id.to_ascii_lowercase();
+    if id.contains("haiku") {
+        return false;
+    }
+    if id.starts_with("claude-") {
+        return id.contains("opus-4") || id.contains("sonnet-4-5") || id.contains("sonnet-4-6");
+    }
+    if id.starts_with("gpt-5") || id.starts_with("o1") || id.starts_with("o3") || id.starts_with("o4") {
+        return true;
+    }
+    if id.contains("deepseek-reasoner") || id.contains("deepseek-r1") {
+        return true;
+    }
+    if id.starts_with("qwen3") || id.contains("glm-z1") {
+        return true;
+    }
+    false
+}
+
 /// Merge upstream-reported attributes with catalog knowledge.
 /// Upstream values win when present; the catalog fills the gaps.
 pub fn enrich(
@@ -121,6 +145,7 @@ pub fn enrich(
     api_vision: Option<bool>,
     api_free: Option<bool>,
     api_thinking: Option<bool>,
+    api_thinking_levels: Option<bool>,
 ) -> ModelInfo {
     ModelInfo {
         id: id.to_string(),
@@ -131,6 +156,7 @@ pub fn enrich(
         max_tokens: None,
         reasoning_effort: None,
         supports_thinking: api_thinking.unwrap_or_else(|| thinking_for(id)),
+        supports_thinking_levels: api_thinking_levels.unwrap_or_else(|| thinking_levels_for(id)),
         thinking_budget: None,
     }
 }
@@ -189,6 +215,23 @@ mod tests {
     }
 
     #[test]
+    fn thinking_level_flags() {
+        // Anthropic families that accept thinking_level (Sonnet 4.5/4.6, Opus 4.x).
+        for m in ["claude-sonnet-4-5-20250929", "claude-opus-4-1-20250805", "claude-sonnet-4-6-20251022"] {
+            assert!(thinking_levels_for(m), "{m} should support thinking levels");
+        }
+        // Thinking yes, but levels no: Claude 3.7 (budget only).
+        assert!(!thinking_levels_for("claude-3-7-sonnet-20250219"));
+        assert!(!thinking_levels_for("claude-haiku-4-5-20251001"));
+        // OpenAI-compat reasoning families accept reasoning_effort.
+        assert!(thinking_levels_for("gpt-5"));
+        assert!(thinking_levels_for("o3-mini"));
+        assert!(thinking_levels_for("deepseek-reasoner"));
+        assert!(!thinking_levels_for("deepseek-chat"));
+        assert!(!thinking_levels_for("gpt-4o"));
+    }
+
+    #[test]
     fn upstream_values_win_over_catalog() {
         let m = enrich(
             "claude-sonnet-4-5-20250929",
@@ -197,6 +240,7 @@ mod tests {
             Some(false),
             None,
             Some(false), // server says no thinking — trust it
+            Some(false), // server says no levels — trust it
         );
         assert_eq!(m.context_window, Some(1_000_000));
         assert!(!m.is_vision);
@@ -205,7 +249,7 @@ mod tests {
 
     #[test]
     fn catalog_fills_gaps() {
-        let m = enrich("deepseek-chat", "deepseek-chat".into(), None, None, None, None);
+        let m = enrich("deepseek-chat", "deepseek-chat".into(), None, None, None, None, None);
         assert_eq!(m.context_window, Some(128_000));
         assert!(!m.is_vision);
         assert!(!m.supports_thinking);
@@ -216,6 +260,7 @@ mod tests {
             None,
             None,
             None,
+            Some(true),
             Some(true),
         );
         assert!(m.supports_thinking);

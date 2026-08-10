@@ -1,6 +1,6 @@
 import { invoke as tauriInvoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
-import type { Session, Message, ProviderInfo, AgentEvent, RevertInfo, RevertSummary, SessionStats } from './types'
+import type { Session, Message, ProviderInfo, AgentEvent, RevertInfo, RevertSummary, SessionStats, ThinkingPref } from './types'
 import {
   isBrowserMock,
   mockSessions,
@@ -125,7 +125,7 @@ export async function runAgenticLoop(
   provider: string,
   workingDir: string,
   autoApprove: boolean,
-  thinking: boolean,
+  thinking: ThinkingPref,
   onEvent: (e: AgentEvent) => void,
 ): Promise<void> {
   if (isBrowserMock) {

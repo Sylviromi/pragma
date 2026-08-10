@@ -2,7 +2,7 @@
 //! history sanitization and context-window trimming. Split out of
 //! `commands/providers.rs` so the provider CRUD commands stay small.
 
-use crate::providers::types::{AgentEvent, ContentBlock};
+use crate::providers::types::{AgentEvent, ContentBlock, ThinkingPref};
 use crate::tools::{definitions::standard_tools, ToolExecutor};
 use crate::AppState;
 use futures_util::StreamExt;
@@ -47,13 +47,6 @@ fn no_working_dir_fact(tool_name: &str, user_said: Option<&str>) -> String {
         ),
     }
 }
-
-/// Cap a single tool result that gets persisted into history and fed back to the
-/// model. Prevents one huge output (run_command, search_files, read_file …)
-/// from blowing the context window for the whole conversation. Scaled from the
-/// model's history budget (see `tool_result_budget_for`) so it adapts to the
-/// model's context window instead of being a constant.
-const MAX_TOOL_RESULT_CHARS: usize = 64_000;
 
 /// Fallback history budget (chars) when the model's context window is unknown
 /// (e.g. selected before discovery landed). Real budgets scale with the model's
@@ -247,7 +240,7 @@ pub async fn run_agentic_loop(
     provider: String,
     working_dir: String,
     auto_approve: bool,
-    thinking: bool,
+    thinking: ThinkingPref,
     app_handle: tauri::AppHandle,
     state: tauri::State<'_, AppState>,
 ) -> Result<(), String> {
@@ -380,7 +373,7 @@ async fn run_loop(
     provider: String,
     working_dir: String,
     auto_approve: bool,
-    thinking: bool,
+    thinking: ThinkingPref,
     app_handle: &tauri::AppHandle,
     state: &tauri::State<'_, AppState>,
     mut cancel: tokio::sync::watch::Receiver<bool>,
@@ -430,7 +423,7 @@ async fn run_loop(
         .iter()
         .find(|m| m.id == model)
         .cloned();
-    let history_budget = history_budget_for(model_info.as_ref(), thinking);
+    let history_budget = history_budget_for(model_info.as_ref(), thinking.enabled());
     let tool_result_budget = tool_result_budget_for(history_budget);
 
     // Base system prompt for the coding agent.
@@ -1581,12 +1574,12 @@ mod tests {
 
     #[test]
     fn truncate_output_caps_long_results() {
-        let long = "x".repeat(MAX_TOOL_RESULT_CHARS + 100);
-        let capped = truncate_output(&long, MAX_TOOL_RESULT_CHARS);
+        let long = "x".repeat(74_000);
+        let capped = truncate_output(&long, 64_000);
         assert!(capped.len() < long.len());
         assert!(capped.contains("truncated"));
         // Short outputs pass through untouched
-        assert_eq!(truncate_output("short", MAX_TOOL_RESULT_CHARS), "short");
+        assert_eq!(truncate_output("short", 64_000), "short");
     }
 
     #[test]
@@ -1594,17 +1587,17 @@ mod tests {
         // 200K model, thinking off: (200_000 − 16_384) × 2 ≈ 367K chars —
         // comparable to the old 320K constant, not clipped by it.
         let b200 = history_budget_for(Some(&crate::providers::catalog::enrich(
-            "m", "M".into(), Some(200_000), None, None, None,
+            "m", "M".into(), Some(200_000), None, None, None, None,
         )), false);
         assert_eq!(b200, (200_000 - 16_384) * 2);
         // Thinking reserves the higher output ceiling.
         let bt = history_budget_for(Some(&crate::providers::catalog::enrich(
-            "m", "M".into(), Some(200_000), None, None, None,
+            "m", "M".into(), Some(200_000), None, None, None, None,
         )), true);
         assert_eq!(bt, (200_000 - 25_600) * 2);
         // Long-context models scale up proportionally.
         let b1m = history_budget_for(Some(&crate::providers::catalog::enrich(
-            "m", "M".into(), Some(1_000_000), None, None, None,
+            "m", "M".into(), Some(1_000_000), None, None, None, None,
         )), false);
         assert_eq!(b1m, (1_000_000 - 16_384) * 2);
         // Unknown model → old constant.

@@ -1,7 +1,7 @@
 use super::sse;
 use super::types::{
-    AgentEvent, ContentBlock, ModelInfo, ProviderInfo, ProviderSource, ToolDefinition, Usage,
-    estimate_usage,
+    AgentEvent, ContentBlock, ModelInfo, ProviderInfo, ProviderSource, ThinkingPref, ToolDefinition,
+    Usage, estimate_usage,
 };
 use tauri::Emitter;
 
@@ -33,7 +33,7 @@ impl OpenAICompatProvider {
         model: &str,
         api_key: &str,
         tools: &[ToolDefinition],
-        thinking: bool,
+        thinking: ThinkingPref,
         app_handle: &tauri::AppHandle,
         session_id: &str,
     ) -> Result<(Vec<ContentBlock>, Usage), String> {
@@ -52,10 +52,17 @@ impl OpenAICompatProvider {
         // the field is only sent when explicitly configured.
         let (max_tokens, reasoning_effort) =
             model_request_options(&self.models, model, self.reasoning_effort.as_deref());
-        // The user's thinking pref gates reasoning_effort too — off means the
-        // model never gets a reasoning_effort field, even when configured (cost
-        // control; the capability is informational for OpenAI-compat models).
-        let reasoning_effort = if thinking { reasoning_effort } else { None };
+        // The user's thinking pref decides how much reasoning to request:
+        // off = never send reasoning_effort (cost control); auto = the
+        // configured effort (provider.json / model entry); low/medium/high =
+        // an explicit override of whatever was configured.
+        let reasoning_effort = match thinking {
+            ThinkingPref::Off => None,
+            ThinkingPref::Auto => reasoning_effort,
+            ThinkingPref::Low | ThinkingPref::Medium | ThinkingPref::High => {
+                thinking.effort().map(|e| e.to_string())
+            }
+        };
 
         let mut body = serde_json::json!({
             "model": model,
@@ -399,8 +406,8 @@ pub fn deepseek() -> OpenAICompatProvider {
         base_url: "https://api.deepseek.com/v1".into(),
         source: ProviderSource::Builtin,
         models: vec![
-            super::catalog::enrich("deepseek-chat", "DeepSeek Chat".into(), None, None, None, None),
-            super::catalog::enrich("deepseek-reasoner", "DeepSeek Reasoner".into(), None, None, None, None),
+            super::catalog::enrich("deepseek-chat", "DeepSeek Chat".into(), None, None, None, None, None),
+            super::catalog::enrich("deepseek-reasoner", "DeepSeek Reasoner".into(), None, None, None, None, None),
         ],
         reasoning_effort: None,
     }
@@ -466,7 +473,7 @@ mod tests {
     #[test]
     fn request_options_resolution() {
         let models = vec![
-            crate::providers::catalog::enrich("plain", "Plain".into(), None, None, None, None),
+            crate::providers::catalog::enrich("plain", "Plain".into(), None, None, None, None, None),
             crate::providers::types::ModelInfo {
                 id: "reasoner".into(),
                 name: "Reasoner".into(),
@@ -476,6 +483,7 @@ mod tests {
                 max_tokens: Some(32_000),
                 reasoning_effort: Some("high".into()),
                 supports_thinking: true,
+                supports_thinking_levels: true,
                 thinking_budget: None,
             },
         ];

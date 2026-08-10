@@ -7,21 +7,23 @@
   import { getSession } from '../stores/sessions.svelte'
   import { updateSession, captureAppScreenshot } from '../lib/tauri'
   import { pushToast } from '../stores/toast.svelte'
+  import type { ThinkingPref } from '../lib/types'
 
   let { sessionId }: { sessionId: string } = $props()
 
   let text = $state('')
   let model = $state('')
   let provider = $state('')
-  // User preference: enable thinking when the model supports it. Lives in the
-  // chat store per session so it survives HMR and is picked up by sendMessage.
-  // Default on — the backend only enables thinking for capable models anyway.
-  let thinking = $state(true)   // hydrated from chat.thinking on first effect run
+  // User preference: how much thinking the model may do ('auto' = model default
+  // level, 'off' = no thinking at all, explicit low/medium/high where the model
+  // supports graduated levels). Lives in the chat store per session so it
+  // survives HMR and is picked up by sendMessage.
+  let thinking = $state<ThinkingPref>('auto') // hydrated from chat.thinking on first effect run
   let thinkingHydrated = $state(false)
   $effect(() => {
     if (!thinkingHydrated) {
       thinkingHydrated = true
-      thinking = chat.thinking[sessionId] ?? true
+      thinking = chat.thinking[sessionId] ?? 'auto'
     }
     chat.thinking[sessionId] = thinking
   })

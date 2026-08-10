@@ -3,16 +3,16 @@
   import { loadProviders, providerState } from '../stores/providers.svelte'
   import SlotStack from './SlotStack.svelte'
   import Icon from './Icon.svelte'
-  import Toggle from './Toggle.svelte'
+  import type { ThinkingPref } from '../lib/types'
 
   let {
     model = $bindable(''),
     provider = $bindable(''),
-    thinking = $bindable(true)
+    thinking = $bindable<ThinkingPref>('auto')
   }: {
     model: string
     provider: string
-    thinking: boolean
+    thinking: ThinkingPref
   } = $props()
 
   let open = $state(false)
@@ -73,6 +73,33 @@
     open = false
     search = ''
   }
+
+  // Thinking controls. The available levels adapt to the selected model:
+  // models with graduated thinking (Sonnet 4.5+/Opus 4.x, gpt-5, o-series,
+  // qwen3, …) get off/auto/low/medium/high; thinking-but-fixed models
+  // (Claude 3.7) get just off/auto; non-thinking models get a muted disabled
+  // row. `thinking` lives in the chat store per session via the parent.
+  const canThink = $derived(current?.supportsThinking ?? false)
+  const canLevels = $derived(current?.supportsThinkingLevels ?? false)
+  const levels: ThinkingPref[] = $derived(
+    canLevels ? ['off', 'auto', 'low', 'medium', 'high'] : ['off', 'auto']
+  )
+  const levelLabel = (l: ThinkingPref) =>
+    l === 'auto' ? 'Auto' : l === 'off' ? 'Off' : l[0].toUpperCase() + l.slice(1)
+  const thinkHint = $derived(
+    !current
+      ? 'Enable when supported'
+      : !canThink
+        ? 'Model does not support'
+        : canLevels
+          ? 'Off · Auto · Low · Med · High'
+          : 'Fixed level — Off or Auto'
+  )
+  let levelMenuOpen = $state(false)
+  $effect(() => {
+    // Close the level menu when the model changes (its options/meaning shift).
+    if (model || provider) levelMenuOpen = false
+  })
 </script>
 
 <svelte:window
@@ -134,28 +161,48 @@
           {/each}
         {/each}
       </div>
-      <!-- Thinking preference: enable extended thinking/reasoning when the
-           selected model supports it. Disabled (greyed) when the current
-           model can't think — the backend never enables it for those, and a
-           live toggle on a dead switch would only confuse. -->
-      <div class="think-row" class:muted={!current?.supportsThinking}>
+      <!-- Thinking preference: how much reasoning the model may do. Off = no
+           thinking (cost control); Auto = model default level; Low/Med/High =
+           graduated thinking where the model supports levels. Muted + disabled
+           when the selected model can't think at all. -->
+      <div class="think-row" class:muted={!canThink}>
         <div class="think-copy">
           <span class="think-label">Thinking</span>
-          <span class="think-hint">
-            {current?.supportsThinking
-              ? 'On when supported'
-              : current
-                ? 'Model does not support'
-                : 'Enable when supported'}
-          </span>
+          <span class="think-hint">{thinkHint}</span>
         </div>
-        <Toggle
-          checked={thinking}
-          onChange={(v) => (thinking = v)}
-          disabled={!current?.supportsThinking}
-          label="Thinking"
-        />
+        <button
+          class="think-value"
+          onclick={() => (levelMenuOpen = !levelMenuOpen)}
+          disabled={!canThink}
+          aria-haspopup="listbox"
+          aria-expanded={levelMenuOpen}
+          title={canLevels ? 'Thinking level' : 'Thinking'}
+        >
+          {levelLabel(thinking)}<Icon name="expand_more" size={13} />
+        </button>
       </div>
+      {#if levelMenuOpen && canThink}
+        <div class="think-menu" role="listbox" aria-label="Thinking level">
+          {#each levels as l (l)}
+            <button
+              class="tm-opt"
+              class:sel={thinking === l}
+              onclick={() => {
+                thinking = l
+                levelMenuOpen = false
+              }}
+              role="option"
+              aria-selected={thinking === l}
+            >
+              <span class="tm-name">{levelLabel(l)}</span>
+              {#if l === 'auto'}
+                <span class="tm-sub">model default</span>
+              {/if}
+              {#if thinking === l}<span class="check" aria-hidden="true"><Icon name="check" size={13} /></span>{/if}
+            </button>
+          {/each}
+        </div>
+      {/if}
       <SlotStack slot="model-picker-extra" />
     </div>
   {/if}
@@ -218,6 +265,10 @@
     box-shadow: var(--shadow-lg);
     overflow: hidden;
     z-index: 100;
+    /* Flex column: the model list shrinks to make room when the thinking-level
+       menu opens, instead of the dropdown overflowing its viewport cap. */
+    display: flex;
+    flex-direction: column;
   }
   .search {
     display: flex;
@@ -249,6 +300,8 @@
     max-height: min(300px, 45vh);
     overflow-y: auto;
     padding: 2px 6px 6px;
+    flex: 1;
+    min-height: 0;
   }
   .group-label {
     padding: 4px 8px;
@@ -325,6 +378,65 @@
   .think-hint {
     font-size: 11px;
     color: var(--text-muted);
+  }
+  /* Select-like value button (Off / Auto / Low / …). */
+  .think-value {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    padding: 3px 8px;
+    background: var(--bg-base);
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius-sm);
+    color: var(--text-primary);
+    font-size: 12px;
+    font-family: var(--font-body);
+    cursor: pointer;
+    flex: none;
+  }
+  .think-value:hover:not(:disabled) {
+    border-color: var(--text-muted);
+  }
+  .think-value:disabled {
+    cursor: default;
+  }
+  /* Level options list — opens inside the dropdown, scrolls if tight. */
+  .think-menu {
+    margin: 1px 6px 4px;
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius-sm);
+    max-height: 152px;
+    overflow-y: auto;
+    background: var(--bg-overlay);
+  }
+  .tm-opt {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 6px 10px;
+    background: transparent;
+    border: none;
+    color: var(--text-secondary);
+    font-size: 12.5px;
+    font-family: var(--font-body);
+    text-align: left;
+    cursor: pointer;
+  }
+  .tm-opt:hover {
+    background: var(--surface-hover);
+    color: var(--text-primary);
+  }
+  .tm-opt.sel {
+    background: var(--accent-soft);
+    color: var(--text-primary);
+  }
+  .tm-name {
+    flex: 1;
+  }
+  .tm-sub {
+    color: var(--text-muted);
+    font-size: 10.5px;
   }
   .check {
     color: var(--success);
