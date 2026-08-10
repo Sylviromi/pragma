@@ -109,7 +109,7 @@
 
   {#if hasOutput && outputOpen}
     <div class="output">
-      {#each outputLines as line (line.text + line.color)}
+      {#each outputLines as line, i (i)}
         <div class="line" style={`color:${line.color}`}>{line.text}</div>
       {/each}
       {#if (tool.output ?? '').length > 4000}<div class="more">… (truncated)</div>{/if}
