@@ -1,6 +1,6 @@
 <script lang="ts">
   import { isToolResultTurn, parseContent, textBlocks } from '../lib/types'
-  import type { ContentBlock, Message, ToolUseBlock } from '../lib/types'
+  import type { ContentBlock, Message, ToolUseBlock, TextBlock } from '../lib/types'
   import ToolCard from './ToolCard.svelte'
   import Icon from './Icon.svelte'
 
@@ -9,11 +9,14 @@
     toolOutputs = {},
     onContextMenu,
     highlighted = false,
+    onAnswerQuestion,
   }: {
     message: Message
     toolOutputs: Record<string, { content: string; isError: boolean }>
     onContextMenu?: (e: MouseEvent) => void
     highlighted?: boolean
+    /** Answer callback for the question-block skeleton (option chips). */
+    onAnswerQuestion?: (option: string) => void
   } = $props()
 
   // Trim trailing whitespace/newlines from text before display — the stored
@@ -35,33 +38,83 @@
 
   const isToolResultMsg = $derived(isToolResultTurn(content))
 
+  // Split a text block into prose + fenced code segments so code renders as
+  // the design's dark inline code box (with copy), keeping prose in the bubble.
+  interface Segment { kind: 'prose' | 'code'; text: string }
+  function segmentsOf(text: string): Segment[] {
+    const re = /```(\w*)\n?([\s\S]*?)```/g
+    const out: Segment[] = []
+    let last = 0
+    let m: RegExpExecArray | null
+    while ((m = re.exec(text)) !== null) {
+      if (m.index > last) out.push({ kind: 'prose', text: text.slice(last, m.index) })
+      out.push({ kind: 'code', text: m[2] })
+      last = m.index + m[0].length
+    }
+    if (last < text.length) out.push({ kind: 'prose', text: text.slice(last) })
+    if (out.length === 0 && text.trim()) out.push({ kind: 'prose', text })
+    return out
+  }
+
   function onMenu(e: MouseEvent) {
     e.preventDefault()
     onContextMenu?.(e)
+  }
+
+  async function copyCode(code: string) {
+    try {
+      await navigator.clipboard.writeText(code)
+    } catch { /* clipboard unavailable */ }
   }
 </script>
 
 {#if !isToolResultMsg && (isUser ? !!userText : true)}
   <div class="msg-row" class:highlighted data-role={isUser ? 'user' : 'assistant'}>
   {#if isUser}
-    <div class="message user">
-      <div class="bubble user-bubble" oncontextmenu={onMenu}>
+    <div class="user-row">
+      <div class="user-bubble" oncontextmenu={onMenu} role="group" aria-label="User message">
         <p>{userText}</p>
       </div>
     </div>
   {:else}
-    <!-- Assistant message: text and tool_use in order, tool_use as full ToolCards -->
-    <div class="assistant-turn">
-      <div class="avatar" aria-hidden="true"><Icon name="sparkle" size={13} /></div>
-      <div class="turn-body" oncontextmenu={onMenu}>
+    <!-- Assistant turn: avatar + ordered blocks (thought → tool → text) -->
+    <div class="assistant-row">
+      <div class="avatar" aria-hidden="true">P</div>
+      <div class="turn-body" oncontextmenu={onMenu} role="group" aria-label="Assistant response">
         {#if blocks}
           {#each blocks as block}
-            {#if block.type === 'text' && tidy(block.text)}
-              <p class="text-block">{tidy(block.text)}</p>
+            {#if block.type === 'text'}
+              {@const b = block as TextBlock}
+              {@const segs = segmentsOf(tidy(b.text))}
+              {#if segs.length > 0}
+                <div class="text-bubble">
+                  {#each segs as seg (seg.kind + seg.text.slice(0, 40))}
+                    {#if seg.kind === 'prose' && seg.text.trim()}
+                      <p>{seg.text.trim()}</p>
+                    {:else if seg.kind === 'code' && seg.text.trim()}
+                      <div class="code-block">
+                        <button
+                          class="copy"
+                          aria-label="Copy code"
+                          title="Copy code"
+                          onclick={() => copyCode(seg.text)}
+                        ><Icon name="content_copy" size={14} /></button>
+                        <pre>{seg.text.trimEnd()}</pre>
+                      </div>
+                    {/if}
+                  {/each}
+                </div>
+              {/if}
             {:else if block.type === 'reasoning' && tidy(block.content)}
-              <div class="reasoning-bubble">{tidy(block.content)}</div>
+              <div class="thought">
+                <Icon name="neurology" size={15} />
+                <span>{tidy(block.content)}</span>
+              </div>
             {:else if block.type === 'thinking' && tidy(block.thinking)}
-              <div class="reasoning-bubble">{tidy(block.thinking)}</div>
+              <div class="thought">
+                <Icon name="neurology" size={15} />
+                <span>{tidy(block.thinking)}</span>
+              </div>
             {:else if block.type === 'tool_use'}
               {@const b = block as ToolUseBlock}
               {@const out = toolOutputs[b.id]}
@@ -78,11 +131,15 @@
               />
             {/if}
           {/each}
-        {:else}
-          <p class="text-block">{typeof content === 'string' ? content : ''}</p>
+        {:else if typeof content === 'string' && content.trim()}
+          <div class="text-bubble"><p>{tidy(content)}</p></div>
         {/if}
+
         {#if message.model}
-          <div class="meta">{message.model}</div>
+          <div class="meta">
+            <span>{message.model}</span>
+            {#if message.tokens > 0}<span>·</span><span>{message.tokens} tokens</span>{/if}
+          </div>
         {/if}
       </div>
     </div>
@@ -91,100 +148,6 @@
 {/if}
 
 <style>
-  .message {
-    display: flex;
-    gap: var(--spacing-2);
-    padding: var(--spacing-2) var(--spacing-4);
-    align-items: flex-start;
-  }
-  .message.user { flex-direction: row-reverse; }
-
-  .bubble {
-    max-width: 70%;
-    overflow-wrap: anywhere;
-    border-radius: var(--radius-lg);
-    padding: var(--spacing-2) var(--spacing-3);
-    font-size: var(--font-size-md);
-    line-height: 1.6;
-  }
-  .user-bubble {
-    width: fit-content;
-    background: color-mix(in srgb, var(--color-accent-brand) 15%, transparent);
-    border: 1px solid color-mix(in srgb, var(--color-accent-brand) 30%, transparent);
-    border-radius: var(--radius-lg) var(--radius-lg) var(--radius-sm) var(--radius-lg);
-  }
-
-  /* Assistant turn: avatar on left, body on right */
-  .assistant-turn {
-    display: flex;
-    gap: var(--spacing-2);
-    padding: var(--spacing-2) var(--spacing-4);
-    align-items: flex-start;
-  }
-  .avatar {
-    width: 22px;
-    height: 22px;
-    border-radius: 50%;
-    background: var(--color-accent-brand);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    color: white;
-    font-size: 12px;
-    flex-shrink: 0;
-    margin-top: 2px;
-  }
-  .turn-body {
-    flex: 1;
-    min-width: 0;
-    display: flex;
-    flex-direction: column;
-    gap: var(--spacing-2);
-  }
-
-  .text-block {
-    margin: 0;
-    width: fit-content;
-    max-width: 70%;
-    align-self: flex-start;
-    overflow-wrap: anywhere;
-    background: var(--color-bg-elevated);
-    border-radius: var(--radius-sm) var(--radius-lg) var(--radius-lg) var(--radius-lg);
-    padding: var(--spacing-2) var(--spacing-3);
-    color: var(--color-text-primary);
-    white-space: pre-wrap;
-    font-size: var(--font-size-md);
-    line-height: 1.6;
-  }
-
-  /* Stored model reasoning / thinking — a normal bubble but tinted with the
-     brand accent so the internal monologue stands apart from the final answer. */
-  .reasoning-bubble {
-    margin: 2px 0 6px;
-    width: fit-content;
-    max-width: 70%;
-    align-self: flex-start;
-    border-radius: var(--radius-lg);
-    padding: var(--spacing-2) var(--spacing-3);
-    background: color-mix(in srgb, var(--color-accent-brand) 10%, var(--color-bg-overlay));
-    border: 1px solid color-mix(in srgb, var(--color-accent-brand) 24%, transparent);
-    color: var(--color-text-primary);
-    font-style: italic;
-    white-space: pre-wrap;
-    overflow-wrap: anywhere;
-    font-size: var(--font-size-sm);
-    line-height: 1.6;
-    max-height: 40vh;
-    overflow-y: auto;
-  }
-
-  p { margin: 0; color: var(--color-text-primary); white-space: pre-wrap; overflow-wrap: anywhere; }
-
-  .meta {
-    font-size: var(--font-size-xs);
-    color: var(--color-text-muted);
-  }
-
   .msg-row {
     padding: var(--spacing-1) 0;
     cursor: context-menu;
@@ -192,7 +155,134 @@
     transition: background-color 120ms ease;
   }
   .msg-row.highlighted {
-    background: color-mix(in srgb, var(--color-accent-brand) 8%, transparent);
-    box-shadow: inset 2px 0 0 0 var(--color-accent-brand);
+    background: color-mix(in srgb, var(--accent) 8%, transparent);
+    box-shadow: inset 2px 0 0 0 var(--accent);
+  }
+
+  /* User bubble — right aligned, accent-soft fill, asymmetric radius. */
+  .user-row {
+    display: flex;
+    justify-content: flex-end;
+  }
+  .user-bubble {
+    max-width: 64%;
+    overflow-wrap: anywhere;
+    background: var(--accent-soft);
+    border: 1px solid var(--border-subtle);
+    border-radius: 18px 18px 5px 18px;
+    padding: 10px 16px;
+    font-family: var(--font-body);
+    font-size: 14px;
+    color: var(--text-primary);
+    line-height: 1.5;
+  }
+  .user-bubble p { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+
+  /* Assistant turn: avatar left, body right */
+  .assistant-row {
+    display: flex;
+    gap: 10px;
+    align-items: flex-start;
+  }
+  .avatar {
+    width: 24px;
+    height: 24px;
+    flex: none;
+    border-radius: 50%;
+    background: var(--accent);
+    color: var(--accent-on);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    font-weight: 600;
+    margin-top: 2px;
+  }
+  .turn-body {
+    flex: 1;
+    min-width: 0;
+    max-width: 78%;
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+  }
+
+  /* Thought block: muted italic with neurology icon. */
+  .thought {
+    display: flex;
+    gap: 8px;
+    align-items: flex-start;
+    font-family: var(--font-body);
+    font-size: 12.5px;
+    font-style: italic;
+    color: var(--text-muted);
+    line-height: 1.5;
+    padding-left: 2px;
+  }
+  .thought :global(.msr) {
+    font-size: 15px;
+    line-height: 1.3;
+    flex: none;
+    font-style: normal;
+    color: var(--text-muted);
+  }
+
+  /* Text block: elevated bubble, asymmetric radius, prose + inline code. */
+  .text-bubble {
+    background: var(--bg-elevated);
+    border: 1px solid var(--border-subtle);
+    border-radius: 5px 18px 18px 18px;
+    padding: 11px 16px;
+    font-family: var(--font-body);
+    font-size: 14px;
+    color: var(--text-primary);
+    line-height: 1.55;
+  }
+  .text-bubble p {
+    margin: 0;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+  .code-block {
+    position: relative;
+    margin-top: 10px;
+    background: var(--bg-base);
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius-sm);
+    padding: 12px 14px;
+    font-family: var(--font-mono);
+    font-size: 12.5px;
+    color: var(--text-secondary);
+  }
+  .code-block pre {
+    margin: 0;
+    white-space: pre;
+    overflow-x: auto;
+  }
+  .copy {
+    position: absolute;
+    top: 6px;
+    right: 6px;
+    background: var(--bg-overlay);
+    border: 1px solid var(--border-default);
+    border-radius: 2px;
+    color: var(--text-muted);
+    cursor: pointer;
+    padding: 3px;
+    display: flex;
+  }
+  .copy:hover {
+    color: var(--text-primary);
+  }
+
+  /* Meta: model · tokens · duration (design mono caption) */
+  .meta {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--text-muted);
   }
 </style>

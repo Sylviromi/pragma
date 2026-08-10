@@ -96,6 +96,7 @@
       role="listbox"
     >
       <div class="search">
+        <span class="msr" aria-hidden="true">search</span>
         <input
           type="search"
           placeholder="Search models…"
@@ -107,7 +108,7 @@
       <div class="list">
         {#each filtered as p (p.id)}
           <div class="group-label"
-            >{p.name}{#if p.source !== 'builtin'} <span class="plugin-tag">· plugin</span>{/if}</div
+            >{p.name.toUpperCase()}{#if p.source !== 'builtin'} <span class="plugin-tag">· plugin</span>{/if}</div
           >
           {#each p.models as m (m.id)}
             <button
@@ -135,132 +136,144 @@
   .picker {
     position: relative;
   }
+  /* Design chip: accent dot + model name + provider tag + chevron. */
   .chip {
     display: flex;
     align-items: center;
-    gap: var(--spacing-1);
-    background: var(--color-bg-elevated);
-    border: 1px solid var(--color-border-default);
+    gap: 6px;
+    background: var(--bg-base);
+    border: 1px solid var(--border-default);
     border-radius: var(--radius-md);
-    padding: 3px var(--spacing-2);
-    color: var(--color-text-primary);
-    font-size: var(--font-size-sm);
+    padding: 6px 10px;
+    font-family: var(--font-body);
+    font-size: 12.5px;
+    color: var(--text-primary);
+    cursor: pointer;
     white-space: nowrap;
+    flex: none;
     min-width: 0;
     max-width: 100%;
   }
-  /* Model text ellipsizes when the window is narrower than the name. */
+  .chip:hover {
+    border-color: var(--text-muted);
+  }
   .chip .mname {
     min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
   }
-  .chip:hover {
-    border-color: var(--color-border-focus);
-  }
   .dot {
     width: 6px;
     height: 6px;
     border-radius: 50%;
-    background: var(--color-accent-brand);
+    background: var(--accent);
     flex-shrink: 0;
   }
   .pname {
-    color: var(--color-text-muted);
+    color: var(--text-muted);
     overflow: hidden;
     text-overflow: ellipsis;
   }
+  /* Design dropdown: opens upward from the chip, 280px, grouped list. */
   .dropdown {
-    /* fixed, not absolute: the .footer is a scroll container (overflow-x: auto
-       so the chip row scrolls on narrow windows) and clips everything that
-       overflows it — an absolute dropdown opening upward is cut off entirely. */
     position: fixed;
     transform: translateY(-100%);
     left: 0;
     top: 0;
     width: 280px;
-    /* never wider than the window (narrow screens / plugin chips near the edge) */
     max-width: min(280px, calc(100vw - 24px));
-    /* opens upward from the composer; cap total height by the space above
-       the chip so even ultra-short windows keep the dropdown on-screen */
     max-height: min(400px, calc(100vh - 76px));
-    background: var(--color-bg-elevated);
-    border: 1px solid var(--color-border-default);
-    border-radius: var(--radius-lg);
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+    background: var(--bg-elevated);
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-lg);
     overflow: hidden;
     z-index: 100;
   }
   .search {
-    padding: var(--spacing-2);
-    border-bottom: 1px solid var(--color-border-subtle);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 8px;
+    border-bottom: 1px solid var(--border-default);
+    margin: 6px 6px 0;
+  }
+  .search .msr {
+    font-size: 15px;
+    line-height: 1;
+    color: var(--text-muted);
+    flex: none;
   }
   .search input {
-    width: 100%;
-    background: var(--color-bg-base);
-    border: 1px solid var(--color-border-default);
-    border-radius: var(--radius-sm);
-    padding: 4px var(--spacing-2);
-    color: var(--color-text-primary);
-    font-size: var(--font-size-sm);
+    flex: 1;
+    background: none;
+    border: none;
+    outline: none;
+    color: var(--text-primary);
+    font-family: var(--font-body);
+    font-size: 12.5px;
+  }
+  .search input::placeholder {
+    color: var(--text-muted);
   }
   .list {
-    max-height: min(300px, 45vh); /* short windows: cap the list so the
-                                     dropdown always fits above the composer */
+    max-height: min(300px, 45vh);
     overflow-y: auto;
-    padding: var(--spacing-1) 0;
+    padding: 2px 6px 6px;
   }
   .group-label {
-    padding: var(--spacing-1) var(--spacing-3);
-    font-size: var(--font-size-xs);
-    font-weight: 700;
-    color: var(--color-text-muted);
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
+    padding: 4px 8px;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    letter-spacing: 0.08em;
+    color: var(--text-muted);
   }
   .plugin-tag {
-    font-weight: normal;
-    text-transform: none;
+    color: var(--slot);
   }
   .row {
     display: flex;
     align-items: center;
-    gap: var(--spacing-2);
+    gap: 8px;
     width: 100%;
-    padding: 5px var(--spacing-4);
+    padding: 6px 8px;
     background: transparent;
     border: none;
-    color: var(--color-text-secondary);
-    font-size: var(--font-size-sm);
+    border-radius: 2px;
+    color: var(--text-secondary);
+    font-size: 12.5px;
+    font-family: var(--font-body);
     text-align: left;
+    cursor: pointer;
   }
   .row:hover {
-    background: var(--color-bg-overlay);
-    color: var(--color-text-primary);
+    background: var(--surface-hover);
+    color: var(--text-primary);
   }
   .row.sel {
-    background: color-mix(in srgb, var(--color-accent-brand) 10%, transparent);
+    background: var(--accent-soft);
   }
   .rname {
     flex: 1;
   }
   .rmeta {
-    color: var(--color-text-muted);
-    font-size: var(--font-size-xs);
+    color: var(--text-muted);
+    font-size: 11px;
   }
   .free {
-    color: var(--color-accent-success);
+    color: var(--success);
   }
   .check {
-    color: var(--color-accent-success);
+    color: var(--success);
     margin-left: auto;
+    display: flex;
   }
 
   /* Narrow: the provider name suffix (· Anthropic) costs ~80px — drop it so
      the chip stays short enough for one-row footers. */
   @media (max-width: 940px) {
     .chip {
-      padding: 3px var(--spacing-1);
+      padding: 6px 8px;
     }
     .pname {
       display: none;

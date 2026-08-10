@@ -1,34 +1,51 @@
 <script lang="ts">
-  import '../styles/dark.css';
-  import '../styles/light.css';
-  import '../styles/high-contrast.css';
-  import '../styles/base.css';
-  import TabBar from '../components/TabBar.svelte';
+  // Fonts — Barlow / Barlow Condensed / JetBrains Mono + Material Symbols Rounded
+  // (bundled locally via npm so the desktop app works fully offline).
+  import 'material-symbols/rounded.css'
+  import '@fontsource/barlow/400.css'
+  import '@fontsource/barlow/500.css'
+  import '@fontsource/barlow/700.css'
+  import '@fontsource/barlow-condensed/400.css'
+  import '@fontsource/barlow-condensed/600.css'
+  import '@fontsource/jetbrains-mono/400.css'
+  import '@fontsource/jetbrains-mono/500.css'
+  import '@fontsource/jetbrains-mono/600.css'
+  import '../styles/tokens.css'
+  import '../styles/base.css'
+  import TabBar from '../components/TabBar.svelte'
+  import StatusBar from '../components/StatusBar.svelte'
   import Toast from '../components/Toast.svelte';
+  import PluginConfirmModal from '../components/PluginConfirmModal.svelte';
   import { onMount } from 'svelte';
   import { loadPlugins, initPluginEvents } from '../stores/plugins.svelte';
   import { reconnectRunningSessions } from '../stores/chat.svelte';
+  import { initStatsEvents } from '../stores/stats.svelte';
+  import { initTheme, applyTheme, theme } from '../stores/theme.svelte';
 
   let { children } = $props();
 
-  let theme = $state<'dark' | 'light' | 'high-contrast'>('dark');
-
-  // Restore saved theme on startup (plan: restore theme before chat loads)
   onMount(() => {
+    initTheme();
     initPluginEvents();
     loadPlugins();
     reconnectRunningSessions();
-    const saved = localStorage.getItem('pragma:theme');
-    if (saved) theme = saved as 'dark' | 'light' | 'high-contrast';
+    initStatsEvents();
   });
 
-  $effect(() => document.documentElement.setAttribute('data-theme', theme));
+  // Re-apply the family×mode token set whenever the user changes it; also
+  // reacts to matchSystem/reduceMotion so <html> attributes stay in sync.
+  $effect(() => {
+    const _ = [theme.family, theme.mode, theme.matchSystem, theme.reduceMotion];
+    applyTheme();
+  });
 </script>
 
 <div id="app">
   <TabBar />
+  <StatusBar />
   <main>{@render children()}</main>
   <Toast />
+  <PluginConfirmModal />
 </div>
 
 <style>

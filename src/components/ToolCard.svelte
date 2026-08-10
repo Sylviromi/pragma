@@ -20,6 +20,23 @@
     }
   })
 
+  // Design tool icons — read/edit/run/search/grep/write families map to their
+  // material glyphs, everything else falls back to a neutral build icon.
+  function iconFor(name: string): string {
+    switch (true) {
+      case name.startsWith('read'): return 'description'
+      case name.startsWith('write'): return 'note_add'
+      case name.startsWith('patch') || name.startsWith('edit'): return 'edit_document'
+      case name.startsWith('create') || name.startsWith('delete') || name.startsWith('move'): return 'note_add'
+      case name.startsWith('run'): return 'terminal'
+      case name.startsWith('list') || name.startsWith('search'): return 'travel_explore'
+      case name.startsWith('git'): return 'difference'
+      case name.startsWith('web'): return 'travel_explore'
+      case name.startsWith('fetch'): return 'travel_explore'
+      default: return 'build'
+    }
+  }
+
   // Human-readable one-liner for the tool input
   function summarize(name: string, input: Record<string, unknown>): string {
     const s = (k: string) => String(input[k] ?? '')
@@ -50,129 +67,160 @@
   const summary = $derived(summarize(tool.name, tool.input))
   const hasOutput = $derived(tool.output !== undefined && tool.output !== '')
   const outputTrimmed = $derived((tool.output ?? '').slice(0, 4000))
+  const running = $derived(tool.status === 'running')
+  const waiting = $derived(tool.status === 'waiting')
+
+  // Diff-ish coloring per output line (design: + green / − red / failures red).
+  const outputLines = $derived((tool.output ?? '').trimEnd().split('\n').map((text) => {
+    const add = text.startsWith('+'), rm = text.startsWith('-'), fail = /FAIL|●|Expected:|error:/i.test(text)
+    return { text, color: add ? 'var(--success)' : rm ? 'var(--danger)' : fail ? 'var(--danger)' : 'var(--text-secondary)' }
+  }))
 </script>
 
-<div class="tool-card" class:waiting={tool.status === 'waiting'} class:error={tool.status === 'error'}>
+<div
+  class="tool-card"
+  class:waiting
+  class:error={tool.status === 'error'}
+  class:open={outputOpen}
+>
   <div class="header">
-    <!-- status icon -->
-    {#if tool.status === 'waiting'}
-      <span class="icon warn" aria-hidden="true"><Icon name="bolt" size={13} /></span>
-    {:else if tool.status === 'running'}
-      <span class="icon spin" aria-hidden="true"><Icon name="sync" size={13} /></span>
-    {:else if tool.status === 'done'}
-      <span class="icon ok" aria-hidden="true"><Icon name="check" size={13} /></span>
-    {:else}
-      <span class="icon err" aria-hidden="true"><Icon name="close" size={13} /></span>
-    {/if}
-
-    <span class="name">{tool.name}</span>
-    {#if summary}<span class="summary">{summary}</span>{/if}
+    <span class="t-icon" aria-hidden="true"><Icon name={iconFor(tool.name) as never} size={15} /></span>
+    <span class="label">{tool.name}</span>
+    {#if summary}<span class="detail">{summary}</span>{/if}
 
     <span class="spacer"></span>
 
-    {#if tool.status === 'waiting'}
+    {#if waiting}
       <button class="btn primary" onclick={() => approveTool(sessionId, tool.toolUseId)}>Run</button>
       <button class="btn ghost" onclick={() => { alwaysApproveTool(sessionId, tool.name); approveTool(sessionId, tool.toolUseId) }}>Always</button>
       <button class="btn danger" onclick={() => denyTool(sessionId, tool.toolUseId)}>Deny</button>
-    {:else if tool.status === 'running'}
-      <span class="muted">running…</span>
-    {:else if hasOutput}
-      <button class="toggle" onclick={() => outputOpen = !outputOpen} aria-label="Toggle output">
-        {#if outputOpen}
-          <Icon name="expand_more" size={15} />
-        {:else}
-          <Icon name="chevron_right" size={15} />
-        {/if}
+    {:else if running}
+      <span class="status spin" aria-hidden="true"><Icon name="progress_activity" size={14} /></span>
+    {:else if tool.status === 'done' || tool.status === 'error'}
+      <span class="status" class:ok={tool.status === 'done'} aria-hidden="true"><Icon name="check" size={14} fill={tool.status === 'done'} /></span>
+    {/if}
+
+    {#if hasOutput && !waiting}
+      <button class="chev" class:open={outputOpen} onclick={() => outputOpen = !outputOpen} aria-label="Toggle output" aria-expanded={outputOpen}>
+        <Icon name="expand_more" size={15} />
       </button>
     {/if}
   </div>
 
   {#if hasOutput && outputOpen}
-    <pre class="output" class:err-output={tool.isError}>{outputTrimmed}{(tool.output ?? '').length > 4000 ? '\n… (truncated)' : ''}</pre>
+    <div class="output">
+      {#each outputLines as line (line.text + line.color)}
+        <div class="line" style={`color:${line.color}`}>{line.text}</div>
+      {/each}
+      {#if (tool.output ?? '').length > 4000}<div class="more">… (truncated)</div>{/if}
+    </div>
   {/if}
 </div>
 
 <style>
+  /* Design: tool call strip — elevated card, 2px left border colored by state,
+     icon + mono label + detail + status glyph + chevron, expandable output. */
   .tool-card {
-    border: 1px solid var(--color-border-subtle);
-    border-radius: var(--radius-md);
+    display: flex;
+    flex-direction: column;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border-subtle);
+    border-left: 2px solid var(--border-default);
+    border-radius: var(--radius-sm);
     overflow: hidden;
-    font-family: var(--font-mono);
-    font-size: var(--font-size-xs);
-    margin: var(--spacing-1) 0;
-    max-width: 70%;
-    align-self: flex-start;
+    margin: 1px 0;
+    transition: border-color 0.25s ease;
+    max-width: 100%;
+  }
+  .tool-card.open {
+    border-left-color: var(--accent);
   }
   .tool-card.waiting {
-    border-color: color-mix(in srgb, var(--color-accent-warning, #d29922) 40%, transparent);
+    border-left-color: var(--warning);
   }
   .tool-card.error {
-    border-color: color-mix(in srgb, var(--color-accent-error, #f85149) 40%, transparent);
+    border-left-color: var(--danger);
   }
   .header {
     display: flex;
     align-items: center;
-    gap: var(--spacing-2);
-    padding: 4px var(--spacing-3);
-    background: var(--color-bg-elevated);
+    gap: 8px;
+    padding: 6px 11px;
     min-height: 30px;
   }
-  .icon { font-size: 13px; flex-shrink: 0; }
-  .icon.ok   { color: var(--color-accent-success, #3fb950); }
-  .icon.err  { color: var(--color-accent-error,   #f85149); }
-  .icon.warn { color: var(--color-accent-warning,  #d29922); }
-  .icon.spin { color: var(--color-text-muted); animation: spin 1s linear infinite; }
-  @keyframes spin { to { transform: rotate(360deg); } }
-
-  .name {
-    font-weight: 600;
-    color: var(--color-text-primary);
-    flex-shrink: 0;
-  }
-  .summary {
-    color: var(--color-text-muted);
+  .t-icon { color: var(--text-muted); flex: none; display: flex; }
+  .label {
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    color: var(--text-secondary);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    max-width: 340px;
-  }
-  .spacer { flex: 1; }
-  .muted { color: var(--color-text-muted); font-size: var(--font-size-xs); }
-
-  .btn {
-    border-radius: var(--radius-sm);
-    font: inherit;
-    cursor: pointer;
-    padding: 2px 10px;
     flex-shrink: 0;
   }
-  .btn.primary { background: var(--color-accent-brand); color: #fff; border: none; }
-  .btn.ghost   { background: transparent; color: var(--color-text-secondary); border: 1px solid var(--color-border-default); }
-  .btn.danger  { background: transparent; color: var(--color-accent-error, #f85149); border: 1px solid currentColor; }
-  .btn:hover   { filter: brightness(1.1); }
-
-  .toggle {
-    background: transparent;
+  .detail {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--text-muted);
+    flex: none;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 180px;
+  }
+  .spacer { flex: 1; }
+  .status { color: var(--success); display: flex; flex: none; }
+  .status.ok { color: var(--success); }
+  .status.spin {
+    color: var(--warning);
+    display: flex;
+    animation: spin 1s linear infinite;
+  }
+  .chev {
+    background: none;
     border: none;
-    color: var(--color-text-muted);
+    color: var(--text-muted);
     cursor: pointer;
-    font-size: 15px;
-    padding: 0 2px;
-    line-height: 1;
+    padding: 0;
+    display: flex;
+    flex: none;
   }
-  .toggle:hover { color: var(--color-text-primary); }
-
+  .chev:hover { color: var(--text-primary); }
+  .chev.open { transform: rotate(180deg); }
+  .btn {
+    font-family: var(--font-body);
+    font-size: 11.5px;
+    border-radius: 2px;
+    cursor: pointer;
+    padding: 2px 10px;
+    flex: none;
+  }
+  .btn.primary { background: var(--accent); color: var(--accent-on); border: none; }
+  .btn.ghost { background: transparent; color: var(--text-secondary); border: 1px solid var(--border-default); }
+  .btn.danger { background: transparent; color: var(--danger); border: 1px solid currentColor; }
+  .btn:hover { filter: brightness(1.1); }
   .output {
-    margin: 0;
-    padding: var(--spacing-2) var(--spacing-3);
-    color: var(--color-text-secondary);
-    background: var(--color-bg-base);
-    border-top: 1px solid var(--color-border-subtle);
-    overflow-x: auto;
-    white-space: pre-wrap;
-    max-height: 240px;
-    overflow-y: auto;
-    font-size: var(--font-size-xs);
+    border-top: 1px solid var(--border-subtle);
+    background: var(--bg-base);
+    padding: 9px 12px;
+    max-height: 200px;
+    overflow: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    animation: outputIn 0.28s cubic-bezier(0.22, 0.8, 0.3, 1) both;
   }
-  .output.err-output { color: var(--color-accent-error, #f85149); }
+  .line {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    line-height: 1.55;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+  .more {
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    color: var(--text-muted);
+    padding-top: 5px;
+  }
 </style>

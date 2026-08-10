@@ -1,0 +1,114 @@
+/* Design tokens — the single contract plugins can theme against.
+ *
+ * The theme store (src/stores/theme.svelte.ts) overrides every `--*` below on
+ * <html> for the active family×mode; these :root rules are the first-paint
+ * fallback (Steel/dark) so nothing shifts while the engine boots. Legacy
+ * `--color-*` aliases keep older components and plugins working.
+ */
+:root {
+  /* surfaces */
+  --bg-base: oklch(16% 0.033 250);
+  --bg-elevated: oklch(21% 0.028 250);
+  --bg-overlay: oklch(27% 0.033 250);
+  --surface-hover: oklch(25% 0.035 250);
+  /* text */
+  --text-primary: oklch(96% 0.008 250);
+  --text-secondary: oklch(82% 0.0165 250);
+  --text-muted: oklch(61% 0.0165 250);
+  /* borders */
+  --border-default: oklch(94% 0.033 250 / 0.18);
+  --border-subtle: oklch(94% 0.033 250 / 0.09);
+  --border-focus: oklch(72% 0.055 250);
+  /* accent */
+  --accent: oklch(72% 0.055 250);
+  --accent-hover: oklch(80% 0.055 250);
+  --accent-active: oklch(88% 0.055 250);
+  --accent-soft: oklch(72% 0.055 250 / 0.2);
+  --accent-on: oklch(12% 0.019 250);
+  /* status */
+  --success: oklch(72% 0.1 150);
+  --warning: oklch(76% 0.12 80);
+  --danger: oklch(70% 0.14 25);
+  --slot: oklch(72% 0.1 320);
+  /* elevation */
+  --shadow-sm: 0 1px 2px oklch(12% 0.0275 250 / 0.42);
+  --shadow-md: 0 4px 14px oklch(12% 0.0275 250 / 0.42);
+  --shadow-lg: 0 16px 40px oklch(12% 0.0275 250 / 0.52);
+  /* static */
+  --font-heading: 'Barlow Condensed', system-ui, sans-serif;
+  --font-body: 'Barlow', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+  --radius-sm: 2px;
+  --radius-md: 4px;
+  --radius-lg: 7px;
+
+  /* ── legacy aliases (keep old components/plugins working) ───────────── */
+  --color-bg-base: var(--bg-base);
+  --color-bg-elevated: var(--bg-elevated);
+  --color-bg-overlay: var(--bg-overlay);
+  --color-text-primary: var(--text-primary);
+  --color-text-secondary: var(--text-secondary);
+  --color-text-muted: var(--text-muted);
+  --color-text-accent: var(--accent);
+  --color-border-default: var(--border-default);
+  --color-border-subtle: var(--border-subtle);
+  --color-border-focus: var(--border-focus);
+  --color-accent-brand: var(--accent);
+  --color-accent-success: var(--success);
+  --color-accent-warning: var(--warning);
+  --color-accent-danger: var(--danger);
+  --color-accent-error: var(--danger);
+  --font-sans: var(--font-body);
+
+  /* spacing + type scale (kept from the original harness, sized for the new
+     design: mono labels 10–11.5px, body 14px) */
+  --spacing-1: 4px; --spacing-2: 8px; --spacing-3: 12px; --spacing-4: 16px; --spacing-6: 24px;
+  --font-size-xs: 11px; --font-size-sm: 12.5px; --font-size-md: 14px; --font-size-lg: 17px;
+}
+
+/* Design keyframes — shared by chat bubbles, tool cards, sidebar and streams.
+   All animations are gated off under prefers-reduced-motion. */
+@keyframes cursorblink { 0%,49% { opacity: 1; } 50%,100% { opacity: 0; } }
+@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+@keyframes blockIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+@keyframes bubbleIn { from { opacity: 0; transform: translateY(8px) scale(0.985); } to { opacity: 1; transform: none; } }
+@keyframes outputIn { from { opacity: 0; max-height: 0; } to { opacity: 1; max-height: 320px; } }
+@keyframes dotPulse { 0%,100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.45; transform: scale(0.82); } }
+@keyframes barFill { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+@keyframes panelIn { from { opacity: 0; transform: translateX(14px); } to { opacity: 1; transform: none; } }
+@keyframes tabPulse {
+  0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent, #58a6ff) 55%, transparent); }
+  50% { box-shadow: 0 0 0 5px color-mix(in srgb, var(--accent, #58a6ff) 0%, transparent); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+:root[data-reduce-motion='true'] *, :root[data-reduce-motion='true'] *::before, :root[data-reduce-motion='true'] *::after {
+  animation-duration: 0.01ms !important;
+  transition-duration: 0.01ms !important;
+}
+
+/* Material Symbols Rounded — icon font used across the app and by plugins
+   (`.msr` alias for convenience). Loaded from the bundled woff2 via
+   @fontsource + the material-symbols package's rounded.css. */
+.msr {
+  font-family: 'Material Symbols Rounded';
+  font-weight: normal;
+  font-style: normal;
+  font-size: 24px;
+  line-height: 1;
+  letter-spacing: normal;
+  text-transform: none;
+  display: inline-block;
+  white-space: nowrap;
+  word-wrap: normal;
+  direction: ltr;
+  font-feature-settings: 'liga';
+  font-variation-settings: 'FILL' 0, 'wght' 300, 'GRAD' 0, 'opsz' 24;
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+}

@@ -1,6 +1,5 @@
 <script lang="ts">
-  import { sendMessage, chat } from '../stores/chat.svelte'
-  import { stopTurn } from '../stores/chat.svelte'
+  import { sendMessage, stopTurn, chat } from '../stores/chat.svelte'
   import ModelPicker from './ModelPicker.svelte'
   import Icon from './Icon.svelte'
   import DirChip from './DirChip.svelte'
@@ -22,6 +21,8 @@
   // hydration effect (below) from re-applying the stored values over the
   // user's fresh pick from the model picker.
   let hydratedFor: string | null = null
+  // Auto-grow the textarea from 1 to ~6 lines; taller content scrolls.
+  let ta = $state<HTMLTextAreaElement | null>(null)
 
   const session = $derived(getSession(sessionId))
   const running = $derived(chat.running[sessionId] ?? false)
@@ -54,6 +55,7 @@
     const content = text.trim()
     if (!content || running) return
     text = ''
+    if (ta) ta.style.height = 'auto'
     await sendMessage(
       sessionId,
       content,
@@ -69,6 +71,17 @@
       e.preventDefault()
       submit()
     }
+  }
+
+  // Auto-grow the textarea (1 → ~6 lines ≈ 144px), scrolling beyond.
+  function autoresize(el: HTMLTextAreaElement) {
+    const grow = () => {
+      el.style.height = 'auto'
+      el.style.height = Math.min(el.scrollHeight, 144) + 'px'
+    }
+    grow()
+    el.addEventListener('input', grow)
+    return { destroy: () => el.removeEventListener('input', grow) }
   }
 
   // Esc interrupts the running turn wherever the focus is.
@@ -102,23 +115,37 @@
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   })
+
+  const autoApprove = $derived(chat.autoApprove[sessionId] ?? false)
+  function toggleAuto() {
+    chat.autoApprove[sessionId] = !autoApprove
+  }
 </script>
 
 <div class="input-area">
   <textarea
+    bind:this={ta}
     bind:value={text}
     onkeydown={onKeydown}
-    placeholder="Ask anything, or describe what to build…"
+    placeholder="Message Pragma…"
     disabled={running}
     aria-label="Message input"
     aria-multiline="true"
+    use:autoresize
   ></textarea>
+
   <div class="footer">
     <ModelPicker bind:model bind:provider />
     <DirChip {sessionId} />
+
+    <!-- Plugins can contribute their own controls here (design's composer-center). -->
+    <SlotStack slot="composer-center" context={sessionId} />
+
     <div class="divider" aria-hidden="true"></div>
+
     <SlotStack slot="input-toolbar" />
     <SlotStack slot="chat-toolbar-extra" context={sessionId} />
+
     <div class="footer-right">
       {#if running}
         <button
@@ -132,62 +159,65 @@
       <button class="hint-btn" type="button" title="Screenshot this app window (Ctrl+Shift+S)" onclick={shoot}><Icon name="camera" size={16} /></button>
       <button class="hint-btn hide-narrow" type="button">@ skills</button>
       <button class="hint-btn hide-narrow" type="button">/ cmds</button>
+      <!-- Auto-approve (compact toggle; moved into the composer so the tab
+           bar matches the design's icon-only actions). -->
+      <button class="auto-dot" class:on={autoApprove} onclick={toggleAuto} title="Auto-approve all tool calls (active session)" aria-pressed={autoApprove}>
+        <span class="track" aria-hidden="true"><span class="knob"></span></span>
+      </button>
       <button
         class="send-btn"
         onclick={submit}
         disabled={running || !text.trim()}
         aria-label="Send message"
       >
-        {running ? '…' : 'Send'}
+        Send <Icon name="arrow_upward" size={15} />
       </button>
     </div>
   </div>
 </div>
 
 <style>
+  /* Design composer: elevated strip, 14px 20px 16px padding, rounded textarea. */
   .input-area {
-    border-top: 1px solid var(--color-border-subtle);
-    padding: var(--spacing-3) var(--spacing-4);
+    border-top: 1px solid var(--border-default);
+    background: var(--bg-elevated);
+    padding: 14px 20px 16px;
     display: flex;
     flex-direction: column;
-    gap: var(--spacing-2);
-    background: var(--color-bg-base);
-    /* Never collapse below its content: the composer (textarea + Send) must
-       stay visible even when the window is very short. */
+    gap: 10px;
     flex-shrink: 0;
-    /* No effective min width: the footer handles narrow windows by wrapping
-       (and, for a single element wider than the window, by scrolling). */
     min-width: 0;
   }
   textarea {
     width: 100%;
-    background: var(--color-bg-elevated);
-    border: 1px solid var(--color-border-default);
-    border-radius: var(--radius-md);
-    padding: var(--spacing-2) var(--spacing-3);
-    color: var(--color-text-primary);
-    font-family: var(--font-sans);
-    font-size: var(--font-size-md);
     resize: none;
-    min-height: 44px;
-    max-height: 140px;
     overflow-y: auto;
+    max-height: 144px;
+    background: var(--bg-base);
+    color: var(--text-primary);
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius-md);
+    padding: 10px 12px;
+    font-family: var(--font-body);
+    font-size: 14px;
     line-height: 1.5;
+    outline: none;
+    min-height: 40px;
   }
   textarea:focus {
-    outline: 2px solid var(--color-border-focus);
-    outline-offset: -1px;
+    border-color: var(--border-focus);
+  }
+  textarea::placeholder {
+    color: var(--text-muted);
   }
   .footer {
+    position: relative;
     display: flex;
     align-items: center;
     flex-wrap: wrap;
-    row-gap: var(--spacing-1);
-    gap: var(--spacing-2);
+    row-gap: 8px;
+    gap: 8px;
     min-width: 0;
-    /* Plugin toolbar slots (input-toolbar / chat-toolbar-extra) can ship
-       elements wider than the window; they can't wrap, so let the row scroll
-       horizontally instead of clipping the plugin buttons off-screen. */
     overflow-x: auto;
     scrollbar-width: none;
   }
@@ -196,14 +226,16 @@
   }
   .divider {
     width: 1px;
-    height: 18px;
-    background: var(--color-border-default);
+    align-self: stretch;
+    background: var(--border-default);
+    margin: 0 2px;
+    flex: none;
   }
   .footer-right {
     margin-left: auto;
     display: flex;
     align-items: center;
-    gap: var(--spacing-2);
+    gap: 8px;
     min-width: 0;
     flex-shrink: 0;
   }
@@ -213,65 +245,94 @@
     gap: 6px;
     background: transparent;
     border: none;
-    color: var(--color-text-muted);
-    font-size: var(--font-size-sm);
-    padding: var(--spacing-1) var(--spacing-2);
+    color: var(--text-secondary);
+    font-size: 12.5px;
+    padding: 4px 6px;
     border-radius: var(--radius-sm);
+    white-space: nowrap;
+    flex: none;
   }
   .hint-btn:hover {
-    color: var(--color-text-primary);
-    background: var(--color-bg-overlay);
+    color: var(--text-primary);
+    background: var(--bg-overlay);
   }
   .send-btn {
-    background: var(--color-accent-brand);
-    color: white;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: var(--accent);
+    color: var(--accent-on);
     border: none;
     border-radius: var(--radius-md);
-    padding: var(--spacing-1) var(--spacing-4);
-    font-size: var(--font-size-md);
-    font-weight: 500;
+    padding: 7px 14px;
+    font-family: var(--font-heading);
+    font-weight: 600;
+    font-size: 13px;
+    cursor: pointer;
+    white-space: nowrap;
+    flex: none;
+  }
+  .send-btn:hover {
+    background: var(--accent-hover);
+  }
+  .send-btn:active {
+    background: var(--accent-active);
   }
   .send-btn:disabled {
     opacity: 0.5;
     cursor: not-allowed;
   }
   .stop-btn {
-    color: var(--color-accent-error, #f85149);
-    border: 1px solid color-mix(in srgb, var(--color-accent-error, #f85149) 40%, transparent);
+    color: var(--danger);
+    border: 1px solid color-mix(in srgb, var(--danger) 40%, transparent);
   }
   .stop-btn:hover {
-    background: color-mix(in srgb, var(--color-accent-error, #f85149) 10%, transparent);
+    background: color-mix(in srgb, var(--danger) 10%, transparent);
+    color: var(--danger);
+  }
+  /* Compact auto-approve switch */
+  .auto-dot {
+    display: flex;
+    align-items: center;
+    background: transparent;
+    border: none;
+    padding: 2px;
+    cursor: pointer;
+    flex: none;
+  }
+  .track {
+    position: relative;
+    width: 26px;
+    height: 15px;
+    border-radius: 2px;
+    background: var(--border-default);
+    transition: background 0.12s;
+    flex-shrink: 0;
+  }
+  .auto-dot.on .track {
+    background: var(--accent);
+  }
+  .knob {
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 11px;
+    height: 11px;
+    border-radius: 1px;
+    background: var(--bg-elevated);
+    transition: left 0.12s;
+  }
+  .auto-dot.on .knob {
+    left: calc(100% - 13px);
+    background: var(--accent-on);
   }
 
-  /* ── Narrow windows ─────────────────────────────────────────────────── *
-   * Breakpoints sit above the 800px window minimum so the compact styles
-   * actually apply at the smallest allowed size: placeholder buttons and the
-   * divider drop out, spacing tightens. */
   @media (max-width: 940px) {
     .input-area {
-      padding: var(--spacing-2) var(--spacing-3);
-      gap: var(--spacing-1);
-    }
-    .footer {
-      gap: var(--spacing-1);
-      row-gap: var(--spacing-1);
+      padding: 12px 16px 14px;
     }
     .hide-narrow {
-      display: none; /* @ skills / / cmds placeholders */
-    }
-    .divider {
       display: none;
-    }
-  }
-  @media (max-width: 480px) {
-    textarea {
-      min-height: 36px;
-    }
-    .hint-btn {
-      padding: var(--spacing-1);
-    }
-    .footer-right {
-      gap: var(--spacing-1);
     }
   }
 </style>

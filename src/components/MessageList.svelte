@@ -2,10 +2,10 @@
   import { tick } from 'svelte'
   import ChatMessage from './ChatMessage.svelte'
   import ToolCard from './ToolCard.svelte'
+  import QuestionBlock from './QuestionBlock.svelte'
   import ReturnModal from './ReturnModal.svelte'
   import ContextMenu, { type MenuItem } from './ContextMenu.svelte'
-  import Icon from './Icon.svelte'
-  import { chat } from '../stores/chat.svelte'
+  import { chat, answerQuestion, STATUS_META, type AgentStatus } from '../stores/chat.svelte'
   import { pushToast } from '../stores/toast.svelte'
   import { buildAgentTranscript } from '../lib/transcript'
   import { messageText, isToolResultTurn, parseContent } from '../lib/types'
@@ -17,12 +17,16 @@
   // "Stick to bottom": while the user hasn't scrolled up, keep following
   // streamed text / tool updates so the newest content is always visible.
   let stickToBottom = $state(true)
+  // Question-block answers (skeleton) keyed by live block index.
+  let qAnswers = $state<Record<number, string>>({})
 
   const messages      = $derived(chat.messages[sessionId] ?? [])
   const streamingToken = $derived(chat.streamingToken[sessionId])
   const running       = $derived(chat.running[sessionId] ?? false)
   const liveBlocks    = $derived(chat.liveBlocks[sessionId] ?? [])
   const toolItems     = $derived(chat.toolItems[sessionId] ?? [])
+  const status        = $derived((chat.status[sessionId] ?? 'idle') as AgentStatus)
+  const statusMeta    = $derived(STATUS_META[status])
   const error         = $derived(chat.error[sessionId] ?? null)
   const notice        = $derived(chat.notice[sessionId] ?? null)
 
@@ -73,8 +77,7 @@
     ]
   })
 
-  const liveReasoningText = $derived(chat.liveReasoning[sessionId] ?? '')
-  const thinking = $derived(running && liveBlocks.length === 0 && !liveReasoningText)
+  const thinking = $derived(running && liveBlocks.length === 0)
 
   // Cycling status label shown while the model is thinking (no content yet)
   const statusWords = ['Thinking', 'Working', 'Generating']
@@ -125,12 +128,19 @@
   })
 
   // A key that changes whenever ANY streamed content could have changed the
-  // list height: messages, live blocks, reasoning, live text, tool outputs
-  // (which arrive after the tool card itself, growing it later), errors.
+  // list height: messages, live blocks (incl. growing thought + text text),
+  // tool outputs (which arrive after the tool card itself, growing it later),
+  // errors.
+  const liveChars = $derived.by(() =>
+    (chat.liveBlocks[sessionId] ?? []).reduce((n, b) => {
+      if (b.type === 'thinking' || b.type === 'text') return n + b.text.length
+      return n
+    }, 0)
+  )
   const followKey = $derived(
     messages.length
     + liveBlocks.length
-    + liveReasoningText.length
+    + liveChars
     + (streamingToken ?? '').length
     + (error ? 1 : 0)
     + (chat.toolItems[sessionId] ?? []).reduce((n, t) => n + (t.output?.length ?? 0), 0)
@@ -154,6 +164,12 @@
     if (!listEl) return
     stickToBottom = listEl.scrollHeight - listEl.scrollTop - listEl.clientHeight < 60
   }
+
+  function onAnswer(idx: number, option: string) {
+    qAnswers[idx] = option
+    const block = liveBlocks[idx]
+    if (block?.type === 'question') answerQuestion(sessionId, block.questionId, option)
+  }
 </script>
 
 <div
@@ -176,61 +192,42 @@
     />
   {/each}
 
-  {#if liveReasoningText}
+  {#if liveBlocks.length > 0 || thinking}
     <div class="live-turn">
-      <div class="avatar" aria-hidden="true"><Icon name="sparkle" size={13} /></div>
+      <div class="avatar" aria-hidden="true">P</div>
       <div class="live-body">
-        <details class="thought-card" class:answered={!running} open={running}>
-          <summary>
-            <span class="thought-label">Thinking…</span>
-            <span class="thought-status">{(liveBlocks.length > 0 ? 'answered — click to expand' : 'streaming')}</span>
-          </summary>
-          <div class="thought-text">{liveReasoningText}</div>
-        </details>
-        {#each liveBlocks as block}
-          {#if block.type === 'text'}
-            <p class="live-text">{block.text}</p>
+        {#each liveBlocks as block, bi (block.type === 'tool' ? block.toolUseId : block.type === 'thinking' ? `th-${bi}` : `${block.type}-${bi}`)}
+          {#if block.type === 'thinking'}
+            <div class="thought" class:live={!block.done}>
+              <span class="msr thought-icon" aria-hidden="true">neurology</span>
+              <span class="thought-text">{block.text}{#if running && !block.done && bi === liveBlocks.length - 1}<span class="caret" aria-hidden="true">▌</span>{/if}</span>
+            </div>
+          {:else if block.type === 'text'}
+            <div class="live-bubble">{block.text}{#if running && bi === liveBlocks.length - 1}<span class="caret" aria-hidden="true">▌</span>{/if}</div>
           {:else if block.type === 'tool'}
             {@const tool = toolItems.find(t => t.toolUseId === block.toolUseId)}
             {#if tool}
               <ToolCard {sessionId} {tool} />
             {/if}
+          {:else if block.type === 'question'}
+            <QuestionBlock
+              text={block.text}
+              options={block.options}
+              answer={block.picked ?? qAnswers[bi] ?? null}
+              onSelect={(opt) => onAnswer(bi, opt)}
+            />
           {/if}
         {/each}
-        {#if running}
-          <div class="stream-indicator" aria-label="Generating">
-            <span class="stream-caret" aria-hidden="true"></span>
+
+        {#if thinking}
+          <div class="status-row" role="status" aria-label="Assistant is thinking">
+            <span class="dot live" style={`background:var(--accent)`} aria-hidden="true"></span>
+            <span class="status-label">{#key statusWord}{statusWord}{/key}…</span>
           </div>
-        {/if}
-      </div>
-    </div>
-  {:else if thinking}
-    <div class="message assistant">
-      <div class="avatar" aria-hidden="true"><Icon name="sparkle" size={13} /></div>
-      <div class="status-pill" role="status" aria-label="Assistant is thinking">
-        <span class="status-dot" aria-hidden="true"></span>
-        <span class="status-text">
-          {#key statusWord}<span class="status-word">{statusWord}</span>{/key}
-        </span>
-      </div>
-    </div>
-  {:else if liveBlocks.length > 0}
-    <div class="live-turn">
-      <div class="avatar" aria-hidden="true"><Icon name="sparkle" size={13} /></div>
-      <div class="live-body">
-        {#each liveBlocks as block}
-          {#if block.type === 'text'}
-            <p class="live-text">{block.text}</p>
-          {:else if block.type === 'tool'}
-            {@const tool = toolItems.find(t => t.toolUseId === block.toolUseId)}
-            {#if tool}
-              <ToolCard {sessionId} {tool} />
-            {/if}
-          {/if}
-        {/each}
-        {#if running}
-          <div class="stream-indicator" aria-label="Generating">
-            <span class="stream-caret" aria-hidden="true"></span>
+        {:else if running}
+          <div class="status-row" role="status" aria-label={statusMeta.label}>
+            <span class="dot live" style={`background:${statusMeta.color}`} aria-hidden="true"></span>
+            <span class="status-label">{statusMeta.label}</span>
           </div>
         {/if}
       </div>
@@ -250,7 +247,7 @@
 
   {#if notice}
     <div class="notice-row" role="status">
-      <span><Icon name="stop" size={14} /></span>
+      <span class="msr" aria-hidden="true">stop</span>
       <span>{notice}</span>
     </div>
   {/if}
@@ -269,175 +266,125 @@
 {/if}
 
 <style>
+  /* Design log style: 20px 24px padding, 16px gaps (tight at small widths). */
   .list {
     flex: 1;
-    min-height: 0; /* never push the composer off-window on short screens */
+    min-height: 0;
     overflow-y: auto;
-    padding: var(--spacing-4) 0;
+    padding: 20px 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
   }
 
-  .message, .live-turn {
+  .live-turn {
     display: flex;
-    gap: var(--spacing-2);
-    padding: var(--spacing-2) var(--spacing-4);
+    gap: 10px;
     align-items: flex-start;
   }
-
   .avatar {
-    width: 22px;
-    height: 22px;
+    width: 24px;
+    height: 24px;
+    flex: none;
     border-radius: 50%;
-    background: var(--color-accent-brand);
+    background: var(--accent);
+    color: var(--accent-on);
     display: flex;
     align-items: center;
     justify-content: center;
-    color: white;
-    font-size: 12px;
-    flex-shrink: 0;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    font-weight: 600;
     margin-top: 2px;
-  }
-  /* Status pill — shown while the model is thinking (no content yet) */
-  .status-pill {
-    display: inline-flex;
-    align-items: center;
-    gap: var(--spacing-2);
-    padding: var(--spacing-2) var(--spacing-3);
-    border-radius: var(--radius-lg);
-    background: color-mix(in srgb, var(--color-accent-brand) 8%, transparent);
-    border: 1px solid color-mix(in srgb, var(--color-accent-brand) 22%, transparent);
-    min-height: 36px;
-  }
-  .status-dot {
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-    background: var(--color-accent-brand);
-    animation: status-pulse 1.4s ease-in-out infinite;
-  }
-  .status-text {
-    font-size: var(--font-size-sm);
-    color: var(--color-text-secondary);
-  }
-  .status-word {
-    display: inline-block;
-    animation: status-fade 0.4s ease;
-  }
-  @keyframes status-pulse {
-    0%, 100% { transform: scale(1); box-shadow: 0 0 0 0 color-mix(in srgb, var(--color-accent-brand) 35%, transparent); }
-    50% { transform: scale(0.7); box-shadow: 0 0 0 5px color-mix(in srgb, var(--color-accent-brand) 0%, transparent); }
-  }
-  @keyframes status-fade {
-    from { opacity: 0; transform: translateY(3px); }
-    to { opacity: 1; transform: translateY(0); }
-  }
-
-  /* Live/stopped thinking card — shows the model's reasoning as it arrives,
-     collapses to a chip once the visible answer starts streaming. */
-  .thought-card {
-    border-radius: var(--radius-md);
-    background: color-mix(in srgb, var(--color-accent-brand) 5%, var(--color-bg-elevated));
-    border: 1px solid color-mix(in srgb, var(--color-accent-brand) 18%, transparent);
-    margin-bottom: var(--spacing-2);
-    max-width: 100%;
-  }
-  .thought-card summary {
-    cursor: pointer;
-    list-style: none;
-    display: flex;
-    align-items: baseline;
-    gap: var(--spacing-2);
-    padding: var(--spacing-2) var(--spacing-3);
-    user-select: none;
-    -webkit-user-select: none;
-  }
-  .thought-card summary::-webkit-details-marker { display: none; }
-  .thought-label {
-    font-size: var(--font-size-sm);
-    color: color-mix(in srgb, var(--color-accent-brand) 75%, var(--color-text-secondary));
-    display: inline-flex;
-    align-items: center;
-    gap: var(--spacing-2);
-  }
-  .thought-label::before {
-    content: '';
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-    background: var(--color-accent-brand);
-    animation: status-pulse 1.4s ease-in-out infinite;
-  }
-  .thought-card.answered .thought-label::before {
-    animation: none;
-    opacity: 0.55;
-  }
-  .thought-status {
-    font-size: var(--font-size-xs);
-    color: var(--color-text-muted);
-    margin-left: auto;
-    white-space: nowrap;
-  }
-  .thought-text {
-    padding: 0 var(--spacing-3) var(--spacing-2) var(--spacing-3);
-    font-size: var(--font-size-sm);
-    line-height: 1.55;
-    color: var(--color-text-secondary);
-    white-space: pre-wrap;
-    overflow-wrap: anywhere;
-    max-height: 42vh;
-    overflow-y: auto;
-  }
-
-  /* Stream caret — blinks while tokens are still flowing after the live text */
-  .stream-indicator {
-    display: flex;
-    align-items: center;
-    padding: 0 var(--spacing-1);
-  }
-  .stream-caret {
-    width: 2px;
-    height: 15px;
-    border-radius: 1px;
-    background: var(--color-accent-brand);
-    animation: caret-blink 1s steps(2, start) infinite;
-  }
-  @keyframes caret-blink {
-    0%, 55% { opacity: 1; }
-    56%, 100% { opacity: 0; }
   }
   .live-body {
     flex: 1;
     min-width: 0;
+    max-width: 78%;
     display: flex;
     flex-direction: column;
-    gap: var(--spacing-2);
+    gap: 7px;
   }
 
-  .live-text {
-    margin: 0;
-    width: fit-content;
-    max-width: 70%;
-    align-self: flex-start;
-    overflow-wrap: anywhere;
-    background: var(--color-bg-elevated);
-    border-radius: var(--radius-sm) var(--radius-lg) var(--radius-lg) var(--radius-lg);
-    padding: var(--spacing-2) var(--spacing-3);
-    color: var(--color-text-primary);
+  /* Live reasoning — design thought block */
+  .thought {
+    display: flex;
+    gap: 8px;
+    align-items: flex-start;
+    font-family: var(--font-body);
+    font-size: 12.5px;
+    font-style: italic;
+    color: var(--text-muted);
+    line-height: 1.5;
+    padding-left: 2px;
+  }
+  .thought-icon {
+    font-size: 15px;
+    line-height: 1.3;
+    flex: none;
+    font-style: normal;
+  }
+  /* Streaming thought: accent icon marks it as in-progress until sealed. */
+  .thought.live .thought-icon {
+    color: var(--accent);
+  }
+  .thought-text {
     white-space: pre-wrap;
-    font-size: var(--font-size-md);
-    line-height: 1.6;
+    overflow-wrap: anywhere;
+    max-height: 40vh;
+    overflow-y: auto;
   }
 
+  /* Live text — design text bubble */
+  .live-bubble {
+    background: var(--bg-elevated);
+    border: 1px solid var(--border-subtle);
+    border-radius: 5px 18px 18px 18px;
+    padding: 11px 16px;
+    font-family: var(--font-body);
+    font-size: 14px;
+    color: var(--text-primary);
+    line-height: 1.55;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    animation: blockIn 0.32s cubic-bezier(0.22, 0.8, 0.3, 1) both;
+  }
+  .caret {
+    color: var(--accent);
+    animation: cursorblink 1s step-start infinite;
+  }
+
+  /* Status footer row — design live meta (dot pulse + mono label) */
+  .status-row {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--text-muted);
+  }
+  .dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    flex: none;
+  }
+  .dot.live {
+    animation: dotPulse 1.2s ease-in-out infinite;
+  }
+  .status-label {
+    text-transform: capitalize;
+  }
 
   .error-row {
     display: flex;
     align-items: flex-start;
     gap: var(--spacing-2);
-    margin: var(--spacing-2) var(--spacing-4);
-    padding: var(--spacing-2) var(--spacing-3);
-    background: color-mix(in srgb, var(--color-accent-error, #f85149) 10%, transparent);
-    border: 1px solid color-mix(in srgb, var(--color-accent-error, #f85149) 30%, transparent);
+    padding: 8px 12px;
+    background: color-mix(in srgb, var(--danger) 10%, transparent);
+    border: 1px solid color-mix(in srgb, var(--danger) 30%, transparent);
     border-radius: var(--radius-md);
-    color: var(--color-accent-error, #f85149);
+    color: var(--danger);
     font-size: var(--font-size-sm);
   }
   .error-row svg { flex-shrink: 0; margin-top: 1px; }
@@ -447,13 +394,20 @@
     display: flex;
     align-items: flex-start;
     gap: var(--spacing-2);
-    margin: var(--spacing-2) var(--spacing-4);
-    padding: var(--spacing-2) var(--spacing-3);
-    background: color-mix(in srgb, var(--color-text-muted) 8%, transparent);
-    border: 1px solid color-mix(in srgb, var(--color-text-muted) 25%, transparent);
+    padding: 8px 12px;
+    background: color-mix(in srgb, var(--text-muted) 8%, transparent);
+    border: 1px solid color-mix(in srgb, var(--text-muted) 25%, transparent);
     border-radius: var(--radius-md);
-    color: var(--color-text-muted);
+    color: var(--text-muted);
     font-size: var(--font-size-sm);
   }
-  .notice-row span:first-child { flex-shrink: 0; }
+  .notice-row .msr { font-size: 14px; flex-shrink: 0; }
+
+  /* Tight windows */
+  @media (max-width: 640px) {
+    .list {
+      padding: 14px 14px;
+      gap: 12px;
+    }
+  }
 </style>

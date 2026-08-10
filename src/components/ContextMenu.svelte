@@ -23,7 +23,7 @@
   } = $props()
 
   let menuEl = $state<HTMLElement | null>(null)
-  let pos = $state({ x, y })
+  let pos = $state({ x: 0, y: 0 })
 
   // Clamp to the viewport once we know our own size.
   $effect(() => {

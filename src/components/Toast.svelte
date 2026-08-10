@@ -10,40 +10,60 @@
       class:success={t.kind === 'success'}
       onclick={() => dismissToast(t.id)}
     >
-      {t.message}
+      <span class="dot" aria-hidden="true"></span>
+      <span class="msg">{t.message}</span>
     </button>
   {/each}
 </div>
 
 <style>
+  /* Design toast: bottom-right, elevated card, mono text, status dot,
+     shadow-lg. Click to dismiss. */
   .toast-stack {
     position: fixed;
-    right: var(--spacing-4);
-    bottom: var(--spacing-4);
+    right: 20px;
+    bottom: 20px;
     display: flex;
     flex-direction: column;
-    gap: var(--spacing-2);
+    align-items: flex-end;
+    gap: 8px;
     z-index: 1000;
     pointer-events: none;
   }
   .toast {
     pointer-events: auto;
-    background: var(--color-bg-elevated);
-    color: var(--color-text-primary);
-    border: 1px solid var(--color-border-default);
-    border-left: 3px solid var(--color-accent-brand);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    max-width: 420px;
+    background: var(--bg-elevated);
+    color: var(--text-primary);
+    border: 1px solid var(--border-default);
     border-radius: var(--radius-md);
-    padding: var(--spacing-2) var(--spacing-3);
-    font-size: var(--font-size-sm);
-    font-family: var(--font-sans);
-    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+    box-shadow: var(--shadow-lg);
+    padding: 8px 12px;
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    line-height: 1.4;
+    text-align: left;
+    cursor: pointer;
     animation: toast-in 0.18s ease-out;
   }
-  .toast.success {
-    border-left-color: var(--color-success);
+  .dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--accent);
+    flex: none;
   }
-  .toast.error {
-    border-left-color: var(--color-danger);
+  .toast.success .dot {
+    background: var(--success);
+  }
+  .toast.error .dot {
+    background: var(--danger);
+  }
+  .toast:hover {
+    border-color: var(--text-muted);
   }
   @keyframes toast-in {
     from {

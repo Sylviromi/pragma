@@ -16,6 +16,23 @@
   let err = $state<string | null>(null)
 
   $effect(() => {
+    // Outside click / Escape closes the dialog (the modal's own click handler
+    // stops propagation so clicks inside never reach the window listener).
+    const onDocClick = (e: MouseEvent) => {
+      if (!(e.target as Element)?.closest?.('.modal')) onclose()
+    }
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onclose()
+    }
+    window.addEventListener('click', onDocClick)
+    window.addEventListener('keydown', onKey)
+    return () => {
+      window.removeEventListener('click', onDocClick)
+      window.removeEventListener('keydown', onKey)
+    }
+  })
+
+  $effect(() => {
     let alive = true
     getRevertInfo(sessionId, message.id)
       .then((r) => { if (alive) info = r })
@@ -51,8 +68,8 @@
   }
 </script>
 
-<div class="overlay" role="presentation" onclick={onclose}>
-  <div class="modal" role="dialog" aria-modal="true" aria-label="Return to this point" onclick={(e) => e.stopPropagation()}>
+<div class="overlay" role="presentation">
+  <div class="modal" role="dialog" aria-modal="true" tabindex="-1" aria-label="Return to this point" onclick={(e) => e.stopPropagation()} onkeydown={() => {}}>
     <header class="head">
       <span class="badge" aria-hidden="true">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -222,6 +239,7 @@
     display: -webkit-box;
     -webkit-line-clamp: 3;
     -webkit-box-orient: vertical;
+    line-clamp: 3;
     overflow: hidden;
   }
 
