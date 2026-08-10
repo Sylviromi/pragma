@@ -19,6 +19,7 @@
     "@tauri-apps/api": "^2.11.1",
     "@tauri-apps/plugin-dialog": "^2.7.2",
     "@tauri-apps/plugin-notification": "^2.3.3",
+    "marked": "^18.0.9",
     "material-symbols": "^0.45.10",
     "svelte": "^5.56.8"
   },

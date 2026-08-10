@@ -1,6 +1,7 @@
 <script lang="ts">
   import { isToolResultTurn, parseContent, textBlocks } from '../lib/types'
   import type { ContentBlock, Message, ToolUseBlock, TextBlock } from '../lib/types'
+  import { renderMarkdown } from '../lib/markdown'
   import ToolCard from './ToolCard.svelte'
   import QuestionBlock from './QuestionBlock.svelte'
   import Icon from './Icon.svelte'
@@ -99,7 +100,7 @@
                 <div class="text-bubble">
                   {#each segs as seg (seg.kind + seg.text.slice(0, 40))}
                     {#if seg.kind === 'prose' && seg.text.trim()}
-                      <p>{seg.text.trim()}</p>
+                      <div class="md-prose">{@html renderMarkdown(seg.text)}</div>
                     {:else if seg.kind === 'code' && seg.text.trim()}
                       <div class="code-block">
                         <button
@@ -259,6 +260,109 @@
     margin: 0;
     white-space: pre-wrap;
     overflow-wrap: anywhere;
+  }
+  /* Markdown prose inside the bubble (rendered model output). */
+  .md-prose :global(p) {
+    margin: 0 0 0.6em;
+    overflow-wrap: anywhere;
+  }
+  .md-prose :global(p:last-child) {
+    margin-bottom: 0;
+  }
+  .md-prose :global(pre) {
+    margin: 0.7em 0;
+  }
+  .md-prose :global(code) {
+    font-family: var(--font-mono);
+    font-size: 0.88em;
+    background: var(--bg-base);
+    border: 1px solid var(--border-subtle);
+    border-radius: 3px;
+    padding: 0.15em 0.4em;
+  }
+  .md-prose :global(pre code) {
+    display: block;
+    padding: 10px 12px;
+    overflow-x: auto;
+    border: none;
+    background: var(--bg-base);
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius-sm);
+    font-size: 0.85em;
+    color: var(--text-secondary);
+    line-height: 1.5;
+  }
+  .md-prose :global(h1), .md-prose :global(h2), .md-prose :global(h3),
+  .md-prose :global(h4) {
+    font-family: var(--font-heading);
+    color: var(--text-primary);
+    line-height: 1.25;
+    margin: 0.9em 0 0.4em;
+    font-weight: 600;
+  }
+  .md-prose :global(h1) { font-size: 1.25em; }
+  .md-prose :global(h2) { font-size: 1.15em; }
+  .md-prose :global(h3) { font-size: 1.05em; }
+  .md-prose :global(h4) { font-size: 1em; }
+  .md-prose :global(h1:first-child), .md-prose :global(h2:first-child),
+  .md-prose :global(h3:first-child), .md-prose :global(h4:first-child) {
+    margin-top: 0;
+  }
+  .md-prose :global(ul), .md-prose :global(ol) {
+    margin: 0.5em 0;
+    padding-left: 1.4em;
+  }
+  .md-prose :global(li) {
+    margin: 0.22em 0;
+  }
+  .md-prose :global(ol) {
+    list-style: decimal;
+  }
+  .md-prose :global(ul) {
+    list-style: disc;
+  }
+  .md-prose :global(li > ul), .md-prose :global(li > ol) {
+    margin: 0.15em 0;
+  }
+  .md-prose :global(blockquote) {
+    margin: 0.6em 0;
+    padding: 0.1em 0.9em;
+    border-left: 3px solid var(--border-focus);
+    color: var(--text-secondary);
+    background: var(--bg-overlay);
+    border-radius: var(--radius-sm);
+  }
+  .md-prose :global(blockquote p) {
+    margin: 0.35em 0;
+  }
+  .md-prose :global(a) {
+    color: var(--accent);
+    text-decoration: none;
+    border-bottom: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
+  }
+  .md-prose :global(a:hover) {
+    border-bottom-color: var(--accent);
+  }
+  .md-prose :global(hr) {
+    border: none;
+    border-top: 1px solid var(--border-default);
+    margin: 0.9em 0;
+  }
+  .md-prose :global(strong) { font-weight: 600; }
+  .md-prose :global(em) { font-style: italic; }
+  .md-prose :global(table) {
+    border-collapse: collapse;
+    margin: 0.6em 0;
+    font-size: 0.93em;
+  }
+  .md-prose :global(th), .md-prose :global(td) {
+    border: 1px solid var(--border-default);
+    padding: 4px 9px;
+    text-align: left;
+  }
+  .md-prose :global(th) {
+    background: var(--bg-overlay);
+    font-weight: 600;
   }
   .code-block {
     position: relative;
