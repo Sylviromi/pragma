@@ -2,7 +2,8 @@ use super::catalog;
 use super::run_detached;
 use super::sse;
 use super::types::{
-    AgentEvent, ContentBlock, ModelInfo, ProviderInfo, ProviderSource, ToolDefinition,
+    AgentEvent, ContentBlock, ModelInfo, ProviderInfo, ProviderSource, ToolDefinition, Usage,
+    estimate_usage,
 };
 use tauri::Emitter;
 use tauri::Manager;
@@ -66,7 +67,7 @@ impl AnthropicProvider {
         tools: &[ToolDefinition],
         app_handle: &tauri::AppHandle,
         session_id: &str,
-    ) -> Result<Vec<ContentBlock>, String> {
+    ) -> Result<(Vec<ContentBlock>, Usage), String> {
         let event_name = format!("agent:{session_id}");
         let client = reqwest::Client::new();
 
@@ -106,7 +107,7 @@ impl AnthropicProvider {
             "messages": chat_messages,
         });
         if !system_text.is_empty() {
-            body["system"] = serde_json::Value::String(system_text);
+            body["system"] = serde_json::Value::String(system_text.clone());
         }
         if !tools.is_empty() {
             body["tools"] = serde_json::to_value(
@@ -161,6 +162,7 @@ impl AnthropicProvider {
         // Whether the stream finished cleanly (message_stop/[DONE] seen); false
         // means an EOF/error mid-stream, in which case the answer may be incomplete.
         let mut saw_stop = false;
+        let mut usage = Usage::default();
         let mut stream = sse::SseStream::new(resp);
         while let Some(data) = stream.next_data().await {
             if data == "[DONE]" {
@@ -170,6 +172,24 @@ impl AnthropicProvider {
             let Ok(ev) = serde_json::from_str::<serde_json::Value>(&data) else {
                 continue;
             };
+            // Usage events: message_start carries input_tokens, message_delta carries
+            // output_tokens (and cumulative input_tokens on final delta).
+            match ev["type"].as_str().unwrap_or("") {
+                "message_start" => {
+                    if let Some(n) = ev["message"]["usage"]["input_tokens"].as_u64() {
+                        usage.input_tokens = n;
+                    }
+                }
+                "message_delta" => {
+                    if let Some(n) = ev["usage"]["output_tokens"].as_u64() {
+                        usage.output_tokens = n;
+                    }
+                    if let Some(n) = ev["usage"]["input_tokens"].as_u64() {
+                        usage.input_tokens = n;
+                    }
+                }
+                _ => {}
+            }
             if ev["type"].as_str() == Some("message_stop") {
                 saw_stop = true;
                 break;
@@ -218,6 +238,11 @@ impl AnthropicProvider {
                         blocks.push(ContentBlock::ToolUse { id, name, input });
                     } else if let Some((thinking, signature)) = current_thinking.take() {
                         blocks.push(ContentBlock::Thinking { thinking, signature });
+                        // Seal the live thought block so the frontend separates
+                        // it from the next one (streamed UI == persisted UI).
+                        app_handle
+                            .emit(&event_name, AgentEvent::ThinkingEnd)
+                            .ok();
                     } else if !current_text.is_empty() {
                         blocks.push(ContentBlock::Text {
                             text: std::mem::take(&mut current_text),
@@ -234,6 +259,12 @@ impl AnthropicProvider {
         }
 
         let cut_off = stream.broken() || !saw_stop;
+        // Fallback estimate when usage events were absent (older API / proxy).
+        if usage.total() == 0 {
+            let input_est: String = [system_text.as_str(), &serde_json::to_string(messages).unwrap_or_default()].concat();
+            usage.input_tokens = estimate_usage(&input_est);
+            usage.output_tokens = estimate_usage(&serde_json::to_string(&blocks).unwrap_or_default());
+        }
         if blocks.is_empty() {
             return Err(if cut_off {
                 "Connection interrupted before any content arrived — the Anthropic service may be down.".into()
@@ -249,7 +280,7 @@ impl AnthropicProvider {
                 .ok();
         }
 
-        Ok(blocks)
+        Ok((blocks, usage))
     }
 }
 

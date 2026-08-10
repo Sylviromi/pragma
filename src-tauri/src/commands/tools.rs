@@ -30,3 +30,18 @@ pub async fn deny_tool(
     }
     Ok(())
 }
+
+/// Resolve a pending `ask_question` from the frontend. `answer` is the chosen
+/// option text (or None to let the loop continue without an answer).
+#[tauri::command]
+pub async fn answer_question(
+    question_id: String,
+    answer: Option<String>,
+    state: tauri::State<'_, AppState>,
+) -> Result<(), String> {
+    let mut channels = state.question_channels.lock().await;
+    if let Some(tx) = channels.remove(&question_id) {
+        tx.send(answer).ok();
+    }
+    Ok(())
+}

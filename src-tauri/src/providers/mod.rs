@@ -8,7 +8,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 use tauri::Manager;
 
-use types::{ContentBlock, ModelInfo, ProviderInfo, ToolDefinition};
+use types::{ContentBlock, ModelInfo, ProviderInfo, ToolDefinition, Usage};
 use anthropic::AnthropicProvider;
 use openai_compat::OpenAICompatProvider;
 
@@ -37,7 +37,7 @@ impl ProviderHandle {
         tools: &[ToolDefinition],
         app_handle: &tauri::AppHandle,
         session_id: &str,
-    ) -> Result<Vec<ContentBlock>, String> {
+    ) -> Result<(Vec<ContentBlock>, Usage), String> {
         match self {
             ProviderHandle::Anthropic(p) => {
                 p.call(messages, model, api_key, tools, app_handle, session_id).await

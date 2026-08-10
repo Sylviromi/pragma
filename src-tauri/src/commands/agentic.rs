@@ -8,6 +8,7 @@ use crate::AppState;
 use sqlx::SqlitePool;
 use std::collections::HashSet;
 use std::sync::Arc;
+use std::time::Duration;
 use tauri::Emitter;
 use uuid::Uuid;
 
@@ -339,6 +340,7 @@ You converse with the user in turns. In each turn you can write text and call to
 - web_search / fetch_url only when you need external documentation.\n\
 - change_directory switches the working directory when a task targets another subproject.\n\
 - reload_app: after Rust/backend changes, it verifies the build then restarts the whole app so the new code takes effect. It ends this run, so call it LAST — never for frontend-only or plugin-only changes (those hot-reload automatically).\n\
+- ask_question pauses the loop and asks the user a question when a decision genuinely blocks the work — the user gets an app notification when the window is in the background. Use it only for blocking ambiguity or plan branches the user must decide; NEVER for routine confirmation of work already requested, and never when you can decide by reading more context.\n\
 \n\
 ## Failure recovery\n\
 - If a tool errors: read the error carefully, fix the cause, and retry. If the identical call fails twice, stop and change approach (different tool, different path, or read more context) — never loop identical calls.\n\
@@ -433,7 +435,7 @@ You converse with the user in turns. In each turn you can write text and call to
         // strip reasoning before ONE retry — the relay's session can get out
         // of sync transiently, and this usually lets the request through.
         let mut history_used_for_call = history.clone();
-        let blocks = {
+        let (blocks, usage) = {
             let mut have_retried = false;
             'call: loop {
                 let deadline = cancel.changed();
@@ -446,13 +448,14 @@ You converse with the user in turns. In each turn you can write text and call to
                         return Ok(());
                     }
                 } {
-                    Ok(b) => break 'call b,
+                    Ok(r) => break 'call r,
                     Err(e) if !have_retried => {
                         let retryable = e.contains("reasoning_content")
                             || e.contains("did not have response")
                             || e.contains("tool_call_ids")
                             || e.contains("Invalid tool");
                         if !retryable {
+                            crate::notify::notify(app_handle, "Pragma hit an error", &format!("Model request failed: {e}"));
                             return Err(e);
                         }
                         eprintln!(
@@ -481,6 +484,19 @@ You converse with the user in turns. In each turn you can write text and call to
         // Adopt the (possibly repaired) history used for the successful call.
         history = history_used_for_call;
 
+        // Milestone 6 telemetry: persist this call's token usage (cost is
+        // derived from a best-effort pricing map) so the sidebar's context
+        // ring + session cost stay live.
+        let _ = crate::commands::stats::record_usage(
+            &state.db,
+            &session_id,
+            &model,
+            &provider,
+            usage.input_tokens,
+            usage.output_tokens,
+        )
+        .await;
+
         // Drop whitespace-only text blocks (models occasionally emit a bare
         // "\n\n\n" block — it renders as a tall empty bubble and, if it's
         // all the model produced, must not count as a usable answer).
@@ -499,6 +515,7 @@ You converse with the user in turns. In each turn you can write text and call to
             empty_replies += 1;
             if empty_replies >= 3 {
                 let msg = "The model returned no content three times in a row (empty or interrupted response) — check the provider/relay and try again.".to_string();
+                crate::notify::notify(app_handle, "Pragma hit an error", &msg);
                 emit(app_handle, session_id, AgentEvent::Error { message: msg.clone() });
                 return Err(msg);
             }
@@ -548,7 +565,14 @@ You converse with the user in turns. In each turn you can write text and call to
         }));
 
         if tool_calls.is_empty() {
-            // No tool calls — done
+            // No tool calls — done; push final sidebar stats.
+            let _ = crate::commands::stats::emit_stats(
+                app_handle,
+                &state.db,
+                &session_id,
+                Some(&executor.working_dir.to_string_lossy()),
+            )
+            .await;
             emit(app_handle, session_id, AgentEvent::Done);
             break;
         }
@@ -566,6 +590,16 @@ You converse with the user in turns. In each turn you can write text and call to
                 name: name.clone(),
                 input: input.clone(),
             });
+
+            // OS notification when a *state-changing* tool is about to block on
+            // approval (read-only tools don't interrupt the user's flow).
+            if !auto_approve {
+                let mutating = crate::commands::revert::is_mutating_file_tool(name)
+                    || matches!(name.as_str(), "run_command" | "git_add" | "git_commit" | "reload_app");
+                if mutating {
+                    crate::notify::notify(app_handle, "Pragma needs approval", &format!("Do you want to allow the tool: {name}?"));
+                }
+            }
 
             let approved = if auto_approve {
                 true
@@ -682,6 +716,54 @@ You converse with the user in turns. In each turn you can write text and call to
                     emit(app_handle, session_id, AgentEvent::WorkingDirChanged { new_path: path_str.clone() });
                     (format!("Working directory changed to: {path_str}"), false)
                 }
+            } else if name == "ask_question" {
+                // Ask the user a question and pause until they answer (or the
+                // timeout elapses / Esc is pressed). The frontend renders the
+                // "Needs your answer" block and resumes via answer_question.
+                let text = input.get("text").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                let options: Vec<String> = input
+                    .get("options")
+                    .and_then(|v| v.as_array())
+                    .map(|a| a.iter().filter_map(|x| x.as_str().map(String::from)).collect())
+                    .unwrap_or_default();
+                if text.trim().is_empty() {
+                    ("ask_question requires a non-empty \"text\" argument.".to_string(), true)
+                } else {
+                    let timeout_secs = input
+                        .get("timeout_secs")
+                        .and_then(|v| v.as_u64())
+                        .unwrap_or(600)
+                        .max(10);
+                    let question_id = Uuid::new_v4().to_string();
+                    emit(app_handle, session_id, AgentEvent::Question {
+                        question_id: question_id.clone(),
+                        text: text.clone(),
+                        options: options.clone(),
+                    });
+                    // OS notification so the user knows the agent is waiting.
+                    crate::notify::notify(app_handle, "Pragma needs your answer", &text);
+                    let (tx, rx) = tokio::sync::oneshot::channel::<Option<String>>();
+                    state.question_channels.lock().await.insert(question_id.clone(), tx);
+                    let answer = tokio::select! {
+                        v = rx => v.unwrap_or(None),
+                        _ = tokio::time::sleep(Duration::from_secs(timeout_secs)) => None,
+                        _ = cancel.changed() => {
+                            state.question_channels.lock().await.remove(&question_id);
+                            emit(app_handle, session_id, AgentEvent::Interrupted);
+                            return Ok(());
+                        }
+                    };
+                    state.question_channels.lock().await.remove(&question_id);
+                    match answer {
+                        Some(ans) if !ans.trim().is_empty() => {
+                            (format!("User answered: {ans}"), false)
+                        }
+                        _ => {
+                            // Timeout (or an explicit no-answer) — continue with best judgment.
+                            ("User did not answer within the timeout — proceed with your best judgment, and do not re-ask the same question.".to_string(), false)
+                        }
+                    }
+                }
             } else {
                 // Journal the pre-op file state so a later "return to this
                 // point" can restore the filesystem.
@@ -699,7 +781,18 @@ You converse with the user in turns. In each turn you can write text and call to
                     .map_err(|e| eprintln!("[revert] snapshot failed: {e}"));
                 }
                 match executor.execute(name, input) {
-                    Ok(out) => (out, false),
+                    Ok(out) => {
+                        // Milestone 6 telemetry: describe what the tool did
+                        // to the project tree (kind/± counts from its input).
+                        let _ = crate::commands::stats::record_tool_touch(
+                            &state.db,
+                            &session_id,
+                            name,
+                            input,
+                        )
+                        .await;
+                        (out, false)
+                    }
                     Err(e) => (e, true),
                 }
             };
@@ -725,6 +818,15 @@ You converse with the user in turns. In each turn you can write text and call to
         let results_content = serde_json::to_string(&tool_results).unwrap();
         persist_message(&state.db, &session_id, "user", &results_content, "", "").await?;
         history.push(serde_json::json!({ "role": "user", "content": tool_results }));
+
+        // Push refreshed sidebar stats after every tool round.
+        let _ = crate::commands::stats::emit_stats(
+            app_handle,
+            &state.db,
+            &session_id,
+            Some(&executor.working_dir.to_string_lossy()),
+        )
+        .await;
 
         // Stop the loop if any tool was denied — don't let the AI re-ask unprompted.
         if any_denied || *exit_app {

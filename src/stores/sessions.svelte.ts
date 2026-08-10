@@ -4,6 +4,7 @@ import {
   archiveSession as apiArchive
 } from '../lib/tauri'
 import type { Session } from '../lib/types'
+import { isBrowserMock } from '../lib/mock'
 
 export const sessions = $state({
   list: [] as Session[],
@@ -45,6 +46,11 @@ export function restoreTabs() {
   } catch {
     sessions.openTabs = []
     sessions.activeTabId = null
+  }
+  // Browser mock: no real tabs exist — auto-open the first mock session so
+  // the full UI (chat, composer, sidebar) is exerciseable in a plain browser.
+  if (isBrowserMock && sessions.openTabs.length === 0 && sessions.list.length > 0) {
+    openTab(sessions.list[0].id)
   }
 }
 

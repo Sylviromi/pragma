@@ -1,6 +1,7 @@
 use super::sse;
 use super::types::{
-    AgentEvent, ContentBlock, ModelInfo, ProviderInfo, ProviderSource, ToolDefinition,
+    AgentEvent, ContentBlock, ModelInfo, ProviderInfo, ProviderSource, ToolDefinition, Usage,
+    estimate_usage,
 };
 use tauri::Emitter;
 
@@ -31,7 +32,7 @@ impl OpenAICompatProvider {
         tools: &[ToolDefinition],
         app_handle: &tauri::AppHandle,
         session_id: &str,
-    ) -> Result<Vec<ContentBlock>, String> {
+    ) -> Result<(Vec<ContentBlock>, Usage), String> {
         let event_name = format!("agent:{session_id}");
         let client = reqwest::Client::new();
 
@@ -90,7 +91,6 @@ impl OpenAICompatProvider {
         }
 
         let mut full_text = String::new();
-        let mut reasoning_buf = String::new();
         // tool_calls by index: (id, name, accumulated_arguments)
         let mut tool_calls: std::collections::BTreeMap<usize, (String, String, String)> =
             std::collections::BTreeMap::new();
@@ -98,6 +98,9 @@ impl OpenAICompatProvider {
         // Set when the stream ended cleanly with [DONE]; false means we hit an
         // EOF/error mid-stream, in which case the answer may be incomplete.
         let mut saw_done = false;
+        let mut usage = Usage::default();
+        let mut reasoning_buf = String::new();
+        let mut reasoning_end_emitted = false;
         let mut stream = sse::SseStream::new(resp);
         while let Some(data) = stream.next_data().await {
             if data.trim() == "[DONE]" {
@@ -107,6 +110,26 @@ impl OpenAICompatProvider {
             let Ok(ev) = serde_json::from_str::<serde_json::Value>(&data) else {
                 continue;
             };
+            // Usage arrives on the final chunk (OpenAI stream_options.include_usage;
+            // DeepSeek sends it too). Capture whenever present.
+            if let Some(u) = ev["usage"].as_object() {
+                if let Some(n) = u["prompt_tokens"].as_u64() {
+                    usage.input_tokens = n;
+                }
+                if let Some(n) = u["completion_tokens"].as_u64() {
+                    usage.output_tokens = n;
+                }
+                if usage.input_tokens == 0 {
+                    if let Some(n) = u["input_tokens"].as_u64() {
+                        usage.input_tokens = n;
+                    }
+                }
+                if usage.output_tokens == 0 {
+                    if let Some(n) = u["output_tokens"].as_u64() {
+                        usage.output_tokens = n;
+                    }
+                }
+            }
             let delta = &ev["choices"][0]["delta"];
 
             // Reasoning tokens (DeepSeek and compatible models)
@@ -122,6 +145,14 @@ impl OpenAICompatProvider {
             // Text tokens
             if let Some(t) = delta["content"].as_str() {
                 if !t.is_empty() {
+                    // DeepSeek streams reasoning first, then content — the
+                    // reasoning block is done the moment content begins.
+                    if !reasoning_buf.is_empty() && !reasoning_end_emitted {
+                        reasoning_end_emitted = true;
+                        app_handle
+                            .emit(&event_name, AgentEvent::ThinkingEnd)
+                            .ok();
+                    }
                     full_text.push_str(t);
                     app_handle.emit(&event_name, AgentEvent::Token { content: t.to_string() }).ok();
                 }
@@ -145,6 +176,13 @@ impl OpenAICompatProvider {
                     }
                 }
             }
+        }
+
+        // Reasoning-only turn (no text followed it): seal the thought block.
+        if !reasoning_buf.is_empty() && !reasoning_end_emitted {
+            app_handle
+                .emit(&event_name, AgentEvent::ThinkingEnd)
+                .ok();
         }
 
         let mut blocks: Vec<ContentBlock> = Vec::new();
@@ -179,7 +217,13 @@ impl OpenAICompatProvider {
                 .ok();
         }
 
-        Ok(blocks)
+        // Fallback estimate when usage events were absent.
+        if usage.total() == 0 {
+            usage.input_tokens = estimate_usage(&serde_json::to_string(&oai_messages).unwrap_or_default());
+            usage.output_tokens = estimate_usage(&serde_json::to_string(&blocks).unwrap_or_default());
+        }
+
+        Ok((blocks, usage))
     }
 }
 

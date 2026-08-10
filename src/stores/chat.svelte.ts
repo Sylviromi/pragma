@@ -7,11 +7,11 @@ import {
   approveTool as apiApprove,
   denyTool as apiDeny,
   interruptSession,
+  answerQuestion as apiAnswerQuestion,
   revertSession
 } from '../lib/tauri'
 import type { AgentEvent, Message, RevertSummary } from '../lib/types'
 import { sessions } from './sessions.svelte'
-import { notifyOS } from '../lib/notify'
 import { pushToast } from './toast.svelte'
 // Unlisten functions keyed by sessionId — outlive component HMR reloads.
 const _listeners = new Map<string, () => void>()
@@ -23,7 +23,6 @@ function saveLiveState(sessionId: string) {
   try {
     sessionStorage.setItem(`pragma:live:${sessionId}`, JSON.stringify({
       liveBlocks:   chat.liveBlocks[sessionId]   ?? [],
-      liveReasoning: chat.liveReasoning[sessionId] ?? '',
       toolItems:    chat.toolItems[sessionId]     ?? [],
       autoApprove:  chat.autoApprove[sessionId]  ?? false,
       alwaysApprove: [...(chat.alwaysApprove[sessionId] ?? new Set())],
@@ -37,7 +36,6 @@ function restoreLiveState(sessionId: string) {
     if (!raw) return
     const s = JSON.parse(raw)
     chat.liveBlocks[sessionId]  = s.liveBlocks ?? []
-    chat.liveReasoning[sessionId] = s.liveReasoning ?? ''
     chat.toolItems[sessionId]   = s.toolItems  ?? []
     chat.autoApprove[sessionId] = s.autoApprove ?? false
     if (Array.isArray(s.alwaysApprove)) {
@@ -69,10 +67,14 @@ export interface ToolItem {
   status: 'waiting' | 'running' | 'done' | 'error'
 }
 
-/** A block in the live (in-progress) assistant turn — ordered text segments and tool references */
+/** A block in the live (in-progress) assistant turn — mirrors the ContentBlock
+ *  order of the persisted message so the streamed view looks exactly like the
+ *  completed one (thoughts separate, in place; tools interleaved). */
 export type LiveBlock =
+  | { type: 'thinking'; text: string; done: boolean }
   | { type: 'text'; text: string }
   | { type: 'tool'; toolUseId: string }
+  | { type: 'question'; questionId: string; text: string; options: string[]; picked?: string }
 
 // Read-only tools: auto-approve without asking
 const SAFE_TOOLS = new Set([
@@ -82,13 +84,21 @@ const SAFE_TOOLS = new Set([
   'load_skill',
 ])
 
+export type AgentStatus = 'idle' | 'thinking' | 'working' | 'generating' | 'waiting'
+
+/** Design status meta shared by TabBar dots + sidebar sessions list. */
+export const STATUS_META: Record<AgentStatus, { label: string; color: string }> = {
+  idle:       { label: 'Idle', color: 'var(--text-muted)' },
+  thinking:   { label: 'Thinking', color: 'var(--slot)' },
+  working:    { label: 'Working', color: 'var(--warning)' },
+  generating: { label: 'Generating', color: 'var(--accent)' },
+  waiting:    { label: 'Waiting for you', color: 'var(--danger)' },
+}
+
 export const chat = $state({
   messages:       {} as Record<string, Message[]>,
   streamingToken: {} as Record<string, string | null>,
   liveBlocks:     {} as Record<string, LiveBlock[]>,
-  /** Streaming reasoning/thinking text for the in-progress turn (DeepSeek
-   *  reasoning_content, Anthropic thinking_delta). Surfaced like other harnesses. */
-  liveReasoning:  {} as Record<string, string>,
   toolItems:      {} as Record<string, ToolItem[]>,
   running:        {} as Record<string, boolean>,
   error:          {} as Record<string, string | null>,
@@ -96,6 +106,8 @@ export const chat = $state({
   notice:         {} as Record<string, string | null>,
   alwaysApprove:  {} as Record<string, Set<string>>,
   autoApprove:    {} as Record<string, boolean>,
+  /** Aggregate session status for the design's status dots / labels. */
+  status:         {} as Record<string, AgentStatus>,
 })
 
 export type AgentState = 'idle' | 'working' | 'waiting' | 'error'
@@ -110,21 +122,21 @@ export function agentState(sessionId: string): AgentState {
   return 'idle'
 }
 
-/** Turn-completion notifications: in-app toast + native OS notification.
- *  notifyOS stays quiet while the window is focused, so the toast covers the
- *  case where the app is open but you're on another tab. */
-function notifyTurn(sessionId: string, kind: 'done' | 'error' | 'waiting', detail?: string) {
+/** Turn-completion notices: in-app toast only. Native OS notifications live on
+ *  the Rust side (src-tauri/src/notify.rs) so they fire even when this frontend
+ *  module is busy; they are focus-gated there too — this toast covers the
+ *  focused-window case. */
+function notifyTurn(sessionId: string, kind: 'done' | 'error' | 'waiting' | 'question', detail?: string) {
   const name = sessions.list.find((s) => s.id === sessionId)?.name ?? 'Session'
   const trimmed = detail ? (detail.length > 200 ? detail.slice(0, 197) + '…' : detail) : ''
   if (kind === 'error') {
     pushToast(`Error — ${name}: ${trimmed}`, 'error')
-    notifyOS('Pragma — error', `${name}: ${trimmed}`, true)
+  } else if (kind === 'question') {
+    pushToast(`${name} — needs your answer: ${trimmed || 'the agent asked a question'}`, 'info')
   } else if (kind === 'waiting') {
     pushToast(`${name} — needs approval: ${trimmed || 'a tool is waiting for review'}`, 'info')
-    notifyOS('Pragma — needs approval', `${name}: ${trimmed || 'a tool is waiting for review'}`)
   } else {
     pushToast(`Done — ${name}`, 'success')
-    notifyOS('Pragma — done', `${name} finished its turn.`)
   }
 }
 
@@ -161,25 +173,46 @@ export async function reconnectRunningSessions() {
 }
 
 /** End a turn's transient state: stop the spinner and detach the event
- *  listener (if any). `keepReasoning` preserves the streamed thinking text so
- *  the watched thought stays visible after the turn ends — it is cleared at
- *  the start of the next sendMessage and by revertToMessage. */
-function finishTurn(sessionId: string, keepReasoning = false) {
+ *  listener (if any). The streamed live blocks stay visible until the next
+ *  sendMessage (which clears them) or revertToMessage. */
+function finishTurn(sessionId: string) {
   chat.running[sessionId] = false
+  chat.status[sessionId] = 'idle'
   chat.streamingToken[sessionId] = null
-  if (!keepReasoning) chat.liveReasoning[sessionId] = ''
   _listeners.get(sessionId)?.()
   _listeners.delete(sessionId)
 }
 
 function handleEvent(sessionId: string, ev: AgentEvent) {
   if (ev.event === 'reasoning') {
-    // Streaming reasoning/thinking tokens — shown live in an expandable card.
-    chat.liveReasoning[sessionId] = (chat.liveReasoning[sessionId] ?? '') + ev.content
+    // Streaming thinking tokens. Append to the open thought block — or open a
+    // new one (mirrors ContentBlock::Thinking separation in persisted form).
+    const blocks = chat.liveBlocks[sessionId] ?? []
+    const last = blocks.length > 0 ? blocks[blocks.length - 1] : null
+    if (last?.type === 'thinking' && !last.done) {
+      chat.liveBlocks[sessionId] = [
+        ...blocks.slice(0, -1),
+        { type: 'thinking', text: last.text + ev.content, done: false },
+      ]
+    } else {
+      chat.liveBlocks[sessionId] = [...blocks, { type: 'thinking', text: ev.content, done: false }]
+    }
+    chat.status[sessionId] = 'thinking'
     saveLiveState(sessionId)
+
+  } else if (ev.event === 'thinking_end') {
+    // Seal the thought block so the NEXT reasoning chunk opens a new one
+    // (multiple thoughts are rendered separated, like the persisted message).
+    const blocks = chat.liveBlocks[sessionId] ?? []
+    const last = blocks.length > 0 ? blocks[blocks.length - 1] : null
+    if (last?.type === 'thinking' && !last.done) {
+      chat.liveBlocks[sessionId] = [...blocks.slice(0, -1), { ...last, done: true }]
+      saveLiveState(sessionId)
+    }
 
   } else if (ev.event === 'token') {
     chat.streamingToken[sessionId] = (chat.streamingToken[sessionId] ?? '') + ev.content
+    chat.status[sessionId] = 'generating'
 
     const blocks = chat.liveBlocks[sessionId] ?? []
     const last = blocks.length > 0 ? blocks[blocks.length - 1] : null
@@ -197,6 +230,8 @@ function handleEvent(sessionId: string, ev: AgentEvent) {
     const alwaysSet = chat.alwaysApprove[sessionId] ?? new Set<string>()
     const autoApprove = chat.autoApprove[sessionId] ?? false
     const shouldAutoApprove = autoApprove || SAFE_TOOLS.has(ev.name) || alwaysSet.has(ev.name)
+    chat.status[sessionId] = shouldAutoApprove ? 'working' : 'waiting'
+    if (!shouldAutoApprove) notifyTurn(sessionId, 'waiting', ev.name)
 
     chat.toolItems[sessionId] = [
       ...(chat.toolItems[sessionId] ?? []),
@@ -223,6 +258,18 @@ function handleEvent(sessionId: string, ev: AgentEvent) {
       const status = t.status === 'error' ? 'error' : (ev.isError ? 'error' : 'done')
       return { ...t, output: ev.output, isError: ev.isError, status }
     })
+    chat.status[sessionId] = 'generating'
+    saveLiveState(sessionId)
+
+  } else if (ev.event === 'question') {
+    // The model asked a question — the loop is paused until the user answers
+    // (answer_question). Render the "Needs your answer" block.
+    chat.status[sessionId] = 'waiting'
+    notifyTurn(sessionId, 'question', ev.text)
+    chat.liveBlocks[sessionId] = [
+      ...(chat.liveBlocks[sessionId] ?? []),
+      { type: 'question', questionId: ev.questionId, text: ev.text, options: ev.options },
+    ]
     saveLiveState(sessionId)
 
   } else if (ev.event === 'working_dir_changed') {
@@ -232,7 +279,7 @@ function handleEvent(sessionId: string, ev: AgentEvent) {
 
   } else if (ev.event === 'interrupted') {
     chat.notice[sessionId] = 'Turn interrupted by user.'
-    finishTurn(sessionId, true)
+    finishTurn(sessionId)
     loadMessages(sessionId)
 
   } else if (ev.event === 'error') {
@@ -243,13 +290,15 @@ function handleEvent(sessionId: string, ev: AgentEvent) {
     } catch { /* keep raw */ }
     if (!msg) msg = 'Model request failed (no error details provided).'
     chat.error[sessionId] = msg
-    finishTurn(sessionId, true)
+    notifyTurn(sessionId, 'error', msg)
+    finishTurn(sessionId)
     loadMessages(sessionId)
 
   } else if (ev.event === 'done') {
     clearLiveState(sessionId)
     // Keep the streamed reasoning — the live thought card collapses to a chip.
-    finishTurn(sessionId, true)
+    notifyTurn(sessionId, 'done')
+    finishTurn(sessionId)
     loadMessages(sessionId)
   }
 }
@@ -272,6 +321,25 @@ export async function loadMessages(sessionId: string) {
   chat.messages[sessionId] = await fetchMessages(sessionId)
 }
 
+/** User picked an option in the "Needs your answer" block — resolve the
+ *  pending question on the backend (resumes the paused agentic loop) and
+ *  mark the block as answered in the live turn. */
+export async function answerQuestion(sessionId: string, questionId: string, option: string) {
+  // Mark the live block answered immediately (optimistic UI) …
+  const blocks = chat.liveBlocks[sessionId] ?? []
+  chat.liveBlocks[sessionId] = blocks.map((b) =>
+    b.type === 'question' && b.questionId === questionId ? { ...b, picked: option } : b
+  )
+  saveLiveState(sessionId)
+  // … then resume the backend loop.
+  try {
+    await apiAnswerQuestion(questionId, option)
+    pushToast('Answer sent — continuing', 'success')
+  } catch (err) {
+    pushToast(String(err), 'error')
+  }
+}
+
 export async function sendMessage(
   sessionId: string,
   content: string,
@@ -285,9 +353,9 @@ export async function sendMessage(
 
   // Clear live turn state from the previous run
   chat.running[sessionId] = true
+  chat.status[sessionId] = 'thinking'
   chat.streamingToken[sessionId] = ''
   chat.liveBlocks[sessionId] = []
-  chat.liveReasoning[sessionId] = ''
   chat.toolItems[sessionId] = []
   chat.error[sessionId] = null
   chat.notice[sessionId] = null
@@ -324,7 +392,6 @@ export async function sendMessage(
       if (!live.includes(sessionId)) {
         chat.running[sessionId] = false
         chat.streamingToken[sessionId] = null
-        chat.liveReasoning[sessionId] = ''
         chat.error[sessionId] =
           'The previous run left a stale lock and was recovered — please send your message again.'
         loadMessages(sessionId)
@@ -347,7 +414,7 @@ export async function sendMessage(
     // "already running" branch above, the OTHER loop's events own the state.
     // Reasoning is preserved so the thought stays visible after the turn ends.
     if (!keepRunning) {
-      finishTurn(sessionId, true)
+      finishTurn(sessionId)
       loadMessages(sessionId)
     }
   }

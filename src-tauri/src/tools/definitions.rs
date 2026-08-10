@@ -192,9 +192,27 @@ pub fn standard_tools() -> Vec<ToolDefinition> {
             input_schema: serde_json::json!({
                 "type": "object",
                 "properties": {
-                    "path": { "type": "string", "description": "Absolute path or path relative to current working directory" }
+                    "path": { "type": "string", "description": "Absolute path or relative to the current working directory" }
                 },
                 "required": ["path"]
+            }),
+        },
+        // ── Questions ─────────────────────────────────────────────────────
+        ToolDefinition {
+            name: "ask_question".into(),
+            description: "Ask the user a question and pause until they answer (they get an app notification when the window is in the background). Use for genuinely blocking decisions — a branch in the plan that changes what you do next, or missing information only the user can provide. Do NOT use for routine confirmation of work already requested, or for anything you can decide yourself by reading more context. Provide 2-4 short options; the user picks one.".into(),
+            input_schema: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "text": { "type": "string", "description": "The question to ask, phrased as a concrete decision" },
+                    "options": {
+                        "type": "array",
+                        "items": { "type": "string" },
+                        "description": "2-4 short answer options. The user will see a rendered 'Needs your answer' block and pick one."
+                    },
+                    "timeout_secs": { "type": "integer", "description": "Seconds to wait for an answer before continuing with your best judgment. Default 600." }
+                },
+                "required": ["text", "options"]
             }),
         },
         // ── App / dev cycle ───────────────────────────────────────────────
@@ -247,6 +265,6 @@ mod tests {
     #[test]
     fn test_expected_tool_count() {
         // Ensures no tools are accidentally dropped when editing
-        assert_eq!(standard_tools().len(), 19);
+        assert_eq!(standard_tools().len(), 20);
     }
 }

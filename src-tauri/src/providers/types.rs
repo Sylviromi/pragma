@@ -25,6 +25,27 @@ pub struct ToolDefinition {
     pub input_schema: serde_json::Value,
 }
 
+/// Token usage captured from a provider call (SSE usage events when the API
+/// provides them, else a best-effort chars/4 estimate). Serialized camelCase
+/// to match the frontend's Usage type.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Usage {
+    pub input_tokens: u64,
+    pub output_tokens: u64,
+}
+
+impl Usage {
+    pub fn total(&self) -> u64 {
+        self.input_tokens + self.output_tokens
+    }
+}
+
+/// Best-effort estimate when the API omits usage data (chars/4, cf. OpenAI).
+pub fn estimate_usage(text: &str) -> u64 {
+    (text.chars().count() / 4).max(1) as u64
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ModelInfo {
@@ -65,6 +86,11 @@ pub enum AgentEvent {
     /// Anthropic `thinking_delta`) — surfaced live in the UI so the user can
     /// see the model thinking, like other harnesses.
     Reasoning { content: String },
+    /// A thinking block finished streaming (Anthropic `content_block_stop`,
+    /// or the end of a DeepSeek reasoning-only segment). Lets the frontend
+    /// seal the current live thought so the next reasoning chunk opens a new
+    /// block — mirroring the ContentBlock structure of the persisted message.
+    ThinkingEnd,
     #[serde(rename_all = "camelCase")]
     ToolCall {
         run_id: String,
@@ -77,6 +103,15 @@ pub enum AgentEvent {
         tool_use_id: String,
         output: String,
         is_error: bool,
+    },
+    /// The model asked the user a question and is paused waiting for an answer
+    /// (`ask_question` tool). Frontend shows the "Needs your answer" block;
+    /// `answer_question(question_id, …)` resumes the loop.
+    #[serde(rename_all = "camelCase")]
+    Question {
+        question_id: String,
+        text: String,
+        options: Vec<String>,
     },
     Done,
     Error { message: String },

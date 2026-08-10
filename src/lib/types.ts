@@ -36,6 +36,26 @@ export interface Message {
   tokens: number
 }
 
+// ── Plugins (also re-exported from lib/tauri.ts for the plugin store) ───
+export interface PluginContributes {
+  providers: string[]
+  slots: string[]
+  commands: string[]
+  skills: string[]
+}
+
+export interface PluginInfo {
+  id: string
+  name: string
+  version: string
+  description: string
+  enabled: boolean
+  contributes: PluginContributes
+  hasComponent: boolean
+  hasSkill: boolean
+  folder: string
+}
+
 export interface ModelInfo {
   id: string
   name: string
@@ -55,9 +75,14 @@ export interface ProviderInfo {
 export type AgentEvent =
   | { event: 'token'; content: string }
   | { event: 'reasoning'; content: string }
+  // A thinking block finished streaming — start a fresh thought on next reasoning.
+  | { event: 'thinking_end' }
   // Fields are camelCase — Rust AgentEvent variants use #[serde(rename_all = "camelCase")]
   | { event: 'tool_call'; runId: string; toolUseId: string; name: string; input: Record<string, unknown> }
   | { event: 'tool_result'; toolUseId: string; output: string; isError: boolean }
+  // The model asked the user a question (ask_question tool) — loop paused until
+  // answer_question(questionId, …) is called.
+  | { event: 'question'; questionId: string; text: string; options: string[] }
   | { event: 'done' }
   | { event: 'error'; message: string }
   | { event: 'interrupted' }
@@ -72,6 +97,65 @@ export interface RevertInfo {
 export interface RevertSummary {
   messagesRemoved: number
   filesReverted: string[]
+}
+
+// ── Session telemetry (right sidebar) ────────────────────────────────────
+export interface ContextSegment {
+  label: string
+  tokens: number
+  color: string // CSS var token name — the design's legend dot color
+}
+
+export interface CostRow {
+  model: string
+  tokens: string // humanized, e.g. '52.4k'
+  cost: string // '$0.41'
+}
+
+export interface PlanItem {
+  label: string
+  state: 'todo' | 'active' | 'done'
+}
+
+export interface TouchedFile {
+  path: string
+  kind: 'read' | 'edited' | 'created' | 'deleted'
+  added?: number | null
+  removed?: number | null
+}
+
+export interface GitRow {
+  mark: string
+  path: string
+  weight: number // 0..1 relative change weight for the bar
+}
+
+export interface GitWorkingTree {
+  branch: string
+  added: number
+  removed: number
+  files: number
+  rows: GitRow[]
+}
+
+export interface SessionStats {
+  sessionId: string
+  context: {
+    segments: ContextSegment[]
+    used: number
+    limit: number
+    percent: number
+  }
+  cost: {
+    rows: CostRow[]
+    total: string
+  }
+  plan: {
+    items: PlanItem[]
+    progress: string // e.g. '2/5'
+  }
+  files: TouchedFile[]
+  git: GitWorkingTree
 }
 
 // Parsed message content helpers — shared by the message components and the

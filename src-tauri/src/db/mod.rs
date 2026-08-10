@@ -28,6 +28,9 @@ pub async fn run_migrations(pool: &SqlitePool) -> Result<(), sqlx::Error> {
             .execute(pool)
             .await?;
     }
+    sqlx::query(include_str!("migrations/005_telemetry.sql"))
+        .execute(pool)
+        .await?;
     Ok(())
 }
 
