@@ -3062,6 +3062,7 @@ dependencies = [
  "tempfile",
  "thiserror 1.0.69",
  "tokio",
+ "unicode-normalization",
  "uuid",
  "walkdir",
  "webkit2gtk",

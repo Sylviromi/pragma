@@ -5,13 +5,13 @@ pub fn standard_tools() -> Vec<ToolDefinition> {
         // ── File operations ──────────────────────────────────────────────
         ToolDefinition {
             name: "read_file".into(),
-            description: "Read a file's contents. Returns the full file by default; use offset/limit to read a specific line range (1-based). For large files (>500 lines), prefer reading a targeted range after using search_files to locate the relevant lines.".into(),
+            description: "Read a file's contents. Lines are 1-indexed and prefixed like `cat -n`, so line numbers match your editor and stack traces. A read is bounded by three ceilings: at most 2000 lines, at most 128 KB of the file (a larger file returns only its head), and at most 2000 characters per line (a minified bundle is clamped, never returned whole). When a read is cut short by a ceiling the result names the recovery, e.g. `offset=2001 to read the rest` — follow it to page through. A file that exceeds the byte budget has no resume offset (re-reading returns the same head) — use search_files to locate content beyond it. Empty/missing files, past-EOF offsets and special devices (/dev/zero etc.) return a one-line fact instead of an error. If the exact path is missing, visually-identical spellings are retried (narrow no-break space, NFD/NFC, curly quotes) and the result notes the corrected name — use it in future calls; when no repair matches, the result suggests close names (did you mean…). Binary files (PNG/PDF/ZIP/etc.) return a one-line mime fact with a pdftotext hint for PDFs. Use offset (1-based start line) / limit (max lines) to read a targeted range; for large files prefer locating lines with search_files first.".into(),
             input_schema: serde_json::json!({
                 "type": "object",
                 "properties": {
-                    "path": { "type": "string", "description": "File path relative to working directory" },
-                    "offset": { "type": "integer", "description": "Start reading from this line number (1-based). Omit to start from the beginning." },
-                    "limit": { "type": "integer", "description": "Maximum number of lines to return. Omit to read to the end." }
+                    "path": { "type": "string", "description": "File path relative to working directory. Aliases: filePath, file_path, absolutePath, target, filename." },
+                    "offset": { "type": ["integer", "string"], "description": "1-based start line (default 1). Pass an integer or a numeric string like \"2000\"; non-numeric strings and fractions are rejected." },
+                    "limit": { "type": ["integer", "string"], "description": "Maximum lines to return (default: all, up to the 2000-line window)." }
                 },
                 "required": ["path"]
             }),
@@ -202,7 +202,7 @@ pub fn standard_tools() -> Vec<ToolDefinition> {
         // ── Questions ─────────────────────────────────────────────────────
         ToolDefinition {
             name: "ask_question".into(),
-            description: "Ask the user a question and pause until they answer (they get an app notification when the window is in the background). Use for genuinely blocking decisions — a branch in the plan that changes what you do next, or missing information only the user can provide. Do NOT use for routine confirmation of work already requested, or for anything you can decide yourself by reading more context. Provide 2-4 short options; the user picks one.".into(),
+            description: "Ask the user a question and pause until they answer (they get an app notification when the window is in the background). Use for genuinely blocking decisions — a branch in the plan that changes what you do next, or missing information only the user can provide (e.g. which folder to work in). Do NOT use for routine confirmation of work already requested, or for anything you can decide yourself by reading more context. Provide 2-4 short options, OR omit options when the answer is open-ended — the user then answers with free text.".into(),
             input_schema: serde_json::json!({
                 "type": "object",
                 "properties": {
@@ -210,11 +210,11 @@ pub fn standard_tools() -> Vec<ToolDefinition> {
                     "options": {
                         "type": "array",
                         "items": { "type": "string" },
-                        "description": "2-4 short answer options. The user will see a rendered 'Needs your answer' block and pick one."
+                        "description": "Optional 2-4 short answer options. The user will see a rendered 'Needs your answer' block and pick one. When omitted, the user answers with free text — use this for open questions like 'which folder?'."
                     },
                     "timeout_secs": { "type": "integer", "description": "Seconds to wait for an answer before continuing with your best judgment. Default 600." }
                 },
-                "required": ["text", "options"]
+                "required": ["text"]
             }),
         },
         // ── App / dev cycle ───────────────────────────────────────────────
