@@ -125,6 +125,7 @@ export async function runAgenticLoop(
   provider: string,
   workingDir: string,
   autoApprove: boolean,
+  thinking: boolean,
   onEvent: (e: AgentEvent) => void,
 ): Promise<void> {
   if (isBrowserMock) {
@@ -155,7 +156,7 @@ export async function runAgenticLoop(
   const unlisten = await listenAgentEvents(sessionId, onEvent)
   try {
     await tauriInvoke<void>('run_agentic_loop', {
-      sessionId, userMessage, model, provider, workingDir, autoApprove,
+      sessionId, userMessage, model, provider, workingDir, autoApprove, thinking,
     })
   } finally {
     unlisten()

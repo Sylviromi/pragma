@@ -62,7 +62,9 @@ model picker.
       "isFree": true,
       "isVision": false,
       "maxTokens": 32000,
-      "reasoningEffort": "high"
+      "reasoningEffort": "high",
+      "supportsThinking": true,
+      "thinkingBudget": 8192
     }
   ]
 }
@@ -79,6 +81,17 @@ model picker.
 - `models`: static fallback model list. Per model (all optional):
   - `maxTokens`: output-token ceiling sent as `max_tokens` (default 16384).
   - `reasoningEffort`: overrides the provider-level `reasoningEffort` for this model.
+  - `supportsThinking`: declare that the model supports extended thinking / reasoning.
+    This is how **custom providers opt in to thinking** — Anthropic-family endpoints
+    get the `thinking` request block (with `thinkingBudget`), OpenAI-compat endpoints
+    get `reasoning_effort`. When omitted, known families are detected automatically
+    (claude-opus-4 / sonnet-4-5 / 4-6 / 3-7, gpt-5, o-series, deepseek-reasoner,
+    qwen3, glm-z1) and everything else defaults to off.
+  - `thinkingBudget`: Anthropic `budget_tokens` for this model (default 8192). Only
+    meaningful when `supportsThinking` is true.
+
+The user-facing **Thinking** toggle in the model picker (default on) never forces
+thinking onto a model that doesn't support it — it's an off switch for cost control.
 
 ## component.js (optional)
 

@@ -20,20 +20,19 @@ const THINKING_BUDGET_TOKENS: u32 = 8_192;
 /// the thinking budget so there is room left for text/tool calls after thinking.
 const THINKING_MAX_TOKENS: u32 = 25_600;
 
-/// The thinking budget to use for a model id, or `None` when the model does
-/// not support extended thinking. Gate is conservative: known thinking-capable
-/// families only, haiku-family models excluded.
-fn thinking_budget_for(model: &str) -> Option<u32> {
-    let id = model.to_ascii_lowercase();
-    if id.contains("haiku") {
-        return None;
+/// The thinking budget to use for a model, driven by its declared capability
+/// (provider model list → /v1/models metadata → family catalog fallback)
+/// rather than hardcoded id matching. Returns the budget when thinking should
+/// be enabled for this call, None otherwise.
+fn thinking_cfg(models: &[ModelInfo], model: &str) -> Option<u32> {
+    let info = models.iter().find(|m| m.id == model);
+    match info {
+        Some(m) if m.supports_thinking => Some(m.thinking_budget.unwrap_or(THINKING_BUDGET_TOKENS)),
+        Some(_) => None,
+        // Model missing from the provider's list (e.g. selected before
+        // discovery landed) — fall back to the capability catalog.
+        None => super::catalog::thinking_for(model).then_some(THINKING_BUDGET_TOKENS),
     }
-    let capable = id.contains("opus-4")
-        || id.contains("sonnet-4-5")
-        || id.contains("sonnet-4-6")
-        || id.contains("sonnet-4.")
-        || id.contains("claude-3-7");
-    capable.then_some(THINKING_BUDGET_TOKENS)
 }
 
 /// Curated fallback list — real Anthropic API model ids. Shown until (or when)
@@ -59,7 +58,7 @@ pub fn fallback_models() -> Vec<ModelInfo> {
                 }
             })
             .unwrap_or_else(|| id.to_string());
-        catalog::enrich(id, format!("Claude {family}"), None, None, None)
+        catalog::enrich(id, format!("Claude {family}"), None, None, None, None)
     })
     .collect()
 }
@@ -88,6 +87,7 @@ impl AnthropicProvider {
         model: &str,
         api_key: &str,
         tools: &[ToolDefinition],
+        thinking: bool,
         app_handle: &tauri::AppHandle,
         session_id: &str,
     ) -> Result<(Vec<ContentBlock>, Usage), String> {
@@ -102,12 +102,18 @@ impl AnthropicProvider {
             .filter_map(|m| m["content"].as_str())
             .collect::<Vec<_>>()
             .join("\n\n");
-        // When extended thinking is enabled for this model, thinking blocks
-        // (with their signatures) must be passed back verbatim in history — the
-        // API requires it. For models without thinking support (haiku family),
-        // any thinking blocks in history are stripped so the API doesn't reject
+        // Extended thinking is driven by the model's declared capability (model
+        // list → discovery metadata → family catalog), NOT hardcoded ids, and
+        // can be force-disabled by the user (thinking==false) to save money.
+        // When enabled, thinking blocks (with their signatures) must be passed
+        // back verbatim in history — the API requires it. When disabled, any
+        // thinking blocks in history are stripped so the API doesn't reject
         // the request (it rejects them unless thinking is enabled).
-        let thinking_budget = thinking_budget_for(model);
+        let thinking_budget = if thinking {
+            thinking_cfg(&self.models, model)
+        } else {
+            None
+        };
         let strip_thinking = thinking_budget.is_none();
         let stripped_messages: Vec<serde_json::Value> = messages
             .iter()
@@ -393,7 +399,7 @@ pub async fn fetch_models(api_key: Option<String>) -> Option<Vec<ModelInfo>> {
             let id = m["id"].as_str()?;
             let name = m["display_name"].as_str().unwrap_or(id).to_string();
             let ctx = m["context_window"].as_u64().map(|n| n as u32);
-            Some(catalog::enrich(id, name, ctx, Some(true), Some(false)))
+            Some(catalog::enrich(id, name, ctx, Some(true), Some(false), None))
         })
         .collect();
     Some(models)
@@ -422,26 +428,53 @@ mod tests {
 
     #[test]
     fn thinking_only_for_capable_models() {
-        // Thinking-capable families get a budget.
+        // No model list → capability catalog fallback.
         for m in [
             "claude-sonnet-4-5-20250929",
             "claude-opus-4-1-20250805",
             "claude-sonnet-4-6-20251022",
             "claude-3-7-sonnet-20250219",
         ] {
-            assert!(thinking_budget_for(m).is_some(), "{m} should support thinking");
+            assert!(thinking_cfg(&[], m).is_some(), "{m} should support thinking");
         }
         // Base Sonnet 4 (pre-4.5) does not support extended thinking.
-        assert_eq!(thinking_budget_for("claude-sonnet-4-20250514"), None);
+        assert_eq!(thinking_cfg(&[], "claude-sonnet-4-20250514"), None);
         // Haiku family never: no thinking support, small output cap.
         for m in [
             "claude-haiku-4-5-20251001",
             "claude-3-5-haiku-20241022",
         ] {
-            assert!(thinking_budget_for(m).is_none(), "{m} must not get thinking");
+            assert!(thinking_cfg(&[], m).is_none(), "{m} must not get thinking");
         }
         // Unknown ids: conservative — no thinking.
-        assert_eq!(thinking_budget_for("totally-unknown-model"), None);
+        assert_eq!(thinking_cfg(&[], "totally-unknown-model"), None);
+    }
+
+    #[test]
+    fn thinking_respects_model_declared_capability() {
+        // A custom/plugin model declaring support (provider.json or discovery)
+        // gets thinking even though the catalog doesn't know the id — this is
+        // what makes thinking work with custom providers.
+        let models = vec![
+            crate::providers::types::ModelInfo {
+                id: "my-custom-reasoner".into(),
+                name: "Custom".into(),
+                context_window: None,
+                is_free: false,
+                is_vision: false,
+                max_tokens: None,
+                reasoning_effort: None,
+                supports_thinking: true,
+                thinking_budget: Some(20_000),
+            },
+            crate::providers::catalog::enrich("plain-model", "Plain".into(), None, None, None, None),
+        ];
+        // Declared budget wins.
+        assert_eq!(thinking_cfg(&models, "my-custom-reasoner"), Some(20_000));
+        // Declared NOT capable → no thinking, even for a known family id.
+        assert_eq!(thinking_cfg(&models, "plain-model"), None);
+        // Catalog fallback for ids absent from the list.
+        assert!(thinking_cfg(&models, "claude-sonnet-4-5-20250929").is_some());
     }
 
     #[test]

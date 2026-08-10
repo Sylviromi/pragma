@@ -106,6 +106,9 @@ export const chat = $state({
   notice:         {} as Record<string, string | null>,
   alwaysApprove:  {} as Record<string, Set<string>>,
   autoApprove:    {} as Record<string, boolean>,
+  /** Per-session thinking preference: false forces thinking off (cost control);
+   *  true enables it when the model supports it. Default true per session. */
+  thinking:       {} as Record<string, boolean>,
   /** Aggregate session status for the design's status dots / labels. */
   status:         {} as Record<string, AgentStatus>,
 })
@@ -352,10 +355,12 @@ export async function sendMessage(
   model: string,
   provider: string,
   workingDir: string,
-  autoApprove: boolean
+  autoApprove: boolean,
+  thinking = true
 ) {
   // Persist autoApprove in store so handleEvent can access it after HMR
   chat.autoApprove[sessionId] = autoApprove
+  chat.thinking[sessionId] = thinking
 
   // Clear live turn state from the previous run
   chat.running[sessionId] = true
@@ -387,7 +392,7 @@ export async function sendMessage(
   let keepRunning = false
 
   try {
-    await runAgenticLoop(sessionId, content, model, provider, workingDir, autoApprove, (ev) => handleEvent(sessionId, ev))
+    await runAgenticLoop(sessionId, content, model, provider, workingDir, autoApprove, thinking, (ev) => handleEvent(sessionId, ev))
   } catch (err) {
     const msg = String(err)
     if (msg.includes('already has an active agentic loop')) {

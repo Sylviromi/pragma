@@ -50,19 +50,24 @@ fn no_working_dir_fact(tool_name: &str, user_said: Option<&str>) -> String {
 
 /// Cap a single tool result that gets persisted into history and fed back to the
 /// model. Prevents one huge output (run_command, search_files, read_file …)
-/// from blowing the context window for the whole conversation. Kept generous
-/// (≈16K tokens) so full file reads / build outputs survive; the read_file
-/// windowing and search_file caps already keep the pathological cases small.
+/// from blowing the context window for the whole conversation. Scaled from the
+/// model's history budget (see `tool_result_budget_for`) so it adapts to the
+/// model's context window instead of being a constant.
 const MAX_TOOL_RESULT_CHARS: usize = 64_000;
 
-/// Soft budget for the conversation history sent to the model on every
-/// iteration. The history grows without bound over a long session (every tool
-/// exchange is re-sent in full), so we trim the oldest complete tool exchanges
-/// once the serialized size exceeds this. Always keeps the system prompt and
-/// the newest user message. 320K chars ≈ 80K tokens — comfortably inside a
-/// 200K-context model (Claude, DeepSeek) while still trimming pathological
-/// sessions instead of overflowing the window.
+/// Fallback history budget (chars) when the model's context window is unknown
+/// (e.g. selected before discovery landed). Real budgets scale with the model's
+/// context window via `history_budget_for`; this keeps the pre-discovery
+/// behavior identical to the old constant.
 const MAX_HISTORY_CHARS: usize = 320_000;
+
+/// Default output ceiling (tokens) reserved out of the context window before
+/// history is budgeted, matching the harness's non-thinking max_tokens.
+const DEFAULT_MAX_TOKENS: usize = 16_384;
+
+/// Output ceiling (tokens) when extended thinking is enabled — the API forces
+/// max_tokens > thinking budget — never handed to history either.
+const THINKING_MAX_TOKENS: usize = 25_600;
 
 /// Total wall-clock budget for executing one batch of read-only tool calls in
 /// parallel. Bounds the "N tools × 60s" blowup: a batch of 50 tools can no
@@ -242,6 +247,7 @@ pub async fn run_agentic_loop(
     provider: String,
     working_dir: String,
     auto_approve: bool,
+    thinking: bool,
     app_handle: tauri::AppHandle,
     state: tauri::State<'_, AppState>,
 ) -> Result<(), String> {
@@ -338,6 +344,7 @@ pub async fn run_agentic_loop(
         provider,
         working_dir,
         auto_approve,
+        thinking,
         &app_handle,
         &state,
         cancel_rx,
@@ -373,6 +380,7 @@ async fn run_loop(
     provider: String,
     working_dir: String,
     auto_approve: bool,
+    thinking: bool,
     app_handle: &tauri::AppHandle,
     state: &tauri::State<'_, AppState>,
     mut cancel: tokio::sync::watch::Receiver<bool>,
@@ -411,6 +419,19 @@ async fn run_loop(
         .registry
         .get(&provider)
         .ok_or_else(|| format!("unknown provider: {provider}"))?;
+
+    // Derive the per-model context budgets from the provider's model list:
+    // long-context models keep proportionally more history instead of being
+    // clipped by a global constant, and short-context models trim earlier.
+    // Unknown models (pre-discovery) fall back to the old fixed budgets.
+    let model_info = provider_handle
+        .info()
+        .models
+        .iter()
+        .find(|m| m.id == model)
+        .cloned();
+    let history_budget = history_budget_for(model_info.as_ref(), thinking);
+    let tool_result_budget = tool_result_budget_for(history_budget);
 
     // Base system prompt for the coding agent.
     const BASE_PROMPT: &str = "\
@@ -465,6 +486,7 @@ You converse with the user in turns. In each turn you can write text and call to
     };
 
     // Load existing conversation history from DB
+    // Load existing conversation history from DB
     let db_messages = sqlx::query_as::<_, crate::commands::messages::Message>(
         "SELECT * FROM messages WHERE session_id=? ORDER BY timestamp ASC",
     )
@@ -499,7 +521,7 @@ You converse with the user in turns. In each turn you can write text and call to
 
     // Keep the request inside the context budget before the first call. The
     // loop re-trims every iteration since history keeps growing.
-    trim_history_to_budget(&mut history, MAX_HISTORY_CHARS);
+    trim_history_to_budget(&mut history, history_budget);
 
     // Persist user message
     persist_message(
@@ -525,7 +547,7 @@ You converse with the user in turns. In each turn you can write text and call to
         }
 
         // Fit the (ever-growing) history into the context window before each call.
-        trim_history_to_budget(&mut history, MAX_HISTORY_CHARS);
+        trim_history_to_budget(&mut history, history_budget);
 
         // Call the AI — abortable at the press of Esc (the in-flight HTTP
         // request is dropped, so nothing hangs in the background). On the
@@ -541,7 +563,7 @@ You converse with the user in turns. In each turn you can write text and call to
                 tokio::pin!(deadline);
                 match tokio::select! {
                     res = provider_handle
-                        .call(&history_used_for_call, &model, &api_key, &tools, app_handle, session_id) => res,
+                        .call(&history_used_for_call, &model, &api_key, &tools, thinking, app_handle, session_id) => res,
                     _ = &mut deadline => {
                         emit(app_handle, session_id, AgentEvent::Interrupted);
                         return Ok(());
@@ -911,7 +933,7 @@ You converse with the user in turns. In each turn you can write text and call to
             };
             // Cap oversized outputs so one big result can't blow the context
             // window (and the persisted history) for the whole conversation.
-            output = truncate_output(&output);
+            output = truncate_output(&output, tool_result_budget);
 
             emit(app_handle, session_id, AgentEvent::ToolResult {
                 tool_use_id: tool_use_id.clone(),
@@ -981,7 +1003,7 @@ You converse with the user in turns. In each turn you can write text and call to
                         Err(e) => (e, true),
                     }
                 };
-                output = truncate_output(&output);
+                output = truncate_output(&output, tool_result_budget);
                 emit(app_handle, session_id, AgentEvent::ToolResult {
                     tool_use_id: tool_use_id.clone(),
                     output: output.clone(),
@@ -1037,7 +1059,7 @@ You converse with the user in turns. In each turn you can write text and call to
                                 Ok(Err(e)) => (e, true),
                                 Err(e) => (format!("tool execution panicked: {e}"), true),
                             };
-                            output = truncate_output(&output);
+                            output = truncate_output(&output, tool_result_budget);
                             emit(app_handle, session_id, AgentEvent::ToolResult {
                                 tool_use_id: id.clone(),
                                 output: output.clone(),
@@ -1237,12 +1259,37 @@ fn sanitize_history(raw: Vec<serde_json::Value>) -> Vec<serde_json::Value> {
     out
 }
 
+/// History budget (chars) for a model, derived from its context window so
+/// long-context models keep proportionally more history instead of being
+/// clipped by a fixed constant: `(context − output_reserve) × 2`. Real content
+/// runs ≈4 chars/token, so this hands about half the window to history and
+/// leaves the rest for the system prompt, tool schemas, and model output.
+/// Falls back to the old global constant (320K chars) when the model is unknown.
+fn history_budget_for(model: Option<&crate::providers::types::ModelInfo>, thinking: bool) -> usize {
+    let Some(m) = model else {
+        return MAX_HISTORY_CHARS;
+    };
+    let ctx = m.context_window.unwrap_or(200_000) as usize;
+    // Never let history crowd out the model's own output. With thinking on the
+    // API forces max_tokens > thinking budget, so reserve that ceiling too.
+    let reserve = m.max_tokens.unwrap_or(DEFAULT_MAX_TOKENS as u32) as usize;
+    let reserve = if thinking { reserve.max(THINKING_MAX_TOKENS) } else { reserve };
+    ctx.saturating_sub(reserve) * 2
+}
+
+/// Tool-result cap derived from the history budget: one result shouldn't eat
+/// more than ~a fifth of the whole history body. Clamped so tiny windows don't
+/// produce absurdly small results and huge windows stay bounded.
+fn tool_result_budget_for(history_budget: usize) -> usize {
+    (history_budget / 5).clamp(16_000, 256_000)
+}
+
 /// Truncate a tool result so a single huge output can't blow the context window.
-fn truncate_output(s: &str) -> String {
-    if s.chars().count() <= MAX_TOOL_RESULT_CHARS {
+fn truncate_output(s: &str, cap: usize) -> String {
+    if s.chars().count() <= cap {
         return s.to_string();
     }
-    let cut: String = s.chars().take(MAX_TOOL_RESULT_CHARS).collect();
+    let cut: String = s.chars().take(cap).collect();
     format!("{cut}\n…[output truncated: {} chars]", s.chars().count())
 }
 
@@ -1535,11 +1582,36 @@ mod tests {
     #[test]
     fn truncate_output_caps_long_results() {
         let long = "x".repeat(MAX_TOOL_RESULT_CHARS + 100);
-        let capped = truncate_output(&long);
+        let capped = truncate_output(&long, MAX_TOOL_RESULT_CHARS);
         assert!(capped.len() < long.len());
         assert!(capped.contains("truncated"));
         // Short outputs pass through untouched
-        assert_eq!(truncate_output("short"), "short");
+        assert_eq!(truncate_output("short", MAX_TOOL_RESULT_CHARS), "short");
+    }
+
+    #[test]
+    fn history_budget_scales_with_context_window() {
+        // 200K model, thinking off: (200_000 − 16_384) × 2 ≈ 367K chars —
+        // comparable to the old 320K constant, not clipped by it.
+        let b200 = history_budget_for(Some(&crate::providers::catalog::enrich(
+            "m", "M".into(), Some(200_000), None, None, None,
+        )), false);
+        assert_eq!(b200, (200_000 - 16_384) * 2);
+        // Thinking reserves the higher output ceiling.
+        let bt = history_budget_for(Some(&crate::providers::catalog::enrich(
+            "m", "M".into(), Some(200_000), None, None, None,
+        )), true);
+        assert_eq!(bt, (200_000 - 25_600) * 2);
+        // Long-context models scale up proportionally.
+        let b1m = history_budget_for(Some(&crate::providers::catalog::enrich(
+            "m", "M".into(), Some(1_000_000), None, None, None,
+        )), false);
+        assert_eq!(b1m, (1_000_000 - 16_384) * 2);
+        // Unknown model → old constant.
+        assert_eq!(history_budget_for(None, false), MAX_HISTORY_CHARS);
+        // Tool-result cap is a fifth of the history budget, clamped.
+        assert_eq!(tool_result_budget_for(b200), b200 / 5);
+        assert_eq!(tool_result_budget_for(40_000), 16_000);
     }
 
     #[test]

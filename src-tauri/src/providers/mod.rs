@@ -35,15 +35,16 @@ impl ProviderHandle {
         model: &str,
         api_key: &str,
         tools: &[ToolDefinition],
+        thinking: bool,
         app_handle: &tauri::AppHandle,
         session_id: &str,
     ) -> Result<(Vec<ContentBlock>, Usage), String> {
         match self {
             ProviderHandle::Anthropic(p) => {
-                p.call(messages, model, api_key, tools, app_handle, session_id).await
+                p.call(messages, model, api_key, tools, thinking, app_handle, session_id).await
             }
             ProviderHandle::OpenAICompat(p) => {
-                p.call(messages, model, api_key, tools, app_handle, session_id).await
+                p.call(messages, model, api_key, tools, thinking, app_handle, session_id).await
             }
         }
     }
@@ -164,9 +165,53 @@ pub async fn fetch_openai_models(base_url: &str, api_key: &str) -> Vec<ModelInfo
             .as_str()
             .map(|s| s.parse::<f64>().map(|v| v == 0.0).unwrap_or(false))
             .or_else(|| m["pricing"]["prompt"].as_f64().map(|v| v == 0.0));
-        out.push(catalog::enrich(id, name, ctx, None, free));
+        // Thinking capability: servers disagree on the field. Accept booleans
+        // and "true"/"false" strings, top-level or nested; falls back to the
+        // family catalog when the server says nothing.
+        let thinking = ["supports_thinking", "supportsThinking", "thinking", "reasoning"]
+            .iter()
+            .find_map(|k| m.get(*k).and_then(boolish))
+            .or_else(|| {
+                m.get("metadata").and_then(|md| {
+                    ["supports_thinking", "supportsThinking", "thinking", "reasoning"]
+                        .iter()
+                        .find_map(|k| md.get(*k).and_then(boolish))
+                })
+            })
+            .or_else(|| {
+                m.get("capabilities")
+                    .and_then(|c| c.get("thinking"))
+                    .and_then(boolish)
+            });
+        // Optional thinking budget + output ceiling from the same sources.
+        let thinking_budget = m["thinking_budget"]
+            .as_u64()
+            .or_else(|| m["thinkingBudget"].as_u64())
+            .map(|n| n as u32);
+        let max_tokens = m["max_tokens"]
+            .as_u64()
+            .or_else(|| m["maxTokens"].as_u64())
+            .map(|n| n as u32);
+        let mut info = catalog::enrich(id, name, ctx, None, free, thinking);
+        info.thinking_budget = thinking_budget;
+        info.max_tokens = max_tokens;
+        info.reasoning_effort = m["reasoning_effort"]
+            .as_str()
+            .map(|s| s.to_string())
+            .or_else(|| {
+                m.get("metadata")
+                    .and_then(|md| md["reasoning_effort"].as_str())
+                    .map(|s| s.to_string())
+            });
+        out.push(info);
     }
     out
+}
+
+/// Best-effort boolean parse for capability fields that may arrive as JSON
+/// booleans or "true"/"false" strings.
+fn boolish(v: &serde_json::Value) -> Option<bool> {
+    v.as_bool().or_else(|| v.as_str().and_then(|s| s.parse().ok()))
 }
 
 /// Run an async closure on a detached thread with its own current-thread

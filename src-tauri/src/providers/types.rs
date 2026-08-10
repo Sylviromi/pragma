@@ -66,6 +66,17 @@ pub struct ModelInfo {
     /// None = don't send a reasoning_effort field.
     #[serde(default)]
     pub reasoning_effort: Option<String>,
+    /// Whether the model supports extended thinking / reasoning. Comes from
+    /// the capability catalog for known families, from /v1/models metadata
+    /// where servers expose it, or explicitly from provider.json
+    /// (`supportsThinking`). Drives the Anthropic `thinking` param, the picker
+    /// badge, and the reasoning_effort behavior for OpenAI-compat models.
+    #[serde(default)]
+    pub supports_thinking: bool,
+    /// Optional thinking budget in tokens (Anthropic `budget_tokens`). None =
+    /// the harness default.
+    #[serde(default)]
+    pub thinking_budget: Option<u32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

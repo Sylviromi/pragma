@@ -64,6 +64,8 @@ export interface ModelInfo {
   isVision: boolean
   maxTokens?: number | null      // per-model output ceiling (provider.json)
   reasoningEffort?: string | null // 'low' | 'medium' | 'high' (provider.json)
+  supportsThinking: boolean      // thinking/reasoning capability (catalog/discovery/provider.json)
+  thinkingBudget?: number | null // Anthropic budget_tokens override
 }
 
 export interface ProviderInfo {

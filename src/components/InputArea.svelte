@@ -13,6 +13,18 @@
   let text = $state('')
   let model = $state('')
   let provider = $state('')
+  // User preference: enable thinking when the model supports it. Lives in the
+  // chat store per session so it survives HMR and is picked up by sendMessage.
+  // Default on — the backend only enables thinking for capable models anyway.
+  let thinking = $state(true)   // hydrated from chat.thinking on first effect run
+  let thinkingHydrated = $state(false)
+  $effect(() => {
+    if (!thinkingHydrated) {
+      thinkingHydrated = true
+      thinking = chat.thinking[sessionId] ?? true
+    }
+    chat.thinking[sessionId] = thinking
+  })
   // Becomes true once the session's stored model/provider have been loaded,
   // so we never persist transient defaults (mount / HMR resets) over the real
   // selection.
@@ -62,7 +74,8 @@
       model,
       provider,
       session?.workingDir ?? '',
-      chat.autoApprove[sessionId] ?? false
+      chat.autoApprove[sessionId] ?? false,
+      thinking
     )
   }
 
@@ -135,7 +148,7 @@
   ></textarea>
 
   <div class="footer">
-    <ModelPicker bind:model bind:provider />
+    <ModelPicker bind:model bind:provider bind:thinking />
     <DirChip {sessionId} />
 
     <!-- Plugins can contribute their own controls here (design's composer-center). -->

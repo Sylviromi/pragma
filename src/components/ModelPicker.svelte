@@ -3,11 +3,17 @@
   import { loadProviders, providerState } from '../stores/providers.svelte'
   import SlotStack from './SlotStack.svelte'
   import Icon from './Icon.svelte'
+  import Toggle from './Toggle.svelte'
 
   let {
     model = $bindable(''),
-    provider = $bindable('')
-  }: { model: string; provider: string } = $props()
+    provider = $bindable(''),
+    thinking = $bindable(true)
+  }: {
+    model: string
+    provider: string
+    thinking: boolean
+  } = $props()
 
   let open = $state(false)
   let search = $state('')
@@ -122,10 +128,33 @@
               <span class="rname">{m.name}</span>
               {#if m.contextWindow}<span class="rmeta">{(m.contextWindow / 1000).toFixed(0)}k</span>{/if}
               {#if m.isFree}<span class="rmeta free">free</span>{/if}
+              {#if m.supportsThinking}<span class="rmeta think">think</span>{/if}
               {#if m.id === model && p.id === provider}<span class="check" aria-hidden="true"><Icon name="check" size={13} /></span>{/if}
             </button>
           {/each}
         {/each}
+      </div>
+      <!-- Thinking preference: enable extended thinking/reasoning when the
+           selected model supports it. Disabled (greyed) when the current
+           model can't think — the backend never enables it for those, and a
+           live toggle on a dead switch would only confuse. -->
+      <div class="think-row" class:muted={!current?.supportsThinking}>
+        <div class="think-copy">
+          <span class="think-label">Thinking</span>
+          <span class="think-hint">
+            {current?.supportsThinking
+              ? 'On when supported'
+              : current
+                ? 'Model does not support'
+                : 'Enable when supported'}
+          </span>
+        </div>
+        <Toggle
+          checked={thinking}
+          onChange={(v) => (thinking = v)}
+          disabled={!current?.supportsThinking}
+          label="Thinking"
+        />
       </div>
       <SlotStack slot="model-picker-extra" />
     </div>
@@ -262,6 +291,40 @@
   }
   .free {
     color: var(--success);
+  }
+  .think {
+    color: var(--accent);
+    text-transform: uppercase;
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+  }
+  /* Thinking preference row: label + hint left, toggle right. */
+  .think-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    justify-content: space-between;
+    padding: 8px 12px;
+    border-top: 1px solid var(--border-subtle);
+    margin: 4px 6px 0;
+  }
+  .think-row.muted {
+    opacity: 0.5;
+  }
+  .think-copy {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    min-width: 0;
+  }
+  .think-label {
+    font-size: 12.5px;
+    color: var(--text-primary);
+  }
+  .think-hint {
+    font-size: 11px;
+    color: var(--text-muted);
   }
   .check {
     color: var(--success);

@@ -72,19 +72,19 @@ export const mockProviders: ProviderInfo[] = [
   {
     id: 'anthropic', name: 'Anthropic', source: 'builtin',
     models: [
-      { id: 'claude-sonnet-4-6', name: 'claude-sonnet-4-6', contextWindow: 200000, isFree: false, isVision: false },
-      { id: 'claude-opus-4-6', name: 'claude-opus-4-6', contextWindow: 200000, isFree: false, isVision: false },
+      { id: 'claude-sonnet-4-6', name: 'claude-sonnet-4-6', contextWindow: 200000, isFree: false, isVision: false, supportsThinking: true },
+      { id: 'claude-opus-4-6', name: 'claude-opus-4-6', contextWindow: 200000, isFree: false, isVision: false, supportsThinking: true },
     ],
   },
   {
     id: 'deepseek', name: 'DeepSeek', source: 'builtin',
-    models: [{ id: 'deepseek-v4-flash', name: 'deepseek-v4-flash', contextWindow: 65536, isFree: false, isVision: false }],
+    models: [{ id: 'deepseek-v4-flash', name: 'deepseek-v4-flash', contextWindow: 65536, isFree: false, isVision: false, supportsThinking: false }],
   },
   {
     id: 'zen-warp', name: 'Zen WARP', source: { plugin: { pluginId: 'zen-warp' } },
     models: [
-      { id: 'deepseek-v4 via warp', name: 'deepseek-v4 via warp', contextWindow: 200000, isFree: true, isVision: false },
-      { id: 'mimo-v2.5 via warp', name: 'mimo-v2.5 via warp', contextWindow: 128000, isFree: true, isVision: true },
+      { id: 'deepseek-v4 via warp', name: 'deepseek-v4 via warp', contextWindow: 200000, isFree: true, isVision: false, supportsThinking: false },
+      { id: 'mimo-v2.5 via warp', name: 'mimo-v2.5 via warp', contextWindow: 128000, isFree: true, isVision: true, supportsThinking: false },
     ],
   },
 ]

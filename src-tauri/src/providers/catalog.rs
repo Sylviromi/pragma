@@ -82,6 +82,36 @@ pub fn vision_for(id: &str) -> bool {
     false
 }
 
+/// Whether a model family supports extended thinking / reasoning. Fallback
+/// used when the upstream doesn't declare it (most /v1/models endpoints
+/// don't). Conservative: only families the harness can actually turn thinking
+/// on for are marked true.
+/// - Anthropic: Opus 4.x, Sonnet 4.5/4.6, Claude 3.7 Sonnet — NOT Haiku.
+/// - OpenAI-compat reasoning models: gpt-5 / o-series, deepseek-reasoner,
+///   Qwen3, GLM-z1 (reasoning_effort / thinking modes).
+pub fn thinking_for(id: &str) -> bool {
+    let id = id.to_ascii_lowercase();
+    if id.contains("haiku") {
+        return false;
+    }
+    if id.starts_with("claude-") {
+        return id.contains("opus-4")
+            || id.contains("sonnet-4-5")
+            || id.contains("sonnet-4-6")
+            || id.contains("claude-3-7");
+    }
+    if id.starts_with("gpt-5") || id.starts_with("o1") || id.starts_with("o3") || id.starts_with("o4") {
+        return true;
+    }
+    if id.contains("deepseek-reasoner") || id.contains("deepseek-r1") {
+        return true;
+    }
+    if id.starts_with("qwen3") || id.contains("glm-z1") {
+        return true;
+    }
+    false
+}
+
 /// Merge upstream-reported attributes with catalog knowledge.
 /// Upstream values win when present; the catalog fills the gaps.
 pub fn enrich(
@@ -90,6 +120,7 @@ pub fn enrich(
     api_context: Option<u32>,
     api_vision: Option<bool>,
     api_free: Option<bool>,
+    api_thinking: Option<bool>,
 ) -> ModelInfo {
     ModelInfo {
         id: id.to_string(),
@@ -99,6 +130,8 @@ pub fn enrich(
         is_vision: api_vision.unwrap_or_else(|| vision_for(id)),
         max_tokens: None,
         reasoning_effort: None,
+        supports_thinking: api_thinking.unwrap_or_else(|| thinking_for(id)),
+        thinking_budget: None,
     }
 }
 
@@ -130,6 +163,32 @@ mod tests {
     }
 
     #[test]
+    fn thinking_flags() {
+        // Anthropic capable families (haiku never).
+        for m in [
+            "claude-sonnet-4-5-20250929",
+            "claude-opus-4-1-20250805",
+            "claude-sonnet-4-6-20251022",
+            "claude-3-7-sonnet-20250219",
+        ] {
+            assert!(thinking_for(m), "{m} should support thinking");
+        }
+        assert!(!thinking_for("claude-haiku-4-5-20251001"));
+        assert!(!thinking_for("claude-3-5-haiku-20241022"));
+        assert!(!thinking_for("claude-sonnet-4-20250514")); // base Sonnet 4
+        // OpenAI-compat reasoning models.
+        assert!(thinking_for("gpt-5"));
+        assert!(thinking_for("o3-mini"));
+        assert!(thinking_for("deepseek-reasoner"));
+        assert!(thinking_for("qwen3-coder"));
+        assert!(thinking_for("glm-z1-9b"));
+        // Non-reasoning models.
+        assert!(!thinking_for("deepseek-chat"));
+        assert!(!thinking_for("gpt-4o"));
+        assert!(!thinking_for("totally-unknown-model"));
+    }
+
+    #[test]
     fn upstream_values_win_over_catalog() {
         let m = enrich(
             "claude-sonnet-4-5-20250929",
@@ -137,15 +196,28 @@ mod tests {
             Some(1_000_000), // API says 1M — trust it
             Some(false),
             None,
+            Some(false), // server says no thinking — trust it
         );
         assert_eq!(m.context_window, Some(1_000_000));
         assert!(!m.is_vision);
+        assert!(!m.supports_thinking);
     }
 
     #[test]
     fn catalog_fills_gaps() {
-        let m = enrich("deepseek-chat", "deepseek-chat".into(), None, None, None);
+        let m = enrich("deepseek-chat", "deepseek-chat".into(), None, None, None, None);
         assert_eq!(m.context_window, Some(128_000));
         assert!(!m.is_vision);
+        assert!(!m.supports_thinking);
+        // Unknown model + explicit upstream thinking flag wins.
+        let m = enrich(
+            "my-custom-reasoner",
+            "Custom Reasoner".into(),
+            None,
+            None,
+            None,
+            Some(true),
+        );
+        assert!(m.supports_thinking);
     }
 }
