@@ -4,7 +4,7 @@ use sqlx::SqlitePool;
 use std::path::{Path, PathBuf};
 
 /// File tools whose effects can be rolled back via the snapshot journal.
-pub const MUTATING_FILE_TOOLS: [&str; 4] = ["write_file", "patch_file", "delete_file", "move_file"];
+pub const MUTATING_FILE_TOOLS: [&str; 5] = ["write_file", "edit_file", "patch_file", "delete_file", "move_file"];
 
 pub fn is_mutating_file_tool(name: &str) -> bool {
     MUTATING_FILE_TOOLS.contains(&name)

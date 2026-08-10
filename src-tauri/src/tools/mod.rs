@@ -52,6 +52,7 @@ impl ToolExecutor {
             // file ops
             "read_file" => self.execute_read(input),
             "write_file" => self.execute_write(input),
+            "edit_file" => self.execute_edit(input),
             "patch_file" => self.execute_patch(input),
             "create_directory" => file_ops::create_directory(&self.working_dir, input),
             "delete_file" => file_ops::delete_file(&self.working_dir, input),
@@ -186,6 +187,23 @@ impl ToolExecutor {
         let r = file_ops::write_file(&self.working_dir, input);
         // The file changed under the model's feet — stale seen/dedup records
         // are now wrong.
+        if let Some(f) = full {
+            self.clear_seen(&f);
+        }
+        r
+    }
+
+    /// edit_file with the same gate.
+    fn execute_edit(&self, input: &serde_json::Value) -> Result<String, String> {
+        let (Some(_), Some(_)) = (&self.session_id, &self.ledger) else {
+            return file_ops::edit_file(&self.working_dir, input);
+        };
+        let path = input["path"].as_str().ok_or("missing path")?;
+        let full = match self.gate_seen_write(path) {
+            Ok(f) => f,
+            Err(denied) => return Ok(denied),
+        };
+        let r = file_ops::edit_file(&self.working_dir, input);
         if let Some(f) = full {
             self.clear_seen(&f);
         }

@@ -29,6 +29,21 @@ pub fn standard_tools() -> Vec<ToolDefinition> {
             }),
         },
         ToolDefinition {
+            name: "edit_file".into(),
+            description: "Replace a range of lines in a file. Use the line numbers from read_file output. Preferred over patch_file — no diff format needed, just the new code. Pass the hash from the read_file header to verify the file hasn't changed since you read it.".into(),
+            input_schema: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "path": { "type": "string", "description": "File path relative to working directory" },
+                    "start_line": { "type": "integer", "description": "First line to replace (1-based, from read_file output)" },
+                    "end_line": { "type": "integer", "description": "Last line to replace (1-based, inclusive). Same as start_line to replace one line." },
+                    "content": { "type": "string", "description": "Replacement content. Replaces the entire start_line..end_line range. Empty string deletes the range." },
+                    "hash": { "type": "string", "description": "The hash from the read_file output header (e.g. 'a1b2c3d4'). Catches stale edits when the file changed since your read." }
+                },
+                "required": ["path", "start_line", "end_line", "content"]
+            }),
+        },
+        ToolDefinition {
             name: "patch_file".into(),
             description: "Apply a unified diff to a file. Use this for targeted edits without rewriting the whole file. The diff must be exact: `--- a/<path>` and `+++ b/<path>` headers, then one or more `@@ -start,count +start,count @@` hunks whose line numbers, counts, and space-prefixed context lines match the current file verbatim. There is no fuzzy matching — any mismatch fails the whole patch. Read the file first to pin exact positions. Use write_file for full rewrites.".into(),
             input_schema: serde_json::json!({
@@ -268,6 +283,6 @@ mod tests {
     #[test]
     fn test_expected_tool_count() {
         // Ensures no tools are accidentally dropped when editing
-        assert_eq!(standard_tools().len(), 20);
+        assert_eq!(standard_tools().len(), 21);
     }
 }

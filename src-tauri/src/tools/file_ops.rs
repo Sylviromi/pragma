@@ -190,10 +190,21 @@ pub fn read_file_detailed(wd: &Path, input: &serde_json::Value) -> Result<ReadDe
     let first = slice_beg + 1;
     let last = last_shown;
     let next = last + 1;
+
+    // Compute a short hash of the served content so the model can pass it to
+    // edit_file for stale-edit detection. Uses the raw line content (no line
+    // number prefixes) joined with \n — same format edit_file will re-hash.
+    let content_hash = {
+        use std::hash::{Hash, Hasher};
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        shown.join("\n").hash(&mut hasher);
+        format!("{:08x}", hasher.finish() as u32)
+    };
+
     let header = match total {
-        Some(n) if n == last && first == 1 => format!("[{path}: {n} lines]"),
-        Some(n) if partial => format!("[{path}: lines {first}-{last} of {n}; offset={next} to read the rest]"),
-        Some(n) => format!("[{path}: lines {first}-{last} of {n}]"),
+        Some(n) if n == last && first == 1 => format!("[{path}: {n} lines | hash: {content_hash}]"),
+        Some(n) if partial => format!("[{path}: lines {first}-{last} of {n} | hash: {content_hash}; offset={next} to read the rest]"),
+        Some(n) => format!("[{path}: lines {first}-{last} of {n} | hash: {content_hash}]"),
         None if partial => {
             // The head is all we ever load, so there is NO resume offset that
             // reaches past it — an "offset=N" hint here would silently loop
@@ -503,6 +514,96 @@ pub fn write_file(wd: &Path, input: &serde_json::Value) -> Result<String, String
     Ok(format!("wrote {} bytes to {path}", content.len()))
 }
 
+pub fn edit_file(wd: &Path, input: &serde_json::Value) -> Result<String, String> {
+    let path = input["path"].as_str().ok_or("missing path")?;
+    let start = input["start_line"]
+        .as_u64()
+        .ok_or("missing start_line (must be a positive integer)")? as usize;
+    let end = input["end_line"]
+        .as_u64()
+        .ok_or("missing end_line (must be a positive integer)")? as usize;
+    let content = input["content"].as_str().ok_or("missing content")?;
+    let hash = input["hash"].as_str();
+
+    if start == 0 {
+        return Err("start_line must be >= 1 (lines are 1-based)".into());
+    }
+
+    let full = abs(wd, path);
+    let original = std::fs::read_to_string(&full).map_err(|e| format!("read failed: {e}"))?;
+    let lines: Vec<&str> = original.lines().collect();
+    let total = lines.len();
+    let trailing_newline = original.ends_with('\n');
+
+    // Allow start == end + 1 as an insertion point (no lines replaced).
+    if start > end + 1 {
+        return Err(format!(
+            "start_line ({start}) must be <= end_line ({end}) — or exactly end_line+1 for a pure insertion"
+        ));
+    }
+    if start > total + 1 {
+        return Err(format!(
+            "start_line ({start}) is past the end of the file ({total} lines)"
+        ));
+    }
+    if end > total {
+        return Err(format!(
+            "end_line ({end}) is past the end of the file ({total} lines)"
+        ));
+    }
+
+    // Extract old content and verify hash if provided.
+    let old_start = start - 1; // 0-based
+    let old_end = end.min(total); // inclusive → exclusive
+    let old_lines = &lines[old_start..old_end];
+    let old_content = old_lines.join("\n");
+    let old_count = old_end - old_start;
+
+    if let Some(expected_hash) = hash {
+        use std::hash::{Hash, Hasher};
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        old_content.hash(&mut hasher);
+        let actual_hash = format!("{:08x}", hasher.finish() as u32);
+        if !expected_hash.eq_ignore_ascii_case(&actual_hash) {
+            let snippet: String = old_lines
+                .iter()
+                .take(5)
+                .enumerate()
+                .map(|(i, l)| format!("  {:>4} | {l}", old_start + i + 1))
+                .collect::<Vec<_>>()
+                .join("\n");
+            return Err(format!(
+                "hash mismatch: expected {expected_hash} but the file has {actual_hash} at lines {start}-{end}. \
+                 The file may have changed since you read it — re-read it and retry.\n\
+                 Current content at those lines:\n{snippet}"
+            ));
+        }
+    }
+
+    // Build the new file content.
+    let new_lines: Vec<&str> = if content.is_empty() {
+        Vec::new()
+    } else {
+        content.lines().collect()
+    };
+    let new_count = new_lines.len();
+
+    let mut result: Vec<&str> = Vec::with_capacity(total + new_count);
+    result.extend_from_slice(&lines[..old_start]);
+    result.extend_from_slice(&new_lines);
+    result.extend_from_slice(&lines[old_end..]);
+
+    let mut output = result.join("\n");
+    if trailing_newline || (!result.is_empty() && original.ends_with('\n')) {
+        output.push('\n');
+    }
+    std::fs::write(&full, &output).map_err(|e| e.to_string())?;
+
+    Ok(format!(
+        "edited {path}: replaced lines {start}-{end} ({old_count} lines \u{2192} {new_count} lines)"
+    ))
+}
+
 pub fn patch_file(wd: &Path, input: &serde_json::Value) -> Result<String, String> {
     let path = input["path"].as_str().ok_or("missing path")?;
     let diff = input["diff"].as_str().ok_or("missing diff")?;
@@ -638,7 +739,84 @@ mod tests {
         write_file(dir.path(), &serde_json::json!({"path":"hello.txt","content":"hello world"})).unwrap();
         let r = read_file(dir.path(), &serde_json::json!({"path":"hello.txt"})).unwrap();
         assert!(r.contains("hello world"), "expected content in: {r}");
-        assert!(r.contains("[hello.txt: 1 lines]"), "expected header in: {r}");
+        assert!(r.contains("[hello.txt: 1 lines | hash:"), "expected header in: {r}");
+    }
+
+    #[test]
+    fn test_edit_file_basic() {
+        let dir = tempdir().unwrap();
+        fs::write(dir.path().join("f.txt"), "line1\nline2\nline3\n").unwrap();
+        let r = edit_file(dir.path(), &serde_json::json!({
+            "path": "f.txt", "start_line": 2, "end_line": 2, "content": "LINE2"
+        })).unwrap();
+        assert!(r.contains("replaced lines 2-2"), "result: {r}");
+        let content = fs::read_to_string(dir.path().join("f.txt")).unwrap();
+        assert_eq!(content, "line1\nLINE2\nline3\n");
+    }
+
+    #[test]
+    fn test_edit_file_multiline() {
+        let dir = tempdir().unwrap();
+        fs::write(dir.path().join("f.txt"), "a\nb\nc\nd\ne\n").unwrap();
+        edit_file(dir.path(), &serde_json::json!({
+            "path": "f.txt", "start_line": 2, "end_line": 4, "content": "X\nY"
+        })).unwrap();
+        let content = fs::read_to_string(dir.path().join("f.txt")).unwrap();
+        assert_eq!(content, "a\nX\nY\ne\n");
+    }
+
+    #[test]
+    fn test_edit_file_delete() {
+        let dir = tempdir().unwrap();
+        fs::write(dir.path().join("f.txt"), "a\nb\nc\n").unwrap();
+        edit_file(dir.path(), &serde_json::json!({
+            "path": "f.txt", "start_line": 2, "end_line": 2, "content": ""
+        })).unwrap();
+        let content = fs::read_to_string(dir.path().join("f.txt")).unwrap();
+        assert_eq!(content, "a\nc\n");
+    }
+
+    #[test]
+    fn test_edit_file_hash_match() {
+        let dir = tempdir().unwrap();
+        fs::write(dir.path().join("f.txt"), "line1\nline2\nline3\n").unwrap();
+        // Compute expected hash of "line2" (the content at line 2).
+        let hash = {
+            use std::hash::{Hash, Hasher};
+            let mut hasher = std::collections::hash_map::DefaultHasher::new();
+            "line2".hash(&mut hasher);
+            format!("{:08x}", hasher.finish() as u32)
+        };
+        edit_file(dir.path(), &serde_json::json!({
+            "path": "f.txt", "start_line": 2, "end_line": 2, "content": "LINE2", "hash": hash
+        })).unwrap();
+        let content = fs::read_to_string(dir.path().join("f.txt")).unwrap();
+        assert_eq!(content, "line1\nLINE2\nline3\n");
+    }
+
+    #[test]
+    fn test_edit_file_hash_mismatch() {
+        let dir = tempdir().unwrap();
+        fs::write(dir.path().join("f.txt"), "line1\nline2\nline3\n").unwrap();
+        let r = edit_file(dir.path(), &serde_json::json!({
+            "path": "f.txt", "start_line": 2, "end_line": 2, "content": "LINE2", "hash": "deadbeef"
+        }));
+        assert!(r.is_err(), "should fail on hash mismatch");
+        let e = r.unwrap_err();
+        assert!(e.contains("hash mismatch"), "error: {e}");
+        // File should be unchanged.
+        let content = fs::read_to_string(dir.path().join("f.txt")).unwrap();
+        assert_eq!(content, "line1\nline2\nline3\n");
+    }
+
+    #[test]
+    fn test_edit_file_out_of_range() {
+        let dir = tempdir().unwrap();
+        fs::write(dir.path().join("f.txt"), "a\nb\n").unwrap();
+        let r = edit_file(dir.path(), &serde_json::json!({
+            "path": "f.txt", "start_line": 5, "end_line": 5, "content": "x"
+        }));
+        assert!(r.is_err(), "should fail for out of range");
     }
 
     #[test]
@@ -726,7 +904,7 @@ mod tests {
         let content = (1..=4000).map(|i| format!("line {i}")).collect::<Vec<_>>().join("\n");
         fs::write(dir.path().join("big.txt"), &content).unwrap();
         let r = read_file(dir.path(), &serde_json::json!({"path":"big.txt"})).unwrap();
-        assert!(r.contains("[big.txt: lines 1-2000 of 4000; offset=2001 to read the rest]"), "header in: {r}");
+        assert!(r.contains("big.txt: lines 1-2000 of 4000 | hash:"), "header in: {r}");
         assert!(r.contains("1 | line 1"), "numbered start: {r}");
         assert!(r.contains("2000 | line 2000"), "numbered end: {r}");
         assert!(!r.contains("line 2001"), "must not include beyond the window: {r}");
