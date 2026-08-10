@@ -142,7 +142,13 @@ export async function runAgenticLoop(
     setTimeout(() => say({ event: 'reasoning', content: 'Second thought: handle the deprecation wrapper so existing imports keep working.' }), 1200)
     setTimeout(() => say({ event: 'thinking_end' }), 1400)
     setTimeout(() => say({ event: 'token', content: 'Both approaches are fine — finished on your call.' }), 1600)
-    setTimeout(() => { say({ event: 'done' }); return }, 1900)
+    // ask_question renders ONLY via the `question` event — deliberately no
+    // ToolCall event here (backend skips it), so no tool card / approval UI.
+    setTimeout(() => say({ event: 'question', questionId: 'mock-q1', text: 'Want me to keep the old signature as a deprecated wrapper?', options: ['Keep a wrapper', 'Clean break', 'Show me both'] }), 1850)
+    // No working dir set → path tools are blocked and the user is asked for a
+    // folder. Options omitted → free-text answer (which folder?) UI.
+    setTimeout(() => say({ event: 'question', questionId: 'mock-q2', text: 'Which project folder should I use as the working directory? I can\u2019t read or write any files until one is set \u2014 give me a path.', options: [] }), 2300)
+    setTimeout(() => { say({ event: 'done' }); return }, 2950)
     return
   }
   // Subscribe BEFORE invoking so no events are missed.

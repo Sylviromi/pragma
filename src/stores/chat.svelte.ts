@@ -227,6 +227,12 @@ function handleEvent(sessionId: string, ev: AgentEvent) {
     saveLiveState(sessionId)
 
   } else if (ev.event === 'tool_call') {
+    // ask_question is handled by the `question` event ("Needs your answer"
+    // block) — never show a tool card or an approval prompt for it.
+    if (ev.name === 'ask_question') {
+      saveLiveState(sessionId)
+      return
+    }
     const alwaysSet = chat.alwaysApprove[sessionId] ?? new Set<string>()
     const autoApprove = chat.autoApprove[sessionId] ?? false
     const shouldAutoApprove = autoApprove || SAFE_TOOLS.has(ev.name) || alwaysSet.has(ev.name)
