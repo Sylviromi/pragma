@@ -182,11 +182,16 @@
     if (!stickToBottom) return
     tick().then(() => {
       if (!listEl) return
-      listEl.scrollTop = listEl.scrollHeight
-      // Second pass after layout settles — tool cards/expanded outputs can
-      // grow the list right after the first scroll.
+      // Coalesce to one scroll per frame: token events can arrive faster than
+      // frames, and the pre-rAF scrollTop set forced a layout on top of the
+      // rAF one. A single rAF-aligned scroll avoids the double layout per
+      // token while keeping the list pinned at the bottom.
+      if (scrollQueued) return
+      scrollQueued = true
       requestAnimationFrame(() => {
-        if (listEl && stickToBottom) listEl.scrollTop = listEl.scrollHeight
+        scrollQueued = false
+        if (!listEl || !stickToBottom) return
+        listEl.scrollTop = listEl.scrollHeight
       })
     })
   })
@@ -195,6 +200,9 @@
     if (!listEl) return
     stickToBottom = listEl.scrollHeight - listEl.scrollTop - listEl.clientHeight < 60
   }
+
+  // Per-frame scroll coalescing flag (see stick-to-bottom effect above).
+  let scrollQueued = false
 
   function onAnswer(idx: number, option: string) {
     qAnswers[idx] = option
