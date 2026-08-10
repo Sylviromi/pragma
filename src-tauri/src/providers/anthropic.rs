@@ -102,7 +102,8 @@ impl AnthropicProvider {
 
         let mut body = serde_json::json!({
             "model": model,
-            "max_tokens": 8096,
+            "max_tokens": 16384,
+            "temperature": 0.0,
             "stream": true,
             "messages": chat_messages,
         });
@@ -196,6 +197,13 @@ impl AnthropicProvider {
             }
             match ev["type"].as_str().unwrap_or("") {
                 "content_block_start" => {
+                    // Flush any accumulated text before starting a non-text block,
+                    // so text written before a tool call isn't silently lost.
+                    if !current_text.is_empty() {
+                        blocks.push(ContentBlock::Text {
+                            text: std::mem::take(&mut current_text),
+                        });
+                    }
                     let bt = ev["content_block"]["type"].as_str().unwrap_or("");
                     if bt == "tool_use" {
                         let id = ev["content_block"]["id"].as_str().unwrap_or("").to_string();

@@ -5,11 +5,13 @@ pub fn standard_tools() -> Vec<ToolDefinition> {
         // ── File operations ──────────────────────────────────────────────
         ToolDefinition {
             name: "read_file".into(),
-            description: "Read the contents of a file. Path is relative to the session working directory.".into(),
+            description: "Read a file's contents. Returns the full file by default; use offset/limit to read a specific line range (1-based). For large files (>500 lines), prefer reading a targeted range after using search_files to locate the relevant lines.".into(),
             input_schema: serde_json::json!({
                 "type": "object",
                 "properties": {
-                    "path": { "type": "string", "description": "File path relative to working directory" }
+                    "path": { "type": "string", "description": "File path relative to working directory" },
+                    "offset": { "type": "integer", "description": "Start reading from this line number (1-based). Omit to start from the beginning." },
+                    "limit": { "type": "integer", "description": "Maximum number of lines to return. Omit to read to the end." }
                 },
                 "required": ["path"]
             }),

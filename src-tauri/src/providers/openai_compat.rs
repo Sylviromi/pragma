@@ -42,6 +42,8 @@ impl OpenAICompatProvider {
         let mut body = serde_json::json!({
             "model": model,
             "stream": true,
+            "temperature": 0.0,
+            "max_tokens": 16384,
             "messages": oai_messages,
         });
 
@@ -189,7 +191,7 @@ impl OpenAICompatProvider {
         if !reasoning_buf.is_empty() {
             blocks.push(ContentBlock::Reasoning { content: reasoning_buf });
         }
-        if !full_text.is_empty() {
+        if !full_text.trim().is_empty() {
             blocks.push(ContentBlock::Text { text: full_text });
         }
         for (_, (id, name, args)) in tool_calls {
@@ -330,11 +332,10 @@ fn to_openai_messages(messages: &[serde_json::Value]) -> Vec<serde_json::Value> 
                             // dangling assistant message itself.
                             out.remove(i);
                         } else {
-                            let mut kept = out[..i]
-                                .iter()
-                                .filter(|m| m["role"].as_str() == Some("system"))
-                                .cloned()
-                                .collect::<Vec<_>>();
+                            // Keep everything before the corrupted exchange,
+                            // skip the dangling assistant+tool span, then
+                            // append from the latest user message onward.
+                            let mut kept = out[..i].to_vec();
                             kept.extend_from_slice(&out[cutoff..]);
                             out = kept;
                         }

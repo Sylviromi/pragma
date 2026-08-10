@@ -332,9 +332,12 @@ You converse with the user in turns. In each turn you can write text and call to
 4. **Verify.** After changing code, run the project's checks (cargo check / cargo test / npm run check / npm run test) and fix any failures before declaring done.\n\
 5. **Summarize.** Finish with a concise summary of what you changed and why.\n\
 \n\
-## Using tools\n\
+## Using tools efficiently\n\
 - Tool inputs must be valid JSON matching the tool's schema exactly.\n\
-- Prefer batched read-only calls (read_file / search_files / list_files) when exploring.\n\
+- **Locate then read.** Use search_files or list_files to find which file contains what you need, then read_file on that specific file. Don't blindly read files hoping they contain what you want.\n\
+- **Use read_file offset/limit for large files.** When you know the line range (from search_files results or a previous read), read just that range instead of the whole file. Full reads of 500+ line files waste context.\n\
+- **Batch read-only calls.** Issue multiple read_file / search_files / list_files calls in the same turn when exploring — don't wait for one result before issuing the next if they're independent.\n\
+- **Stop searching once found.** If search_files found the target, don't search again with a different query — read the file at the reported line.\n\
 - Use run_command for builds, tests, scripts, or inspecting git.\n\
 - git_status / git_diff / git_log are read-only. NEVER run git_add or git_commit unless the user explicitly asks.\n\
 - web_search / fetch_url only when you need external documentation.\n\
@@ -350,7 +353,8 @@ You converse with the user in turns. In each turn you can write text and call to
 ## Style\n\
 - Keep your text between tool calls brief; put your effort into the work.\n\
 - Write code that matches the project's existing conventions.\n\
-- If anything is ambiguous, read more context instead of inventing answers.";
+- If anything is ambiguous, read more context instead of inventing answers.\n\
+- Always complete your sentences. Never end a response mid-sentence or with trailing whitespace.";
 
     // Build skill index for system prompt — skills are loaded on demand via load_skill tool.
     let skill_index = state.plugins.skill_index();
@@ -583,17 +587,27 @@ You converse with the user in turns. In each turn you can write text and call to
         let mut any_denied = false;
 
         for (tool_use_id, name, input) in &tool_calls {
-            // Emit tool call event to frontend
-            emit(app_handle, session_id, AgentEvent::ToolCall {
-                run_id: run_id.clone(),
-                tool_use_id: tool_use_id.clone(),
-                name: name.clone(),
-                input: input.clone(),
-            });
+            // ask_question is a control-flow tool: no tool card in the UI and
+            // no approval gate — the `question` event itself is the UI. The
+            // tool_use/tool_result pair still lands in history (below) so the
+            // model's context stays consistent with what it called.
+            let is_question = name == "ask_question";
+
+            // Emit tool call event to frontend (questions render from the
+            // `question` event instead — no ToolCall, no approval buttons).
+            if !is_question {
+                emit(app_handle, session_id, AgentEvent::ToolCall {
+                    run_id: run_id.clone(),
+                    tool_use_id: tool_use_id.clone(),
+                    name: name.clone(),
+                    input: input.clone(),
+                });
+            }
 
             // OS notification when a *state-changing* tool is about to block on
-            // approval (read-only tools don't interrupt the user's flow).
-            if !auto_approve {
+            // approval (read-only tools don't interrupt the user's flow;
+            // questions notify via the Question event instead).
+            if !auto_approve && !is_question {
                 let mutating = crate::commands::revert::is_mutating_file_tool(name)
                     || matches!(name.as_str(), "run_command" | "git_add" | "git_commit" | "reload_app");
                 if mutating {
@@ -601,7 +615,7 @@ You converse with the user in turns. In each turn you can write text and call to
                 }
             }
 
-            let approved = if auto_approve {
+            let approved = if auto_approve || is_question {
                 true
             } else {
                 // Wait for frontend to approve or deny — Esc cancels the wait.

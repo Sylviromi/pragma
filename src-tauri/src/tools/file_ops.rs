@@ -22,7 +22,33 @@ fn glob_matches(pattern: &str, rel: &str) -> bool {
 pub fn read_file(wd: &Path, input: &serde_json::Value) -> Result<String, String> {
     let path = input["path"].as_str().ok_or("missing path")?;
     let full = abs(wd, path);
-    std::fs::read_to_string(&full).map_err(|e| format!("{e}: {}", full.display()))
+    let content = std::fs::read_to_string(&full).map_err(|e| format!("{e}: {}", full.display()))?;
+
+    let offset = input["offset"].as_u64().unwrap_or(0) as usize;
+    let limit = input["limit"].as_u64().map(|n| n as usize);
+
+    if offset == 0 && limit.is_none() {
+        // Full file — add line count header so the model knows the size.
+        let line_count = content.lines().count();
+        return Ok(format!("[{path}: {line_count} lines]\n{content}"));
+    }
+
+    // Line-based slicing (1-based offset).
+    let lines: Vec<&str> = content.lines().collect();
+    let total = lines.len();
+    let start = if offset > 0 { offset - 1 } else { 0 }.min(total);
+    let end = match limit {
+        Some(n) => (start + n).min(total),
+        None => total,
+    };
+    let slice = &lines[start..end];
+    let numbered: String = slice
+        .iter()
+        .enumerate()
+        .map(|(i, l)| format!("{:>4} | {l}", start + i + 1))
+        .collect::<Vec<_>>()
+        .join("\n");
+    Ok(format!("[{path}: showing lines {}-{} of {total}]\n{numbered}", start + 1, end))
 }
 
 pub fn write_file(wd: &Path, input: &serde_json::Value) -> Result<String, String> {
@@ -145,7 +171,8 @@ mod tests {
         let dir = tempdir().unwrap();
         write_file(dir.path(), &serde_json::json!({"path":"hello.txt","content":"hello world"})).unwrap();
         let r = read_file(dir.path(), &serde_json::json!({"path":"hello.txt"})).unwrap();
-        assert_eq!(r, "hello world");
+        assert!(r.contains("hello world"), "expected content in: {r}");
+        assert!(r.contains("[hello.txt: 1 lines]"), "expected header in: {r}");
     }
 
     #[test]

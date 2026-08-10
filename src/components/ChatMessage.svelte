@@ -2,6 +2,7 @@
   import { isToolResultTurn, parseContent, textBlocks } from '../lib/types'
   import type { ContentBlock, Message, ToolUseBlock, TextBlock } from '../lib/types'
   import ToolCard from './ToolCard.svelte'
+  import QuestionBlock from './QuestionBlock.svelte'
   import Icon from './Icon.svelte'
 
   let {
@@ -24,6 +25,14 @@
   // extra empty line inside the bubble.
   function tidy(s: string | null | undefined): string {
     return (s ?? '').replace(/\s+$/, '')
+  }
+
+  // Recover the picked option from an ask_question tool result (the loop
+  // writes "User answered: <option>"; timeouts get a different message).
+  function questionAnswer(out: string | undefined): string | null {
+    if (!out) return null
+    const m = /^User answered: (.+)$/s.exec(out.trim())
+    return m ? m[1] : null
   }
 
   const isUser = $derived(message.role === 'user')
@@ -83,7 +92,7 @@
       <div class="turn-body" oncontextmenu={onMenu} role="group" aria-label="Assistant response">
         {#if blocks}
           {#each blocks as block}
-            {#if block.type === 'text'}
+            {#if block.type === 'text' && (block as TextBlock).text.trim()}
               {@const b = block as TextBlock}
               {@const segs = segmentsOf(tidy(b.text))}
               {#if segs.length > 0}
@@ -118,17 +127,24 @@
             {:else if block.type === 'tool_use'}
               {@const b = block as ToolUseBlock}
               {@const out = toolOutputs[b.id]}
-              <ToolCard
-                sessionId={message.sessionId}
-                tool={{
-                  toolUseId: b.id,
-                  name: b.name,
-                  input: b.input ?? {},
-                  output: out?.content,
-                  isError: out?.isError,
-                  status: out ? (out.isError ? 'error' : 'done') : 'done',
-                }}
-              />
+              {#if b.name === 'ask_question'}
+                {@const qText = String((b.input as any)?.text ?? '')}
+                {@const qOptions = (Array.isArray((b.input as any)?.options) ? (b.input as any).options : []) as string[]}
+                {@const qAnswer = questionAnswer(out?.content)}
+                <QuestionBlock text={qText} options={qOptions} answer={qAnswer} />
+              {:else}
+                <ToolCard
+                  sessionId={message.sessionId}
+                  tool={{
+                    toolUseId: b.id,
+                    name: b.name,
+                    input: b.input ?? {},
+                    output: out?.content,
+                    isError: out?.isError,
+                    status: out ? (out.isError ? 'error' : 'done') : 'done',
+                  }}
+                />
+              {/if}
             {/if}
           {/each}
         {:else if typeof content === 'string' && content.trim()}
