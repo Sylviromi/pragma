@@ -20,5 +20,7 @@ npm-debug.log*
 .handsfree/
 .superpowers/
 .claude/
+# Deferred-work tracker (gitignored by design — internal scratch)
+TODO.md
 # Agent-generated specs/plans
 docs/
