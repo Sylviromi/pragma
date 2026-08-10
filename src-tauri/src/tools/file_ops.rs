@@ -570,11 +570,27 @@ pub fn list_files(wd: &Path, input: &serde_json::Value) -> Result<String, String
 
 pub fn search_files(wd: &Path, input: &serde_json::Value) -> Result<String, String> {
     let pattern = input["pattern"].as_str().ok_or("missing pattern")?;
+    let re = regex::Regex::new(pattern).map_err(|e| e.to_string())?;
+    // Degenerate-pattern guard: a regex that matches the empty string (.*, ^,
+    // a?, | …) matches every line of every file — scanning the whole workspace
+    // and flooding the context window. Give guidance instead of running it.
+    if re.is_match("") {
+        return Ok(format!(
+            "[search rejected]: the pattern {pattern:?} matches the empty string, so it would match nearly every line of every file. Use a more specific pattern (identifiers, keywords, error strings)."
+        ));
+    }
     let subdir = input["path"].as_str().unwrap_or(".");
     let file_glob = input["glob"].as_str();
+    // Cap emitted matches so a broad pattern can't blow the context window;
+    // the (possibly much larger) total is reported so the model knows to
+    // narrow the pattern or page through.
+    let max_results = input["max_results"]
+        .as_u64()
+        .map(|n| n.max(1) as usize)
+        .unwrap_or(50);
     let base = abs(wd, subdir);
-    let re = regex::Regex::new(pattern).map_err(|e| e.to_string())?;
-    let mut results = Vec::new();
+    let mut emitted: Vec<String> = Vec::new();
+    let mut total = 0usize;
     for entry in WalkDir::new(&base) {
         let entry = entry.map_err(|e| e.to_string())?;
         if !entry.file_type().is_file() {
@@ -589,16 +605,25 @@ pub fn search_files(wd: &Path, input: &serde_json::Value) -> Result<String, Stri
         if let Ok(text) = std::fs::read_to_string(entry.path()) {
             for (i, line) in text.lines().enumerate() {
                 if re.is_match(line) {
-                    results.push(format!("{rel}:{}: {line}", i + 1));
+                    total += 1;
+                    if emitted.len() < max_results {
+                        emitted.push(format!("{rel}:{}: {line}", i + 1));
+                    }
                 }
             }
         }
     }
-    Ok(if results.is_empty() {
-        "(no matches)".into()
-    } else {
-        results.join("\n")
-    })
+    if emitted.is_empty() {
+        return Ok("(no matches)".into());
+    }
+    let mut out = emitted.join("\n");
+    if total > emitted.len() {
+        out.push_str(&format!(
+            "\n…showing {0} of {total} matches (set max_results higher or narrow the pattern to see more)",
+            emitted.len()
+        ));
+    }
+    Ok(out)
 }
 
 #[cfg(test)]
@@ -661,6 +686,36 @@ mod tests {
         fs::write(dir.path().join("main.rs"), "fn main() { println!(\"hello\"); }").unwrap();
         let r = search_files(dir.path(), &serde_json::json!({"pattern":"println"})).unwrap();
         assert!(r.contains("main.rs"));
+    }
+
+    #[test]
+    fn search_rejects_everything_patterns() {
+        let dir = tempdir().unwrap();
+        fs::write(dir.path().join("a.txt"), "hello\nworld\n").unwrap();
+        for bad in [".*", "^", "a?", ".*.*"] {
+            let r = search_files(dir.path(), &serde_json::json!({"pattern": bad})).unwrap();
+            assert!(r.contains("[search rejected]"), "pattern {:?} must be rejected, got: {r}", bad);
+        }
+    }
+
+    #[test]
+    fn search_caps_matches_and_reports_total() {
+        let dir = tempdir().unwrap();
+        let mut content = String::new();
+        for i in 0..100 {
+            content.push_str(&format!("needle {i}\n"));
+        }
+        fs::write(dir.path().join("many.txt"), content).unwrap();
+        // Default cap of 50 with a total-count note.
+        let r = search_files(dir.path(), &serde_json::json!({"pattern": "needle"})).unwrap();
+        assert!(r.contains("…showing 50 of 100 matches"), "got: {}", &r[r.len().saturating_sub(80)..]);
+        assert_eq!(r.matches("needle ").count(), 50);
+        // max_results raises the emitted count.
+        let r = search_files(dir.path(), &serde_json::json!({"pattern": "needle", "max_results": 75})).unwrap();
+        assert_eq!(r.matches("needle ").count(), 75);
+        // Under the cap: no note.
+        let r = search_files(dir.path(), &serde_json::json!({"pattern": "needle 1"})).unwrap();
+        assert!(!r.contains("…showing"));
     }
 
     // ── read_file engineering (M13): ceilings, hints, hygiene, guards ──

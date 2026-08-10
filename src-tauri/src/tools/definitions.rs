@@ -88,13 +88,14 @@ pub fn standard_tools() -> Vec<ToolDefinition> {
         },
         ToolDefinition {
             name: "search_files".into(),
-            description: "Search for a regex pattern in files. Returns matching lines with file path and line number.".into(),
+            description: "Search for a regex pattern in files. Returns matching lines with file path and line number. Capped at 50 matches by default (set max_results to raise it) — when more exist, a note reports the total so you can narrow the pattern. Patterns that match every line (.*, ^, …) are rejected with guidance.".into(),
             input_schema: serde_json::json!({
                 "type": "object",
                 "properties": {
                     "pattern": { "type": "string", "description": "Regex pattern to search for" },
                     "path": { "type": "string", "description": "Directory to search in, defaults to '.'" },
-                    "glob": { "type": "string", "description": "File glob filter, e.g. '*.rs'" }
+                    "glob": { "type": "string", "description": "File glob filter, e.g. '*.rs'" },
+                    "max_results": { "type": "integer", "description": "Maximum matches to return. Default 50." }
                 },
                 "required": ["pattern"]
             }),
