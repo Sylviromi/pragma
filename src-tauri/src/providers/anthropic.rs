@@ -163,6 +163,35 @@ impl AnthropicProvider {
             .unwrap();
         }
 
+        // Prompt caching: the system prompt + tool definitions are byte-identical
+        // across every call of a conversation, so mark the end of that prefix with
+        // an ephemeral cache breakpoint — the API re-sends only the messages after
+        // it each turn, saving ~2k+ tokens of input per call. The breakpoint is
+        // only added when the cached prefix is long enough: Anthropic rejects
+        // cache_control on a prefix under its minimum cacheable length (~1024
+        // tokens; estimate_usage ≈ chars/4).
+        let tools_value = body.get("tools").cloned();
+        let cacheable_tokens = estimate_usage(&system_text)
+            + tools_value
+                .as_ref()
+                .map_or(0, |t| estimate_usage(&t.to_string()));
+        if cacheable_tokens >= 1024 {
+            if let Some(arr) = body["tools"].as_array_mut() {
+                // Cache breakpoint at the END of the tools prefix (single
+                // breakpoint covering system + tools).
+                if let Some(last) = arr.last_mut() {
+                    last["cache_control"] = serde_json::json!({ "type": "ephemeral" });
+                }
+            } else if !system_text.is_empty() {
+                // No tools (rare) — cache the system prompt alone.
+                body["system"] = serde_json::json!([{
+                    "type": "text",
+                    "text": system_text,
+                    "cache_control": { "type": "ephemeral" },
+                }]);
+            }
+        }
+
         let resp = client
             .post("https://api.anthropic.com/v1/messages")
             .header("x-api-key", api_key)
