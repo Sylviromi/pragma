@@ -34,8 +34,10 @@ export async function loadSessions() {
 /** Restore the previously-open tabs (and active tab) after a restart.
  *  Must run after `loadSessions()` so ids can be validated against the DB. */
 export function restoreTabs() {
+  // User toggle "Restore tabs on launch" (settings/general) — default on.
+  const restore = localStorage.getItem('pragma:restoreTabs') !== 'false'
   try {
-    const raw = localStorage.getItem(LS_TABS)
+    const raw = restore ? localStorage.getItem(LS_TABS) : null
     const saved: unknown = raw ? JSON.parse(raw) : []
     const ids = Array.isArray(saved) ? saved.filter((x): x is string => typeof x === 'string') : []
     // Only reopen sessions that still exist and aren't archived.
@@ -46,6 +48,12 @@ export function restoreTabs() {
   } catch {
     sessions.openTabs = []
     sessions.activeTabId = null
+  }
+  // Fallback: nothing was restored (fresh launch, cleared storage, or the
+  // saved tabs no longer exist) — auto-open the most recent session so the
+  // full history is visible immediately instead of requiring a first message.
+  if (restore && sessions.openTabs.length === 0 && sessions.list.length > 0) {
+    openTab(sessions.list[0].id)
   }
   // Browser mock: no real tabs exist — auto-open the first mock session so
   // the full UI (chat, composer, sidebar) is exerciseable in a plain browser.
