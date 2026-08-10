@@ -9,11 +9,22 @@ mod plugins;
 mod providers;
 mod screenshot;
 mod tools;
+mod notify;
 
-#[derive(Default)]
 pub struct Settings {
     pub api_keys: HashMap<String, String>,
     pub disabled_plugins: Vec<String>,
+    pub notifications_enabled: bool,
+}
+
+impl Default for Settings {
+    fn default() -> Self {
+        Self {
+            api_keys: HashMap::new(),
+            disabled_plugins: Vec::new(),
+            notifications_enabled: true,
+        }
+    }
 }
 
 pub struct AppState {
@@ -24,11 +35,19 @@ pub struct AppState {
     pub plugins: plugins::PluginManager,
     // pending tool approvals: tool_use_id → oneshot sender
     pub pending_approvals: Arc<tokio::sync::Mutex<HashMap<String, tokio::sync::oneshot::Sender<bool>>>>,
+    // pending ask_question answers: question_id → oneshot sender (Option = answer,
+    // None = timeout/no answer). Mirrors pending_approvals so the loop can pause
+    // on a question and resume from answer_question.
+    pub question_channels: Arc<tokio::sync::Mutex<HashMap<String, tokio::sync::oneshot::Sender<Option<String>>>>>,
     // session IDs with an active agentic loop — used by frontend to reconnect after HMR
     pub running_sessions: Arc<tokio::sync::Mutex<std::collections::HashSet<String>>>,
     // one-shot cancel signal per session — interrupt_session() flips it; the
     // agentic loop selects on it while waiting on the provider / approvals
     pub loop_cancels: Arc<tokio::sync::Mutex<HashMap<String, tokio::sync::watch::Sender<bool>>>>,
+    // managed plugin sidecar processes (plugin_id → process handle)
+    pub plugin_processes: commands::process::PluginProcesses,
+    // pending plugin confirmation dialogs: request_id → oneshot sender
+    pub plugin_confirmations: Arc<tokio::sync::Mutex<HashMap<String, tokio::sync::oneshot::Sender<bool>>>>,
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -95,8 +114,11 @@ pub fn run() {
                 settings: RwLock::new(settings),
                 settings_path,
                 pending_approvals: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
+                question_channels: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
                 running_sessions: Arc::new(tokio::sync::Mutex::new(std::collections::HashSet::new())),
                 loop_cancels: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
+                plugin_processes: commands::process::new_process_map(),
+                plugin_confirmations: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
                 plugins: plugin_manager,
             });
 
@@ -143,6 +165,8 @@ pub fn run() {
             commands::sessions::get_session,
             commands::sessions::update_session,
             commands::sessions::archive_session,
+            notify::set_notifications_enabled,
+            notify::get_notifications_enabled,
             commands::messages::add_message,
             commands::messages::list_messages,
             commands::providers::list_providers,
@@ -151,9 +175,11 @@ pub fn run() {
             commands::agentic::interrupt_session,
             commands::tools::approve_tool,
             commands::tools::deny_tool,
+            commands::tools::answer_question,
             commands::tools::get_pending_approvals,
             commands::revert::revert_session,
             commands::revert::get_revert_info,
+            commands::stats::get_session_stats,
             commands::providers::save_api_key,
             commands::providers::get_api_keys,
             commands::plugins::list_plugins,
@@ -161,9 +187,15 @@ pub fn run() {
             commands::plugins::read_plugin_component,
             commands::plugins::read_plugin_skill,
             commands::plugins::open_plugin_folder,
-            commands::process::spawn_process,
-            commands::process::kill_process,
+            commands::process::spawn_plugin_process,
+            commands::process::stop_plugin_process,
+            commands::process::plugin_process_status,
+            commands::process::write_plugin_stdin,
             commands::process::probe_port,
+            commands::plugins::get_plugin_config,
+            commands::plugins::set_plugin_config,
+            commands::plugins::request_plugin_confirmation,
+            commands::plugins::respond_plugin_confirmation,
             screenshot::capture_app_screenshot,
         ])
         .run(tauri::generate_context!())
@@ -176,6 +208,7 @@ pub fn save_settings(state: &AppState) {
     let json = serde_json::json!({
         "api_keys": settings.api_keys,
         "disabled_plugins": settings.disabled_plugins,
+        "notifications_enabled": settings.notifications_enabled,
     });
     let _ = std::fs::write(
         &state.settings_path,
@@ -207,9 +240,13 @@ fn load_settings(path: &std::path::Path) -> Settings {
                         .collect()
                 })
                 .unwrap_or_default();
+            let notifications_enabled = v["notifications_enabled"]
+                .as_bool()
+                .unwrap_or(true);
             Some(Settings {
                 api_keys: keys,
                 disabled_plugins,
+                notifications_enabled,
             })
         })
         .unwrap_or_default()

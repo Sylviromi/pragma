@@ -6,3 +6,4 @@ pub mod tools;
 pub mod plugins;
 pub mod process;
 pub mod revert;
+pub mod stats;
