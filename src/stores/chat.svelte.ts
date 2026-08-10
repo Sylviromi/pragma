@@ -18,8 +18,29 @@ const _listeners = new Map<string, () => void>()
 
 // --- sessionStorage persistence for live turn state ---
 // Survives Vite HMR module reloads so in-progress turns aren't wiped.
+//
+// IMPORTANT: writes are DEBOUNCED, not per-token. sessionStorage in
+// WebKitGTK goes through synchronous IPC to the network process, and the
+// payload here grows with the streamed text (up to hundreds of KB per turn).
+// Writing on every token event means 30–50 blocking round-trips + O(n²)
+// JSON.stringify per second on the UI thread — the main cause of UI jank
+// while the agent is generating. Debouncing to a few writes/second and
+// flushing at turn boundaries keeps the state HMR-safe without the stall.
 
-function saveLiveState(sessionId: string) {
+const LIVE_SAVE_DEBOUNCE_MS = 250
+const _liveSaveTimers = new Map<string, ReturnType<typeof setTimeout>>()
+
+/** Write the current live turn state synchronously (cheap/rare paths only). */
+function persistLiveState(sessionId: string) {
+  const timer = _liveSaveTimers.get(sessionId)
+  if (timer) {
+    clearTimeout(timer)
+    _liveSaveTimers.delete(sessionId)
+  }
+  writeLiveState(sessionId)
+}
+
+function writeLiveState(sessionId: string) {
   try {
     sessionStorage.setItem(`pragma:live:${sessionId}`, JSON.stringify({
       liveBlocks:   chat.liveBlocks[sessionId]   ?? [],
@@ -28,6 +49,25 @@ function saveLiveState(sessionId: string) {
       alwaysApprove: [...(chat.alwaysApprove[sessionId] ?? new Set())],
     }))
   } catch { /* storage quota — ignore */ }
+}
+
+/** Debounced save — safe to call on every token event. */
+function saveLiveState(sessionId: string) {
+  const existing = _liveSaveTimers.get(sessionId)
+  if (existing) clearTimeout(existing)
+  _liveSaveTimers.set(sessionId, setTimeout(() => {
+    _liveSaveTimers.delete(sessionId)
+    writeLiveState(sessionId)
+  }, LIVE_SAVE_DEBOUNCE_MS))
+}
+
+/** Force an immediate write if one is scheduled (turn boundaries, teardown). */
+function flushLiveState(sessionId: string) {
+  const timer = _liveSaveTimers.get(sessionId)
+  if (!timer) return
+  clearTimeout(timer)
+  _liveSaveTimers.delete(sessionId)
+  writeLiveState(sessionId)
 }
 
 function restoreLiveState(sessionId: string) {
@@ -45,6 +85,11 @@ function restoreLiveState(sessionId: string) {
 }
 
 function clearLiveState(sessionId: string) {
+  const timer = _liveSaveTimers.get(sessionId)
+  if (timer) {
+    clearTimeout(timer)
+    _liveSaveTimers.delete(sessionId)
+  }
   sessionStorage.removeItem(`pragma:live:${sessionId}`)
 }
 
@@ -54,6 +99,25 @@ if (import.meta.hot) {
   import.meta.hot.dispose(() => {
     for (const [, unlisten] of _listeners) unlisten()
     _listeners.clear()
+    // Flush any pending live-turn writes so the reload restores the latest state.
+    for (const sessionId of [..._liveSaveTimers.keys()]) {
+      const timer = _liveSaveTimers.get(sessionId)
+      if (timer) clearTimeout(timer)
+      _liveSaveTimers.delete(sessionId)
+      try {
+        sessionStorage.setItem(`pragma:live:${sessionId}`, JSON.stringify({
+          liveBlocks:   chat.liveBlocks[sessionId]   ?? [],
+          toolItems:    chat.toolItems[sessionId]     ?? [],
+          autoApprove:  chat.autoApprove[sessionId]  ?? false,
+          alwaysApprove: [...(chat.alwaysApprove[sessionId] ?? new Set())],
+        }))
+      } catch { /* storage quota — ignore */ }
+    }
+  })
+  window.addEventListener('pagehide', () => {
+    for (const sessionId of [..._liveSaveTimers.keys()]) {
+      flushLiveState(sessionId)
+    }
   })
 }
 
@@ -347,7 +411,7 @@ export async function answerQuestion(sessionId: string, questionId: string, opti
   chat.liveBlocks[sessionId] = blocks.map((b) =>
     b.type === 'question' && b.questionId === questionId ? { ...b, picked: option } : b
   )
-  saveLiveState(sessionId)
+  persistLiveState(sessionId)
   // … then resume the backend loop.
   try {
     await apiAnswerQuestion(questionId, option)
@@ -381,7 +445,7 @@ export async function sendMessage(
   chat.notice[sessionId] = null
   clearLiveState(sessionId)
   // Save autoApprove immediately so it survives HMR even before the first event arrives
-  saveLiveState(sessionId)
+  persistLiveState(sessionId)
 
   // Show user message immediately — replaced by DB reload on completion
   const optimistic: Message = {
@@ -462,7 +526,7 @@ export function approveTool(sessionId: string, toolUseId: string) {
   chat.toolItems[sessionId] = (chat.toolItems[sessionId] ?? []).map(t =>
     t.toolUseId === toolUseId ? { ...t, status: 'running' as const } : t
   )
-  saveLiveState(sessionId) // persist before HMR can fire during tool execution
+  persistLiveState(sessionId) // persist before HMR can fire during tool execution
   apiApprove(toolUseId)
 }
 
@@ -470,12 +534,12 @@ export function denyTool(sessionId: string, toolUseId: string) {
   chat.toolItems[sessionId] = (chat.toolItems[sessionId] ?? []).map(t =>
     t.toolUseId === toolUseId ? { ...t, status: 'error' as const, output: 'Denied by user.' } : t
   )
-  saveLiveState(sessionId)
+  persistLiveState(sessionId)
   apiDeny(toolUseId)
 }
 
 export function alwaysApproveTool(sessionId: string, toolName: string) {
   const existing = chat.alwaysApprove[sessionId] ?? new Set<string>()
   chat.alwaysApprove[sessionId] = new Set([...existing, toolName])
-  saveLiveState(sessionId)
+  persistLiveState(sessionId)
 }
