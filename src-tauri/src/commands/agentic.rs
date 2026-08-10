@@ -516,6 +516,13 @@ You converse with the user in turns. In each turn you can write text and call to
     // loop re-trims every iteration since history keeps growing.
     trim_history_to_budget(&mut history, history_budget);
 
+    // First message in this session? Kick off the tiny auto-naming completion
+    // (same provider, zero tools) so the session shows a short title in the
+    // tab bar / sidebar shortly after the first prompt. Runs before the user
+    // message persists so the COUNT(*) detector below sees a fresh session,
+    // and never blocks the loop.
+    spawn_session_naming(&state, &app_handle, &session_id, &model, &provider, &user_message).await;
+
     // Persist user message
     persist_message(
         &state.db,
@@ -1345,6 +1352,132 @@ async fn persist_message(
     Ok(res.last_insert_rowid())
 }
 
+/// If this is the session's very first message, spawn a fire-and-forget
+/// "naming" completion (same provider, zero tools, thinking off) that persists
+/// a short session title once it returns. Any failure leaves the default
+/// timestamp name in place — naming must never disrupt the agentic loop.
+async fn spawn_session_naming(
+    state: &tauri::State<'_, AppState>,
+    app_handle: &tauri::AppHandle,
+    session_id: &str,
+    model: &str,
+    provider: &str,
+    user_message: &str,
+) {
+    let first: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM messages WHERE session_id=?")
+        .bind(session_id)
+        .fetch_one(&state.db)
+        .await
+        .unwrap_or(0);
+    if first != 0 {
+        return;
+    }
+    let db = state.db.clone();
+    let registry = state.registry.clone();
+    let api_key = state
+        .settings
+        .read()
+        .unwrap()
+        .api_keys
+        .get(provider)
+        .cloned()
+        .unwrap_or_default();
+    let app = app_handle.clone();
+    let sid = session_id.to_string();
+    let model = model.to_string();
+    let provider = provider.to_string();
+    let prompt = user_message.to_string();
+    tokio::spawn(async move {
+        auto_name_session(&db, &registry, &api_key, &app, &sid, &model, &provider, &prompt).await;
+    });
+}
+
+/// Run the naming completion and persist the result. Best-effort: a failure
+/// just logs nothing and leaves the timestamp-based name untouched.
+async fn auto_name_session(
+    db: &SqlitePool,
+    registry: &crate::providers::ProviderRegistry,
+    api_key: &str,
+    app_handle: &tauri::AppHandle,
+    session_id: &str,
+    model: &str,
+    provider: &str,
+    prompt: &str,
+) {
+    let Some(handle) = registry.get(provider) else { return };
+    let clean: String = prompt
+        .chars()
+        .take(240)
+        .collect::<String>()
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty())
+        .collect::<Vec<_>>()
+        .join(" ");
+    if clean.is_empty() {
+        return;
+    }
+    let messages = vec![
+        serde_json::json!({
+            "role": "system",
+            "content": "You name sessions in an AI coding harness. Given the user's first message, reply with ONLY a short session title: 2-5 words, no quotes, no punctuation, no explanation.",
+        }),
+        serde_json::json!({ "role": "user", "content": clean }),
+    ];
+    // Fake event channel: call() internally emits agent events (tokens, etc.)
+    // on `agent:{session_id}` — route the naming stream to a channel nobody
+    // listens on so nothing leaks into the live chat render.
+    let fake_sid = format!("{session_id}:naming");
+    let Ok((blocks, _)) = handle
+        .call(&messages, model, api_key, &[], ThinkingPref::Off, app_handle, &fake_sid)
+        .await
+    else {
+        return;
+    };
+    let Some(name) = extract_name(&blocks) else { return };
+    let now = chrono::Utc::now().to_rfc3339();
+    let _ = sqlx::query("UPDATE sessions SET name=?, updated_at=? WHERE id=?")
+        .bind(&name)
+        .bind(&now)
+        .bind(session_id)
+        .execute(db)
+        .await;
+    let _ = app_handle.emit(
+        "session:renamed",
+        serde_json::json!({ "id": session_id, "name": name }),
+    );
+}
+
+/// Take a short title out of the naming completion: first non-empty line,
+/// stripped of quotes/dashes/markdown and trailing punctuation, capped at 48
+/// chars. Returns None when there's nothing usable.
+fn extract_name(blocks: &[ContentBlock]) -> Option<String> {
+    let text: Vec<String> = blocks
+        .iter()
+        .filter_map(|b| match b {
+            ContentBlock::Text { text } => Some(text.clone()),
+            _ => None,
+        })
+        .collect();
+    let joined = text.join(" ");
+    let first_line = joined.lines().next().unwrap_or("").trim();
+    if first_line.is_empty() {
+        return None;
+    }
+    let cleaned = first_line.trim_matches(|c| matches!(c, '"' | '\'' | '\u{201c}' | '\u{201d}' | '-' | '*' | '`'));
+    let cleaned = cleaned.trim_end_matches(|c: char| matches!(c, '.' | ',' | '!' | '?' | ':' | ';'));
+    let cleaned = cleaned.trim();
+    if cleaned.is_empty() {
+        return None;
+    }
+    let capped: String = cleaned.chars().take(48).collect();
+    let capped = capped.trim();
+    if capped.is_empty() {
+        return None;
+    }
+    Some(capped.to_string())
+}
+
 /// Has the user pressed Esc/Stop for this loop? Checked at every turn boundary
 /// so the loop stops promptly even between cancellable awaits.
 fn interrupted(cancel: &tokio::sync::watch::Receiver<bool>) -> bool {
@@ -1670,6 +1803,26 @@ mod tests {
         let none = no_working_dir_fact("write_file", None);
         assert!(none.contains("ask_question"), "fact: {none}");
         assert!(none.contains("change_directory"), "fact: {none}");
+    }
+
+    #[test]
+    fn extract_name_cleans_first_line() {
+        // Strips quotes, keeps capitalization, removes trailing punctuation.
+        assert_eq!(
+            extract_name(&[ContentBlock::Text { text: "\"Fix the websocket leak\"".into() }]),
+            Some("Fix the websocket leak".into())
+        );
+        // Leading dashes/markdown get trimmed; only the first line counts.
+        assert_eq!(
+            extract_name(&[ContentBlock::Text { text: "- Short title\n\nExtra chatter here".into() }]),
+            Some("Short title".into())
+        );
+        // Long output is capped at 48 chars.
+        let long = "a".repeat(80);
+        assert_eq!(extract_name(&[ContentBlock::Text { text: long }]), Some("a".repeat(48)));
+        // Nothing usable → None (no rename happens).
+        assert_eq!(extract_name(&[ContentBlock::Text { text: "   ".into() }]), None);
+        assert_eq!(extract_name(&[]), None);
     }
 
 }

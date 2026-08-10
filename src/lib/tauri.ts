@@ -25,6 +25,13 @@ import type { PluginContributes, PluginInfo } from './types'
 export type { PluginContributes, PluginInfo } from './types'
 
 export const listSessions = () => mock<Session[]>(mockSessions, 'list_sessions')
+
+/** Backend auto-named a session from its first prompt — update it live so the
+ *  tab bar and sidebar show the new title without a reload. */
+export function listenSessionRenamed(onRename: (e: { id: string; name: string }) => void) {
+  if (isBrowserMock) return Promise.resolve(() => {})
+  return listen<{ id: string; name: string }>('session:renamed', (e) => onRename(e.payload))
+}
 export const createSession = (name: string) => tauriInvoke<Session>('create_session', { name })
 export const getSession = (id: string) =>
   isBrowserMock

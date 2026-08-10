@@ -1,7 +1,8 @@
 import {
   listSessions as fetch,
   createSession as apiCreate,
-  archiveSession as apiArchive
+  archiveSession as apiArchive,
+  listenSessionRenamed
 } from '../lib/tauri'
 import type { Session } from '../lib/types'
 import { isBrowserMock } from '../lib/mock'
@@ -27,8 +28,28 @@ function persistTabs() {
   } catch { /* storage unavailable — ignore */ }
 }
 
+let _renamedUnlisten: (() => void) | null = null
+
+/** Keep in-app session names in sync when the backend auto-names a fresh
+ *  session from its first prompt (tabs + sidebar derive from sessions.list).
+ *  Idempotent; the listener is torn down on HMR like chat.svelte.ts does. */
+export async function initSessionEvents() {
+  if (_renamedUnlisten) return
+  _renamedUnlisten = await listenSessionRenamed(({ id, name }) => {
+    const s = sessions.list.find((x) => x.id === id)
+    if (s && name && s.name !== name) s.name = name
+  })
+}
+if (import.meta.hot) {
+  import.meta.hot.dispose(() => {
+    _renamedUnlisten?.()
+    _renamedUnlisten = null
+  })
+}
+
 export async function loadSessions() {
   sessions.list = await fetch()
+  await initSessionEvents()
 }
 
 /** Restore the previously-open tabs (and active tab) after a restart.
