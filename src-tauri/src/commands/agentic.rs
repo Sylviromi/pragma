@@ -48,6 +48,74 @@ fn no_working_dir_fact(tool_name: &str, user_said: Option<&str>) -> String {
     }
 }
 
+/// Extract a plausible existing directory from free text (a user prompt or an
+/// answer): absolute paths (leading `/` or `~/`) that exist on disk, picking
+/// the longest match when several are mentioned. Returns None for text with no
+/// usable path — callers then ask or hand the model a "sort it out" fact.
+fn guess_dir_from_text(text: &str) -> Option<String> {
+    let mut best: Option<String> = None;
+    for raw in text.split_ascii_whitespace() {
+        let tok = raw.trim_matches(|c: char| {
+            matches!(c, '"' | '\'' | '`' | '(' | ')' | ',' | '.' | ';' | ':' | '!' | '?' | '*',)
+        });
+        if tok.is_empty() {
+            continue;
+        }
+        let path = if let Some(rest) = tok.strip_prefix("~/") {
+            match std::env::var("HOME") {
+                Ok(home) => std::path::Path::new(&home).join(rest),
+                Err(_) => continue,
+            }
+        } else if tok.starts_with('/') {
+            std::path::PathBuf::from(tok)
+        } else {
+            continue; // relative fragment or not a path at all
+        };
+        if !path.is_dir() {
+            continue;
+        }
+        let s = path.to_string_lossy().to_string();
+        if best.as_ref().map_or(true, |b| s.len() > b.len()) {
+            best = Some(s);
+        }
+    }
+    best
+}
+
+/// Persist a new session working dir, rebuild the executor with it, and tell
+/// the frontend. Shared by the change_directory tool and the auto-resolution
+/// path (guess from message / user's answer).
+async fn set_working_dir(
+    executor: &mut ToolExecutor,
+    has_wd: &mut bool,
+    path: &str,
+    db: &SqlitePool,
+    session_id: &str,
+    app_handle: &tauri::AppHandle,
+    ledger: crate::tools::SeenLedger,
+) -> Result<String, String> {
+    let p = std::path::PathBuf::from(path);
+    if !p.is_dir() {
+        return Err(format!("Directory does not exist: {}", p.display()));
+    }
+    let path_str = p.canonicalize().unwrap_or(p).to_string_lossy().to_string();
+    let now = chrono::Utc::now().to_rfc3339();
+    let _ = sqlx::query("UPDATE sessions SET working_dir=?,updated_at=? WHERE id=?")
+        .bind(&path_str)
+        .bind(&now)
+        .bind(session_id)
+        .execute(db)
+        .await;
+    *executor = ToolExecutor::with_ledger(&path_str, session_id, ledger);
+    *has_wd = true;
+    emit(
+        app_handle,
+        session_id,
+        AgentEvent::WorkingDirChanged { new_path: path_str.clone() },
+    );
+    Ok(path_str)
+}
+
 /// Fallback history budget (chars) when the model's context window is unknown
 /// (e.g. selected before discovery landed). Real budgets scale with the model's
 /// context window via `history_budget_for`; this keeps the pre-discovery
@@ -449,8 +517,8 @@ You converse with the user in turns. In each turn you can write text and call to
 - Use run_command for builds, tests, scripts, or inspecting git.\n\
 - git_status / git_diff / git_log are read-only. NEVER run git_add or git_commit unless the user explicitly asks.\n\
 - web_search / fetch_url only when you need external documentation.\n\
-- change_directory switches the working directory when a task targets another subproject.\n\
-- **Working directory is required for file/shell/git tools.** If the session has no working directory set, those tools are blocked and the user is asked which folder to use — immediately call change_directory <path> with the folder they name (or that you asked for), then retry the tool. Never guess a path or run file tools in an unset directory.\n\
+- change_directory switches the working directory when a task targets another subproject; it is instant and never needs permission.\n\
+- **Working directory**: file/shell/git tools run relative to it. When none is set, the harness auto-picks an existing path from your message when it finds one, otherwise asks the user ONE time and then uses whatever path they name. You can also call change_directory yourself with a path you already know (from a loaded skill, the user's message, or their earlier answer) — it always works. Never ask the user for a directory twice; reuse what they already told you.\n\
 - reload_app: after Rust/backend changes, it verifies the build then restarts the whole app so the new code takes effect. It ends this run, so call it LAST — never for frontend-only or plugin-only changes (those hot-reload automatically).\n\
 - ask_question pauses the loop and asks the user a question when a decision genuinely blocks the work — the user gets an app notification when the window is in the background. Use it only for blocking ambiguity or plan branches the user must decide; NEVER for routine confirmation of work already requested, and never when you can decide by reading more context.\n\
 \n\
@@ -714,45 +782,74 @@ You converse with the user in turns. In each turn you can write text and call to
             // model's context stays consistent with what it called.
             let is_question = name == "ask_question";
 
-            // A path-gated tool with no working directory is blocked BEFORE
-            // the approval gate: no approval prompt for something that can't
-            // run, and no ToolCall card — the auto-asked question is the UI.
-            // Ask the user for the folder once per run; the fact carries their
-            // answer so the model change_directory's and retries.
+            // A path-gated tool needs a working directory. Resolve it in this
+            // order so the user is NEVER asked unless every other source fails:
+            //   1. a path mentioned in the user's own message — auto-applied,
+            //      no question at all;
+            //   2. a one-shot question answered by the user — the path inside
+            //      their answer is applied immediately (a sentence like "just
+            //      use /mnt/Projects/pragma" works);
+            //   3. nothing found — a fact is handed to the model, which has the
+            //      user's answer text to mine for a path on its own.
+            // Once a working dir is set the tool falls through to the normal
+            // approval + execution path (non-path tools always run freely).
             if path_gated(&name, has_wd) {
-                let answer = if !path_question_asked {
-                    path_question_asked = true;
-                    ask_user(
-                        app_handle,
-                        &state,
-                        &session_id,
-                        "Which project folder should I use as the working directory? I can't read or write any files until one is set — give me a path.",
-                        Vec::new(),
-                        600,
-                        &mut cancel,
-                    )
-                    .await
-                } else {
-                    Ok(None)
-                };
-                match answer {
-                    Err(()) => return Ok(()), // user pressed Esc during the ask
-                    Ok(user_said) => {
-                        let fact = no_working_dir_fact(&name, user_said.as_deref());
-                        emit(app_handle, session_id, AgentEvent::ToolResult {
-                            tool_use_id: tool_use_id.clone(),
-                            output: fact.clone(),
-                            is_error: false,
-                        });
-                        tool_results.push(serde_json::json!({
-                            "type": "tool_result",
-                            "tool_use_id": tool_use_id,
-                            "content": fact,
-                            "is_error": false,
-                        }));
-                        continue;
+                if !has_wd {
+                    if let Some(guess) = guess_dir_from_text(&user_message) {
+                        let _ = set_working_dir(
+                            &mut executor, &mut has_wd, &guess,
+                            &state.db, &session_id, app_handle, ledger.clone(),
+                        ).await;
                     }
                 }
+                let mut user_said: Option<String> = None;
+                if !has_wd {
+                    let answer = if !path_question_asked {
+                        path_question_asked = true;
+                        ask_user(
+                            app_handle,
+                            &state,
+                            &session_id,
+                            "Which project folder should I use as the working directory? Name a path (e.g. /home/you/project) or just say where to work.",
+                            Vec::new(),
+                            600,
+                            &mut cancel,
+                        )
+                        .await
+                    } else {
+                        Ok(None)
+                    };
+                    match answer {
+                        Err(()) => return Ok(()), // user pressed Esc during the ask
+                        Ok(a) => {
+                            let a = a.filter(|s| !s.trim().is_empty());
+                            user_said = a.clone();
+                            if let Some(p) = a.as_deref().and_then(guess_dir_from_text) {
+                                let _ = set_working_dir(
+                                    &mut executor, &mut has_wd, &p,
+                                    &state.db, &session_id, app_handle, ledger.clone(),
+                                ).await;
+                            }
+                        }
+                    }
+                }
+                if !has_wd {
+                    let fact = no_working_dir_fact(&name, user_said.as_deref());
+                    emit(app_handle, session_id, AgentEvent::ToolResult {
+                        tool_use_id: tool_use_id.clone(),
+                        output: fact.clone(),
+                        is_error: false,
+                    });
+                    tool_results.push(serde_json::json!({
+                        "type": "tool_result",
+                        "tool_use_id": tool_use_id,
+                        "content": fact,
+                        "is_error": false,
+                    }));
+                    continue;
+                }
+                // A working directory was resolved (guessed or answered) — fall
+                // through and run the tool normally.
             }
 
             // Emit tool call event to frontend (questions render from the
@@ -867,27 +964,13 @@ You converse with the user in turns. In each turn you can write text and call to
                 } else {
                     executor.working_dir.join(new_dir)
                 };
-                if !abs.is_dir() {
-                    (format!("Directory does not exist: {}", abs.display()), true)
-                } else {
-                    let path_str = abs.canonicalize()
-                        .unwrap_or(abs)
-                        .to_string_lossy()
-                        .to_string();
-                    let now = chrono::Utc::now().to_rfc3339();
-                    // Persist the model's preferred working directory
-                    let _ = sqlx::query(
-                        "UPDATE sessions SET working_dir=?,updated_at=? WHERE id=?"
-                    )
-                    .bind(&path_str)
-                    .bind(&now)
-                    .bind(&session_id)
-                    .execute(&state.db)
-                    .await;
-                    executor = ToolExecutor::with_ledger(&path_str, &session_id, ledger.clone());
-                    has_wd = true;
-                    emit(app_handle, session_id, AgentEvent::WorkingDirChanged { new_path: path_str.clone() });
-                    (format!("Working directory changed to: {path_str}"), false)
+                match set_working_dir(
+                    &mut executor, &mut has_wd,
+                    &abs.to_string_lossy(),
+                    &state.db, &session_id, app_handle, ledger.clone(),
+                ).await {
+                    Ok(path_str) => (format!("Working directory changed to: {path_str}"), false),
+                    Err(e) => (e, true),
                 }
             } else if name == "ask_question" {
                 // Ask the user a question and pause until they answer (or the
@@ -1803,6 +1886,24 @@ mod tests {
         let none = no_working_dir_fact("write_file", None);
         assert!(none.contains("ask_question"), "fact: {none}");
         assert!(none.contains("change_directory"), "fact: {none}");
+    }
+
+    #[test]
+    fn guess_dir_from_text_finds_paths() {
+        let cwd = std::env::current_dir().unwrap();
+        let cwd_s = cwd.to_string_lossy().to_string();
+        // A sentence carrying an existing path — auto-applied, no question.
+        assert_eq!(
+            guess_dir_from_text(&format!("just work in {cwd_s} please")),
+            Some(cwd_s.clone())
+        );
+        // Longest existing path wins when several are mentioned.
+        let parent = cwd.parent().unwrap().to_string_lossy().to_string();
+        assert_eq!(guess_dir_from_text(&format!("{parent} and {cwd_s}")), Some(cwd_s));
+        // Nonexistent paths and relative fragments are ignored.
+        assert_eq!(guess_dir_from_text("use /nonexistent/xyz or the local folder"), None);
+        assert_eq!(guess_dir_from_text("no paths here at all"), None);
+        assert_eq!(guess_dir_from_text(""), None);
     }
 
     #[test]

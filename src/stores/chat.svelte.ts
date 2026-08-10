@@ -82,6 +82,9 @@ const SAFE_TOOLS = new Set([
   'git_status', 'git_diff', 'git_log',
   'web_search', 'fetch_url',
   'load_skill',
+  // change_directory is harmless (sets the session's working dir) and is
+  // required for the auto-resolution flow to proceed without friction.
+  'change_directory',
 ])
 
 export type AgentStatus = 'idle' | 'thinking' | 'working' | 'generating' | 'waiting'
