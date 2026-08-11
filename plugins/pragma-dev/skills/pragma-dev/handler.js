@@ -448,6 +448,32 @@ async function pdCargoTest(args) {
   }
 }
 
+async function pdReloadApp(args) {
+  const dir = repoRoot(args.dir)
+  let manifest = path.join(dir, 'src-tauri', 'Cargo.toml')
+  if (!fs.existsSync(manifest)) manifest = path.join(dir, 'Cargo.toml')
+  if (!fs.existsSync(manifest)) {
+    return { ok: false, reloadApp: false, error: `no Cargo manifest found under ${dir}` }
+  }
+  const r = await runOnce(cargoBin, ['build', '--manifest-path', manifest], {
+    cwd: dir,
+    timeoutSecs: args.timeoutSecs || 900,
+    maxChars: 300000,
+  })
+  const tail = tailOf(r.output, 200)
+  if (r.ok) {
+    return {
+      ok: true,
+      reloadApp: true, // relaunch convention — the host exits(23) after this run
+      exitCode: r.exitCode,
+      elapsedSecs: +r.elapsedSecs.toFixed(1),
+      message: 'Build succeeded — a full app reload was requested; the app will restart with the new Rust code, so this run ends here. Your conversation is persisted and will be restored after the restart.',
+    }
+  }
+  const errTail = tail.split('\n').slice(-40).join('\n')
+  return { ok: false, reloadApp: false, exitCode: r.exitCode, timedOut: r.timedOut, elapsedSecs: +r.elapsedSecs.toFixed(1), error: `cargo build FAILED:\n${errTail}` }
+}
+
 function pdVerifyCommand(args) {
   const { name } = args
   if (!name) return { ok: false, error: 'missing "name" — the command to verify' }
@@ -624,6 +650,9 @@ rl.on('line', async (line) => {
           break
         case 'pd_cargo_test':
           reply(id, await pdCargoTest(a), false)
+          break
+        case 'pd_reload_app':
+          reply(id, await pdReloadApp(a), false)
           break
         case 'pd_verify_command':
           reply(id, pdVerifyCommand(a), false)

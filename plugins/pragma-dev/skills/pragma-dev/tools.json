@@ -1,7 +1,7 @@
 [
   {
     "name": "pd_dev_start",
-    "description": "Start the Pragma dev app as a managed background process. mode 'app' (default) runs `npm run dev:app` — the project's canonical launcher: starts Vite on :1420 if free, runs the app via `cargo run`, and only relaunches on the reload_app code-23 signal (never hot-restarts on Rust edits). mode 'tauri' runs `npm run tauri` (full Tauri dev with auto-reload — mind that it restarts on Rust edits). mode 'vite' runs `npm run dev` (frontend-only). Streams logs into a ring buffer and tracks compile state. You cannot see the app window — verify via pd_dev_status / pd_dev_logs. Idempotent (alreadyRunning). Only one instance can run the dev app; if the user's main app was itself launched via dev:app, a second instance connects to the same Vite and both share the DB — prefer reload_app when Rust changes must land in the running app.",
+    "description": "Start the Pragma dev app as a managed background process. mode 'app' (default) runs `npm run dev:app` — the project's canonical launcher: starts Vite on :1420 if free, runs the app via `cargo run`, and only relaunches on the code-23 reload signal (never hot-restarts on Rust edits). mode 'tauri' runs `npm run tauri` (full Tauri dev with auto-reload — mind that it restarts on Rust edits). mode 'vite' runs `npm run dev` (frontend-only). Streams logs into a ring buffer and tracks compile state. You cannot see the app window — verify via pd_dev_status / pd_dev_logs. Idempotent (alreadyRunning). Only one instance can run the dev app; if the user's main app was itself launched via dev:app, a second instance connects to the same Vite and both share the DB — prefer pd_reload_app when Rust changes must land in the running app.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -109,6 +109,23 @@
         "timeoutSecs": {
           "type": "integer",
           "description": "Timeout in seconds, default 900"
+        }
+      }
+    }
+  },
+  {
+    "name": "pd_reload_app",
+    "description": "Rebuild the Pragma backend and relaunch the app with the new Rust code. Runs `cargo build --manifest-path <dir>/src-tauri/Cargo.toml` (falls back to a root Cargo.toml); on SUCCESS it requests an app relaunch (exit code 23 — the dev:app launcher rebuilds and restarts; in other launchers the app exits cleanly). A failed build never triggers a restart; the error tail is returned instead. This ends the current run, so call it LAST, after your Rust edits are complete and verified — never for frontend-only or plugin-only changes (those hot-reload automatically).",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "dir": {
+          "type": "string",
+          "description": "Repo directory containing src-tauri (defaults to the session working directory)"
+        },
+        "timeoutSecs": {
+          "type": "integer",
+          "description": "Timeout in seconds, default 900 (cold builds are slow)"
         }
       }
     }

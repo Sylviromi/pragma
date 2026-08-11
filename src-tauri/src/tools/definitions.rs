@@ -174,12 +174,6 @@ pub fn core_tools() -> Vec<ToolDefinition> {
                 "required": ["text"]
             }),
         },
-        // ── App / dev cycle ───────────────────────────────────────────────
-        ToolDefinition {
-            name: "reload_app".into(),
-            description: "Apply Rust backend changes by rebuilding and restarting the app. Runs `cargo build` first (using the project's Cargo manifest) and only restarts if the build succeeds. This ends the current run — the app relaunches with the new code, so call it LAST, after your edits are complete and verified. Do not call it for frontend-only changes; only when the Rust backend must be reloaded.".into(),
-            input_schema: serde_json::json!({ "type": "object", "properties": {} }),
-        },
     ]
 }
 
@@ -364,12 +358,12 @@ mod tests {
     #[test]
     fn test_expected_tool_count() {
         // Ensures no tools are accidentally dropped when editing
-        assert_eq!(core_tools().len(), 14, "core: file ops + shell + load_skill + change_directory + ask_question + reload_app");
+        assert_eq!(core_tools().len(), 13, "core: file ops + shell + load_skill + change_directory + ask_question");
         let skill_sets = skill_tools();
         assert_eq!(skill_sets.len(), 2, "git + web");
         let total: usize = skill_sets.iter().map(|(_, t)| t.len()).sum();
         assert_eq!(total, 7, "git(5) + web(2)");
-        assert_eq!(standard_tools().len(), 21);
+        assert_eq!(standard_tools().len(), 20);
     }
 
     #[test]

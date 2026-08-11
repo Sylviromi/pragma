@@ -1066,6 +1066,20 @@ rl.on('line', (line) => {
             .unwrap();
         assert!(todo.contains("\"total\""), "todo: {todo}");
 
+        // pd_reload_app on a dir WITHOUT a Cargo manifest fails fast (no cargo
+        // invocation) and never sets the relaunch marker.
+        let work = tempfile::tempdir().unwrap();
+        let rl = reg
+            .call_tool(
+                "pragma-dev/pragma-dev",
+                "pd_reload_app",
+                &serde_json::json!({"dir": work.path()}),
+            )
+            .await
+            .unwrap();
+        assert!(rl.contains("\"ok\": false"), "reload fast-fail: {rl}");
+        assert!(rl.contains("\"reloadApp\": false"), "no relaunch marker on failure: {rl}");
+
         // Unknown tool → handler error.
         let bad = reg
             .call_tool("pragma-dev/pragma-dev", "nope", &serde_json::json!({})).await;

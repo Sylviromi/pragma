@@ -17,8 +17,8 @@ it before cross-module work.
    - `pd_cargo_check` — `cargo check --message-format=json` in `src-tauri/`, clean grouped errors/warnings (not the 96k-char wall).
    - `pd_test` / `pd_cargo_test` — vitest / cargo test with failure extraction.
    - `pd_verify_command <name>` / `pd_verify_tool <name>` — after adding a command/tool, confirms every wiring point in one call (catching a forgotten `generate_handler!` entry or a missing `tauri.ts` wrapper).
-2. **Watch the app build**: `pd_dev_start` (mode `app` = `npm run dev:app`, the project's canonical launcher; `tauri` = full tauri dev with auto-reload; `vite` = frontend-only). Poll `pd_dev_status` / `pd_dev_logs` (filter `errors`). Stop with `pd_dev_stop`. Only one dev-app instance at a time — if the user's main app was itself launched via `dev:app`, prefer `reload_app` for Rust changes instead of a second instance.
-3. **Apply Rust changes**: call `reload_app` LAST — it runs `cargo build` and only relaunches on success, ending this run. Never use it for frontend-only or plugin-only changes (those hot-reload).
+2. **Watch the app build**: `pd_dev_start` (mode `app` = `npm run dev:app`, the project's canonical launcher; `tauri` = full tauri dev with auto-reload; `vite` = frontend-only). Poll `pd_dev_status` / `pd_dev_logs` (filter `errors`). Stop with `pd_dev_stop`. Only one dev-app instance at a time — if the user's main app was itself launched via `dev:app`, prefer `pd_reload_app` for Rust changes instead of a second instance.
+3. **Apply Rust changes**: call `pd_reload_app` LAST — it runs `cargo build` in `src-tauri/` and, on success, requests an app relaunch (exit code 23 → the `dev:app` launcher rebuilds and restarts; other launchers exit cleanly). A failed build never restarts. Never use it for frontend-only or plugin-only changes (those hot-reload).
 
 ## Stack
 
@@ -42,7 +42,7 @@ src/routes/                      +page.svelte, +layout.svelte, settings/{general
 
 src-tauri/src/lib.rs             App setup, AppState, plugin registration, invoke_handler
 src-tauri/src/commands/agentic.rs  run_agentic_loop (agentic loop + tool dispatch + change_directory special
-                                 case + reload_app/exit-23), get_running_sessions, interrupt_session
+                                 case + sidecar reloadApp marker/exit-23), get_running_sessions, interrupt_session
 src-tauri/src/commands/sessions.rs  CRUD for sessions (create/list/get/update/archive)
 src-tauri/src/commands/messages.rs  add_message, list_messages
 src-tauri/src/commands/providers.rs list_providers, save_api_key, get_api_keys
@@ -80,7 +80,7 @@ plugins/pragma-dev/                this plugin (first-party, symlinked into the 
 3. `change_directory` is special-cased (updates DB + emits `WorkingDirChanged`) before `executor.execute()`.
 4. Mutating file tools snapshot pre-op state to `file_snapshots` (revert.rs) before executing.
 5. `run_command`/`git_commit` are approval-gated; `SAFE_TOOLS` (read-only) run without approval.
-6. On `reload_app`, verifies the build then exits with code 23; the `dev:app` launcher (or the OS wrapper) relaunches.
+6. On `pd_reload_app` success (sidecar returns `reloadApp: true`), the loop exits with code 23; the `dev:app` launcher relaunches.
 7. On `done`/`error`: frontend calls `loadMessages()` to sync from DB.
 
 **Working directory**: stored in `sessions.working_dir`. Set by the user (DirBar folder picker) or the model (`change_directory`). `InputArea` reads the current dir from the store on send; file/shell tools resolve relative to it.
@@ -104,7 +104,7 @@ plugins/pragma-dev/                this plugin (first-party, symlinked into the 
 ## Adding a tool
 
 1. `tools/definitions.rs` — ToolDefinition in `core_tools()` (or `skill_tools()` for native git/web); assert counts in `test_expected_tool_count`.
-2. Implement in `tools/<module>.rs`, or inline in `agentic.rs` when it needs session/DB access (e.g. `edit_file` uses the ledger, `change_directory`/`reload_app` are session-aware).
+2. Implement in `tools/<module>.rs`, or inline in `agentic.rs` when it needs session/DB access (e.g. `edit_file` uses the ledger, `change_directory`/skill reload markers are session-aware).
 3. `tools/mod.rs` `ToolExecutor::execute()` — match arm (or special-case in the agentic loop before/after `execute()`).
 4. Read-only tools: add to `SAFE_TOOLS` in `src/stores/chat.svelte.ts` (skips approval).
 5. Run `pd_verify_tool my_tool` — checks definition, dispatch arm, and SAFE_TOOLS classification.

@@ -17,7 +17,8 @@ use uuid::Uuid;
 /// to act on when the session has no working dir set, and running them in the
 /// app's own cwd (the "..." fallback) would be a silent guess.
 /// Deliberately NOT gated: web_search/fetch_url (network), load_skill,
-/// reload_app, ask_question (control flow), and change_directory (the fix).
+/// plugin sidecar tools (incl. reload-style tools), ask_question (control
+/// flow), and change_directory (the fix).
 const PATH_GATED_TOOLS: &[&str] = &[
     "read_file", "write_file", "patch_file", "create_directory", "delete_file",
     "move_file", "list_files", "search_files", "run_command",
@@ -394,8 +395,9 @@ pub async fn run_agentic_loop(
     let (cancel_tx, cancel_rx) = tokio::sync::watch::channel(false);
     state.loop_cancels.lock().await.insert(session_id.clone(), cancel_tx);
 
-    // Set by the reload_app tool; when true, exit(23) right after this run
-    // so the dev launcher rebuilds and relaunches with the new Rust code.
+    // Set by a sidecar tool's `reloadApp` marker (pragma-dev's pd_reload_app);
+    // when true, exit(23) right after this run so the dev launcher rebuilds
+    // and relaunches with the new Rust code.
     let mut exit_app = false;
 
     let mut active_skills = load_active_skills(&state.db, &session_id).await;
@@ -430,14 +432,14 @@ pub async fn run_agentic_loop(
     state.loop_cancels.lock().await.remove(&session_id);
     guard.release().await;
 
-    // The agent requested a reload (reload_app tool): exit the process with
-    // RELOAD_CODE (23) so the dev launcher (scripts/dev-app.sh) rebuilds and
-    // relaunches with the new binary. Delay so final events flush out.
+    // A sidecar tool requested a reload (e.g. pragma-dev's pd_reload_app):
+    // exit the process with RELOAD_CODE (23) so the dev launcher
+    // (scripts/dev-app.sh) rebuilds and relaunches with the new binary. Delay so final events flush out.
     if result.is_ok() && exit_app {
         let handle = app_handle.clone();
         tokio::spawn(async move {
             tokio::time::sleep(std::time::Duration::from_millis(600)).await;
-            eprintln!("[reload_app] exiting (code 23) for relaunch");
+            eprintln!("[pd_reload_app] exiting (code 23) for relaunch");
             handle.exit(23);
         });
     }
@@ -559,10 +561,10 @@ You converse with the user in turns. In each turn you can write text and call to
 - Use run_command for builds, tests, scripts, or inspecting git.\n\
 - git_status / git_diff / git_log are read-only. NEVER run git_add or git_commit unless the user explicitly asks.\n\
 - web_search / fetch_url only when you need external documentation.\n\
-- **Skills**: your tool set is sized to the task. Core tools (file ops, shell, change_directory, ask_question, reload_app, load_skill) are always available; everything else — git, web, plugin-provided tools — arrives by loading a skill. Call load_skill on any skill from the index below that seems relevant: its guidance is injected AND its tools are added to your set for the rest of the session. Don't solve a git problem without loading the git skill; don't fetch the web without the web skill.\n\
+- **Skills**: your tool set is sized to the task. Core tools (file ops, shell, change_directory, ask_question, load_skill) are always available; everything else — git, web, plugin-provided tools — arrives by loading a skill. Call load_skill on any skill from the index below that seems relevant: its guidance is injected AND its tools are added to your set for the rest of the session. Don't solve a git problem without loading the git skill; don't fetch the web without the web skill.\n\
 - change_directory switches the working directory when a task targets another subproject; it is instant and never needs permission.\n\
 - **Working directory**: file/shell/git tools run relative to it. When none is set, the harness auto-picks an existing path from your message when it finds one, otherwise asks the user ONE time and then uses whatever path they name. You can also call change_directory yourself with a path you already know (from a loaded skill, the user's message, or their earlier answer) — it always works. Never ask the user for a directory twice; reuse what they already told you.\n\
-- reload_app: after Rust/backend changes, it verifies the build then restarts the whole app so the new code takes effect. It ends this run, so call it LAST — never for frontend-only or plugin-only changes (those hot-reload automatically).\n\
+- **Apply Rust changes**: a loaded skill may contribute a tool that rebuilds the backend and relaunches the app (e.g. pragma-dev's pd_reload_app, available when the pragma-dev skill is loaded). Such a tool ends this run, so call it LAST — never for frontend-only or plugin-only changes (those hot-reload automatically).\n\
 - ask_question pauses the loop and asks the user a question when a decision genuinely blocks the work — the user gets an app notification when the window is in the background. Use it only for blocking ambiguity or plan branches the user must decide; NEVER for routine confirmation of work already requested, and never when you can decide by reading more context.\n\
 \n\
 ## Failure recovery\n\
@@ -911,7 +913,7 @@ You converse with the user in turns. In each turn you can write text and call to
             // questions notify via the Question event instead).
             if !auto_approve && !is_question {
                 let mutating = crate::commands::revert::is_mutating_file_tool(name)
-                    || matches!(name.as_str(), "run_command" | "git_add" | "git_commit" | "reload_app");
+                    || matches!(name.as_str(), "run_command" | "git_add" | "git_commit");
                 if mutating {
                     crate::notify::notify(app_handle, "Pragma needs approval", &format!("Do you want to allow the tool: {name}?"));
                 }
@@ -941,55 +943,6 @@ You converse with the user in turns. In each turn you can write text and call to
 
             let (mut output, is_error) = if !approved {
                 ("Tool call denied by user.".to_string(), true)
-            } else if name == "reload_app" {
-                // Rebuild the backend first — only restart if it compiles.
-                let wd = executor.working_dir.clone();
-                let out = tokio::select! {
-                    res = tokio::task::spawn_blocking(move || {
-                        let manifest = if wd.join("src-tauri/Cargo.toml").exists() {
-                            wd.join("src-tauri/Cargo.toml")
-                        } else {
-                            wd.join("Cargo.toml")
-                        };
-                        if !manifest.exists() {
-                            return Err(format!("No Cargo manifest found under {}", wd.display()));
-                        }
-                        let o = std::process::Command::new("cargo")
-                            .args(["build", "--manifest-path", manifest.to_str().unwrap_or("")])
-                            .output()
-                            .map_err(|e| format!("failed to run cargo build: {e}"))?;
-                        if o.status.success() {
-                            Ok(())
-                        } else {
-                            let err = String::from_utf8_lossy(&o.stderr);
-                            let tail: String = err
-                                .trim_end()
-                                .chars()
-                                .rev()
-                                .take(2800)
-                                .collect::<Vec<_>>()
-                                .into_iter()
-                                .rev()
-                                .collect();
-                            Err(format!("cargo build FAILED:\n{tail}"))
-                        }
-                    }) => match res {
-                        Ok(r) => r,
-                        Err(e) => Err(e.to_string()),
-                    },
-                    _ = cancel.changed() => {
-                        state.pending_approvals.lock().await.remove(tool_use_id);
-                        emit(app_handle, session_id, AgentEvent::Interrupted);
-                        return Ok(());
-                    }
-                };
-                match out {
-                    Ok(()) => {
-                        *exit_app = true;
-                        ("Build succeeded. A full app reload was scheduled — the app will restart with the new Rust code, so this run ends here. Your conversation is persisted and will be restored after the restart.".to_string(), false)
-                    }
-                    Err(e) => (e, true),
-                }
             } else if name == "load_skill" {
                 let skill_id = input.get("skill_id").and_then(|v| v.as_str()).unwrap_or("").to_string();
                 match state.plugins.skill(&skill_id) {
@@ -1082,7 +1035,24 @@ You converse with the user in turns. In each turn you can write text and call to
                     }
                 };
                 match out {
-                    Ok(s) => (s, false),
+                    Ok(s) => {
+                        // Relaunch convention: a sidecar tool (e.g. pragma-dev's
+                        // pd_reload_app) may request an app relaunch after the
+                        // run by returning a JSON object with `"reloadApp": true`.
+                        // The handler sets it ONLY after a successful build, so a
+                        // failed build never triggers a restart. The post-run
+                        // exit(23) relaunch is handled by the caller.
+                        let wants_reload = serde_json::from_str::<serde_json::Value>(&s)
+                            .ok()
+                            .and_then(|v| {
+                                v.get("reloadApp").and_then(|b| b.as_bool())
+                            })
+                            .unwrap_or(false);
+                        if wants_reload {
+                            *exit_app = true;
+                        }
+                        (s, false)
+                    }
                     Err(e) => (e, true),
                 }
             } else {
@@ -2007,7 +1977,7 @@ mod tests {
     #[test]
     fn control_tools_are_never_gated() {
         // change_directory IS the fix — blocking it would deadlock the flow.
-        for t in ["change_directory", "ask_question", "web_search", "fetch_url", "load_skill", "reload_app"] {
+        for t in ["change_directory", "ask_question", "web_search", "fetch_url", "load_skill"] {
             assert!(!path_gated(t, false), "{t} must never be gated");
         }
         // Unknown tools fall through to the normal unknown-tool error.
