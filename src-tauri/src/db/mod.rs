@@ -31,6 +31,16 @@ pub async fn run_migrations(pool: &SqlitePool) -> Result<(), sqlx::Error> {
     sqlx::query(include_str!("migrations/005_telemetry.sql"))
         .execute(pool)
         .await?;
+    // 006 adds columns (SQLite can't ALTER IF NOT EXISTS) — guard manually.
+    let has_sys: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM pragma_table_info('session_usage') WHERE name='system_tokens'")
+            .fetch_one(pool)
+            .await?;
+    if has_sys == 0 {
+        sqlx::query(include_str!("migrations/006_usage_breakdown.sql"))
+            .execute(pool)
+            .await?;
+    }
     Ok(())
 }
 

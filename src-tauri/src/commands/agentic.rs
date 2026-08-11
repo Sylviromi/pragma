@@ -13,6 +13,43 @@ use std::time::Duration;
 use tauri::Emitter;
 use uuid::Uuid;
 
+/// chars/4 ≈ tokens for the prompt segments the sidebar ring shows. Used on
+/// the EXACT request we send (system prompt + tool schemas, conversation
+/// blocks, tool_result payloads) so the recorded breakdown is honest — the
+/// provider's input_tokens remains the authoritative total.
+fn est_tokens(s: &str) -> i64 {
+    (s.chars().count() / 4) as i64
+}
+
+/// Split the request history we actually sent into (conversation, files)
+/// token estimates. The system message is excluded — its tokens are counted
+/// separately from the real prompt text + tool schemas. ContentBlocks are
+/// split by type: `tool_result` payloads are file content carried back
+/// ("Files in context"), everything else (user prose, assistant text /
+/// reasoning / thinking, tool_use inputs) is conversation.
+fn prompt_breakdown(history: &[serde_json::Value]) -> (i64, i64) {
+    let (mut conv, mut files) = (0i64, 0i64);
+    for m in history {
+        if m["role"].as_str() == Some("system") {
+            continue;
+        }
+        match m["content"].as_array() {
+            Some(blocks) => {
+                for b in blocks {
+                    let n = est_tokens(&serde_json::to_string(b).unwrap_or_default());
+                    if b["type"].as_str() == Some("tool_result") {
+                        files += n;
+                    } else {
+                        conv += n;
+                    }
+                }
+            }
+            None => conv += est_tokens(m["content"].as_str().unwrap_or("")),
+        }
+    }
+    (conv, files)
+}
+
 /// Tools that operate relative to the working directory — they have nothing
 /// to act on when the session has no working dir set, and running them in the
 /// app's own cwd (the "..." fallback) would be a silent guess.
@@ -591,6 +628,13 @@ You converse with the user in turns. In each turn you can write text and call to
         format!("{BASE_PROMPT}\n\n## Available skills\nUse the `load_skill` tool to load a skill's full content when it seems relevant to the task.\n{index_lines}")
     };
 
+    // Real telemetry: the system bucket = the actual system prompt text plus
+    // the serialized tool schemas we send every call (the provider counts
+    // both toward input tokens). Measured ONCE per run — both are fixed for
+    // the duration of the loop.
+    let system_tokens = est_tokens(&system_content)
+        + est_tokens(&serde_json::to_string(&tools).unwrap_or_default());
+
     // Load existing conversation history from DB
     // Load existing conversation history from DB
     let db_messages = sqlx::query_as::<_, crate::commands::messages::Message>(
@@ -720,7 +764,11 @@ You converse with the user in turns. In each turn you can write text and call to
 
         // Milestone 6 telemetry: persist this call's token usage (cost is
         // derived from a best-effort pricing map) so the sidebar's context
-        // ring + session cost stay live.
+        // ring + session cost stay live. The ring's segments come from the
+        // REAL request we just sent: conversation blocks (user prose, model
+        // text/reasoning, tool_use) vs file payloads (tool_result) — both
+        // chars/4, exactly the same JSON the provider counted.
+        let (conversation_tokens, files_tokens) = prompt_breakdown(&history);
         let _ = crate::commands::stats::record_usage(
             &state.db,
             &session_id,
@@ -728,6 +776,9 @@ You converse with the user in turns. In each turn you can write text and call to
             &provider,
             usage.input_tokens,
             usage.output_tokens,
+            system_tokens,
+            conversation_tokens,
+            files_tokens,
         )
         .await;
 

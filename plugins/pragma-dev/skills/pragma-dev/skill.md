@@ -52,7 +52,8 @@ src-tauri/src/commands/plugins.rs   list/enable/disable plugins, read component/
 src-tauri/src/commands/process.rs   spawn_plugin_process / stop / status / write_plugin_stdin / probe_port
                                  (managed plugin processes, plugin_id → process, events plugin:stdout:{id})
 src-tauri/src/commands/revert.rs    file-op snapshot journal + revert_session ("return to this point")
-src-tauri/src/commands/stats.rs     session usage tracking, cost, build_session_stats
+src-tauri/src/commands/stats.rs     session usage tracking, cost, build_session_stats (context ring: used = last
+                                 provider counted input; segments = recorded prompt breakdown)
 src-tauri/src/notify.rs             OS notifications (only when window unfocused) via tauri-plugin-notification
 src-tauri/src/providers/types.rs    ContentBlock (Text/ToolUse/ToolResult/Thinking), AgentEvent, ModelInfo…
 src-tauri/src/providers/anthropic.rs  Anthropic SSE streaming (thinking/signature blocks)
@@ -67,7 +68,7 @@ src-tauri/src/tools/git.rs         git_status/diff/log/add/commit
 src-tauri/src/tools/web.rs         web_search (DuckDuckGo), fetch_url
 src-tauri/src/tools/sidecar.rs     SkillSidecarRegistry — plugin skill handlers.js JSON-RPC sidecars
 src-tauri/src/plugins/             manifest.rs, mod.rs (PluginManager/SkillInfo), provider.rs, watcher.rs
-src-tauri/src/db/migrations/       001_init → 005_telemetry (see DB schema)
+src-tauri/src/db/migrations/       001_init → 006_usage_breakdown (see DB schema)
 src-tauri/capabilities/default.json  Tauri permissions
 plugins/pragma-dev/                this plugin (first-party, symlinked into the config plugins dir)
 ```
@@ -124,8 +125,23 @@ session_tags(session_id, tag)                       -- 001
 active_loops(session_id PK, started_at, heartbeat_at) -- 002/004: cross-process loop lock
 file_snapshots(id, session_id, message_rowid, tool_use_id, tool_name, path,
                content_before, existed_before, extra_before)  -- 003: revert journal
-session_usage(id, session_id, model, provider, input_tokens, output_tokens, cost_usd, …) -- 005
+session_usage(id, session_id, model, provider, input_tokens, output_tokens, cost_usd,
+              system_tokens, conversation_tokens, files_tokens) -- 005/006: real
+              per-call prompt breakdown (chars/4 of what the loop actually sent)
 ```
+
+## Context ring semantics (sidebar telemetry)
+
+- `used` = the newest `session_usage.input_tokens` (provider-counted — exactly
+  what the next call would send, the basis for auto-compaction). Segments are
+  scaled onto `used` so the ring's filled fraction always equals percent.
+- Segments come from the recorded breakdown (`006`: system prompt + tool
+  schemas / conversation / tool_result payloads, measured at request-build
+  time in agentic.rs — never a hardcoded system estimate). Sessions without a
+  breakdown row (legacy) fall back to char-estimates from `messages`.
+- The sidebar shows the LAST pushed/loaded payload (store-first): it does not
+  re-fetch on every panel open — `session:stats` pushes from the run loop keep
+  it live. Only sessions with no payload yet are fetched once.
 
 ## Plugin authoring (folders in `~/.config/dev.pragma.app/plugins/<id>/`)
 

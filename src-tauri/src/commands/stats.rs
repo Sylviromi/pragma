@@ -180,10 +180,13 @@ pub async fn record_usage(
     provider: &str,
     input_tokens: u64,
     output_tokens: u64,
+    system_tokens: i64,
+    conversation_tokens: i64,
+    files_tokens: i64,
 ) -> Result<(), String> {
     let cost = model_cost_usd(model, input_tokens, output_tokens);
     sqlx::query(
-        "INSERT INTO session_usage (id, session_id, model, provider, input_tokens, output_tokens, cost_usd) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO session_usage (id, session_id, model, provider, input_tokens, output_tokens, cost_usd, system_tokens, conversation_tokens, files_tokens) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(uuid::Uuid::new_v4().to_string())
     .bind(session_id)
@@ -192,6 +195,9 @@ pub async fn record_usage(
     .bind(input_tokens as i64)
     .bind(output_tokens as i64)
     .bind(cost)
+    .bind(system_tokens)
+    .bind(conversation_tokens)
+    .bind(files_tokens)
     .execute(db)
     .await
     .map_err(|e| e.to_string())?;
@@ -301,6 +307,21 @@ fn breakdown_from_rows(rows: &[(String, String)]) -> (i64, i64) {
         }
     }
     (conv, files)
+}
+
+/// The real per-part prompt breakdown recorded by the agentic loop at call
+/// time (chars/4 of what was actually sent): (system, conversation, files).
+/// Legacy usage rows (pre-006, or sessions written before this feature) have
+/// NULLs — the caller falls back to estimates for those.
+async fn usage_breakdown(db: &SqlitePool, session_id: &str) -> Option<(i64, i64, i64)> {
+    sqlx::query_as::<_, (i64, i64, i64)>(
+        "SELECT system_tokens, conversation_tokens, files_tokens FROM session_usage WHERE session_id=? AND system_tokens IS NOT NULL ORDER BY rowid DESC LIMIT 1",
+    )
+    .bind(session_id)
+    .fetch_optional(db)
+    .await
+    .ok()
+    .flatten()
 }
 
 async fn cost_rows(db: &SqlitePool, session_id: &str) -> SessionCost {
@@ -480,9 +501,12 @@ async fn touched_files(db: &SqlitePool, session_id: &str) -> Vec<TouchedFile> {
 /// files, git). Cheap enough to rebuild on every `session:stats` push.
 ///
 /// Context semantics: `used` = the newest provider-counted input_tokens
-/// (what the next call would send), NOT a cumulative lifetime sum. Segments
-/// are char-estimates so the ring's composition stays honest; the exact
-/// total comes from `used`. Auto-compaction keys off `percent` crossing 100.
+/// (what the next call would send), NOT a cumulative lifetime sum. The three
+/// segments come from the agentic loop's REAL recorded breakdown of what it
+/// sent on that call (system prompt + tool schemas / conversation / tool
+/// results — measured at request-build time and stored with the usage row);
+/// only sessions with no recorded breakdown fall back to char-estimates.
+/// Auto-compaction keys off `percent` crossing 100.
 pub async fn build_session_stats(
     db: &SqlitePool,
     session_id: &str,
@@ -493,20 +517,26 @@ pub async fn build_session_stats(
     // Live context = the last call the provider counted (system + full
     // history); a session that never ran has no provider count, so fall
     // back to the char-estimates (legacy sessions pre-telemetry).
-    let (conv, files) = context_breakdown(db, session_id).await;
-    // System+skills: fixed estimate of the harness system prompt + tool
-    // schemas (rewritten per turn — the actual prompt is never persisted).
-    // Measured: minimal sessions' used minus history ≈ 3.8k tokens for the
-    // base tool set (verified against 'Greeting' 3838 and 'Echo Test' 3826).
-    let sys = 3_800i64;
+    //
+    // Segment source: the newest usage row carries the REAL per-part break-
+    // down measured when that request was built (what we actually sent)
+    // rather than a hardcoded system estimate. Legacy rows (no breakdown)
+    // keep the old char-estimate path.
+    let (sys, conv, files) = match usage_breakdown(db, session_id).await {
+        Some((s, c, f)) => (s, c, f),
+        None => {
+            let (conv, files) = context_breakdown(db, session_id).await;
+            (3_800i64, conv, files)
+        }
+    };
     let used = match last_call_tokens(db, session_id).await {
         Some((input, _)) => input,
         None => sys + conv + files,
     };
     let est_total = sys + conv + files;
-    // The ring must visually equal used/limit: the char-estimates are only a
-    // COMPOSITION signal (they overshoot the provider's tokenizer on JSON
-    // overhead etc.), so scale them onto the exact provider-counted `used`.
+    // The ring must visually equal used/limit: the recorded breakdown is a
+    // chars/4 proxy (it can drift from the provider's exact tokenizer on JSON
+    // overhead etc.), so scale it onto the exact provider-counted `used`.
     // Legacy fallback (used == est_total) keeps the estimates as-is.
     let segments = scale_to_used(est_total, used, &[sys, files, conv]);
     let percent = ((used as f64 / limit as f64) * 100.0).floor() as i64;
@@ -613,7 +643,7 @@ pub async fn get_session_stats(
     Ok(build_session_stats(&state.db, &session_id, working_dir.as_deref(), Some(limit)).await)
 }#[cfg(test)]
 mod tests {
-    use super::{breakdown_from_rows, scale_to_used};
+    use super::{breakdown_from_rows, build_session_stats, scale_to_used, usage_breakdown};
 
     #[test]
     fn scale_maps_estimates_onto_exact_used() {
@@ -685,5 +715,90 @@ mod tests {
         ];
         let (conv, files) = breakdown_from_rows(&rows);
         assert_eq!((conv, files), (0, 0));
+    }
+
+    #[tokio::test]
+    async fn recorded_breakdown_wins_over_estimates() {
+        let pool = crate::db::init_db(":memory:").await.unwrap();
+        sqlx::query("INSERT INTO sessions (id, name, created_at, updated_at) VALUES (?, ?, ?, ?)")
+            .bind("s1")
+            .bind("test")
+            .bind("2026-01-01T00:00:00Z")
+            .bind("2026-01-01T00:00:00Z")
+            .execute(&pool)
+            .await
+            .unwrap();
+        // Legacy usage row (no breakdown) then a modern one with the real
+        // per-part measurement recorded by the agentic loop.
+        sqlx::query(
+            "INSERT INTO session_usage (id, session_id, model, provider, input_tokens, output_tokens, cost_usd) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        )
+        .bind(uuid::Uuid::new_v4().to_string())
+        .bind("s1")
+        .bind("m")
+        .bind("p")
+        .bind(1_000i64)
+        .bind(10i64)
+        .bind(0f64)
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO session_usage (id, session_id, model, provider, input_tokens, output_tokens, cost_usd, system_tokens, conversation_tokens, files_tokens) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        )
+        .bind(uuid::Uuid::new_v4().to_string())
+        .bind("s1")
+        .bind("m")
+        .bind("p")
+        .bind(4_200i64)
+        .bind(50i64)
+        .bind(0f64)
+        .bind(4_100i64)
+        .bind(0i64)
+        .bind(99i64)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let parts = usage_breakdown(&pool, "s1").await;
+        assert_eq!(parts, Some((4_100, 0, 99)), "newest recorded row wins");
+
+        // build_session_stats must show the RECORDED system bucket (4.1k),
+        // not the hardcoded 3.8k estimate, and used = the provider's count.
+        let stats = build_session_stats(&pool, "s1", None, Some(100_000)).await;
+        assert_eq!(stats.context.used, 4_200);
+        // Recorded system bucket (4.1k) wins over the hardcoded 3.8k
+        // estimate; the ≤1-token scale drift onto used is rounding.
+        assert!((stats.context.segments[0].tokens - 4_100).abs() <= 2);
+        assert!((stats.context.segments[1].tokens - 99).abs() <= 2); // files
+        assert_eq!(stats.context.segments[2].tokens, 0); // conversation
+        assert_eq!(stats.context.percent, 4);
+    }
+
+    #[tokio::test]
+    async fn no_usage_falls_back_to_estimates() {
+        let pool = crate::db::init_db(":memory:").await.unwrap();
+        sqlx::query("INSERT INTO sessions (id, name, created_at, updated_at) VALUES (?, ?, ?, ?)")
+            .bind("s2")
+            .bind("legacy")
+            .bind("2026-01-01T00:00:00Z")
+            .bind("2026-01-01T00:00:00Z")
+            .execute(&pool)
+            .await
+            .unwrap();
+        // A session with messages but NO usage rows (pre-telemetry): the
+        // estimate path (system 3.8k + char-estimates) must kick in.
+        sqlx::query("INSERT INTO messages (id, session_id, role, content, timestamp) VALUES (?, ?, ?, ?, ?)")
+            .bind(uuid::Uuid::new_v4().to_string())
+            .bind("s2")
+            .bind("user")
+            .bind(serde_json::json!("a fairly long user prompt with some words to count").to_string())
+            .bind("2026-01-01T00:00:00Z")
+            .execute(&pool)
+            .await
+            .unwrap();
+        let stats = build_session_stats(&pool, "s2", None, Some(100_000)).await;
+        assert_eq!(stats.context.segments[0].tokens, 3_800); // estimate fallback
+        assert_eq!(stats.context.used, 3_800 + stats.context.segments[1].tokens + stats.context.segments[2].tokens);
     }
 }
