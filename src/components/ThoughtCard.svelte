@@ -4,7 +4,7 @@
 
   // Design thought card (`Pragma UI Kit.dc.html` → buildBlock kind 'thought'):
   // bordered slot-tinted card with a left rail, mono uppercase title, collapse
-  // chevron + grid-rows body, shimmer streaming title, thinkGlow while live.
+  // chevron + grid-rows body, shimmer streaming title.
   // Rendered from the live `thinking` agent event (streaming until sealed) and
   // from historical thinking/reasoning blocks (never streaming).
   let {
@@ -57,10 +57,8 @@
     transition: border-color 0.3s ease, background 0.3s ease;
     animation: blockIn 0.34s cubic-bezier(0.22, 0.8, 0.3, 1) both;
   }
-  /* Streaming: breathing glow around the card. */
   .thought-card.streaming {
-    animation: blockIn 0.34s cubic-bezier(0.22, 0.8, 0.3, 1) both,
-      thinkGlow 2.2s ease-in-out infinite;
+    animation: blockIn 0.34s cubic-bezier(0.22, 0.8, 0.3, 1) both;
   }
   .rail {
     position: absolute;

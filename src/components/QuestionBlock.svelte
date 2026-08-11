@@ -5,7 +5,7 @@
   // 'question'): rendered from both the live `question` agent event (picking
   // calls answerQuestion → resumes the paused loop) and from a persisted
   // ask_question tool_use in a completed message (answer recovered from
-  // "User answered: …"). Pending = warning border + thinkGlow + numbered
+  // "User answered: …"). Pending = warning border + numbered
   // chips + hint; answered = success icon + answer pill + subtle border.
   let {
     text,
@@ -94,7 +94,7 @@
 </div>
 
 <style>
-  /* Design: warning-bordered card while pending (thinkGlow), success-pill "run
+  /* Design: warning-bordered card while pending, success-pill "run
      paused / Answered" header, mono label, numbered pill chips. */
   .question {
     background: var(--bg-elevated);
@@ -107,10 +107,10 @@
     transition: border-color 0.35s ease;
     animation: bubbleIn 0.34s cubic-bezier(0.22, 0.8, 0.3, 1) both;
   }
-  /* Pending: breathing warning glow; answered: quiet subtle border. */
+  /* Pending: warning-bordered card (entrance only); answered: quiet subtle
+     border. */
   .question.pending {
-    animation: bubbleIn 0.34s cubic-bezier(0.22, 0.8, 0.3, 1) both,
-      thinkGlow 2.4s ease-in-out infinite;
+    animation: bubbleIn 0.34s cubic-bezier(0.22, 0.8, 0.3, 1) both;
   }
   .question.answered {
     border-color: var(--border-subtle);

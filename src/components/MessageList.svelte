@@ -384,7 +384,7 @@
     animation: cursorblink 1s step-start infinite;
   }
 
-  /* Live indicator — design: thinkGlow bubble, icon + mono label + bounce
+  /* Live indicator — design: bubble, icon + mono label + bounce
      dots (except while waiting for the user) + elapsed + Stop. */
   .indicator {
     display: flex;
@@ -395,8 +395,7 @@
     border-radius: 5px 16px 16px 16px;
     padding: 7px 12px 7px 11px;
     align-self: flex-start;
-    animation: bubbleIn 0.3s cubic-bezier(0.22, 0.8, 0.3, 1) both,
-      thinkGlow 2.4s ease-in-out infinite;
+    animation: bubbleIn 0.3s cubic-bezier(0.22, 0.8, 0.3, 1) both;
     transition: border-color 0.3s ease;
     max-width: 100%;
   }
