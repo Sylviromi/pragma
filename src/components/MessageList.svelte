@@ -10,7 +10,7 @@
   import { pushToast } from '../stores/toast.svelte'
   import { buildAgentTranscript } from '../lib/transcript'
   import { messageText, isToolResultTurn, parseContent } from '../lib/types'
-  import { renderMarkdown, segmentsOf } from '../lib/markdown'
+  import TextBubble from './TextBubble.svelte'
   import type { Message, ToolResultBlock } from '../lib/types'
 
   let { sessionId }: { sessionId: string } = $props()
@@ -245,19 +245,7 @@
               streaming={!block.done}
             >{block.text}</ThoughtCard>
           {:else if block.type === 'text'}
-            {@const segs = segmentsOf(block.text)}
-            <div class="live-bubble">
-              {#each segs as seg, si (seg.kind + seg.text.slice(0, 40))}
-                {#if seg.kind === 'prose' && seg.text.trim()}
-                  <div class="md-prose">
-                    {@html renderMarkdown(seg.text)}
-                    {#if running && bi === liveBlocks.length - 1 && si === segs.length - 1}<span class="caret" aria-hidden="true">▌</span>{/if}
-                  </div>
-                {:else if seg.kind === 'code' && seg.text.trim()}
-                  <pre class="live-code">{seg.text.trimEnd()}</pre>
-                {/if}
-              {/each}
-            </div>
+            <TextBubble text={block.text} showCaret={running && bi === liveBlocks.length - 1} />
           {:else if block.type === 'tool'}
             {@const tool = toolItems.find(t => t.toolUseId === block.toolUseId)}
             {#if tool}
@@ -376,39 +364,6 @@
     display: flex;
     flex-direction: column;
     gap: 7px;
-  }
-
-  /* Live text — design text bubble */
-  .live-bubble {
-    background: var(--bg-elevated);
-    border: 1px solid var(--border-subtle);
-    border-radius: 5px 18px 18px 18px;
-    padding: 11px 16px;
-    font-family: var(--font-body);
-    font-size: 14px;
-    color: var(--text-primary);
-    line-height: 1.55;
-    white-space: pre-wrap;
-    overflow-wrap: anywhere;
-    animation: blockIn 0.32s cubic-bezier(0.22, 0.8, 0.3, 1) both;
-  }
-  .caret {
-    color: var(--accent);
-    animation: cursorblink 1s step-start infinite;
-  }
-  /* Streamed fenced code inside the live bubble (mirrors .code-block). */
-  .live-code {
-    margin: 0;
-    margin-top: 10px;
-    background: var(--bg-base);
-    border: 1px solid var(--border-default);
-    border-radius: var(--radius-sm);
-    padding: 12px 14px;
-    font-family: var(--font-mono);
-    font-size: 12.5px;
-    color: var(--text-secondary);
-    white-space: pre;
-    overflow-x: auto;
   }
 
   /* Live indicator — design: bubble, icon + mono label + bounce

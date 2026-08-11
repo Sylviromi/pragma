@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { renderMarkdown, segmentsOf } from './markdown'
+import { renderMarkdown, segmentsOf, tidy } from './markdown'
 
 describe('renderMarkdown', () => {
   it('renders basic markdown', () => {
@@ -53,5 +53,13 @@ describe('segmentsOf', () => {
   it('falls back to a single prose segment for plain text', () => {
     expect(segmentsOf('just text').map((s) => s.kind)).toEqual(['prose'])
     expect(segmentsOf('')).toEqual([])
+  })
+})
+
+describe('tidy', () => {
+  it('strips trailing whitespace but keeps the body', () => {
+    expect(tidy('hello\n\n')).toBe('hello')
+    expect(tidy('code  ')).toBe('code')
+    expect(tidy('')).toBe('')
   })
 })

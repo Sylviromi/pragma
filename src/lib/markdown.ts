@@ -63,7 +63,7 @@ function buildMarkdownHtml(prose: string): string {
 /** Split prose from fenced code blocks so code renders as a styled block and
  *  prose goes through renderMarkdown. Shared by ChatMessage (persisted turns)
  *  and MessageList (streaming live bubbles). */
-export interface Segment { kind: 'prose' | 'code'; text: string }
+export type Segment = { kind: 'prose' | 'code'; text: string }
 export function segmentsOf(text: string): Segment[] {
   const re = /```(\w*)\n?([\s\S]*?)```/g
   const out: Segment[] = []
@@ -77,4 +77,12 @@ export function segmentsOf(text: string): Segment[] {
   if (last < text.length) out.push({ kind: 'prose', text: text.slice(last) })
   if (out.length === 0 && text.trim()) out.push({ kind: 'prose', text })
   return out
+}
+
+/** Trim trailing whitespace/newlines before display — stored text often ends
+ *  with a stray newline which pre-wrap would render as an extra empty line
+ *  inside the bubble. Shared so streaming and finished bubbles treat text
+ *  identically. */
+export function tidy(s: string): string {
+  return s.replace(/\s+$/, '')
 }

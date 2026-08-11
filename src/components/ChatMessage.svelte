@@ -1,11 +1,11 @@
 <script lang="ts">
   import { isToolResultTurn, parseContent, textBlocks } from '../lib/types'
   import type { ContentBlock, Message, ToolUseBlock, TextBlock } from '../lib/types'
-  import { renderMarkdown, segmentsOf } from '../lib/markdown'
+  import { tidy } from '../lib/markdown'
+  import TextBubble from './TextBubble.svelte'
   import ToolCard from './ToolCard.svelte'
   import QuestionBlock from './QuestionBlock.svelte'
   import ThoughtCard from './ThoughtCard.svelte'
-  import Icon from './Icon.svelte'
 
   let {
     message,
@@ -29,10 +29,6 @@
   // Trim trailing whitespace/newlines from text before display — the stored
   // text often ends with a stray newline, which pre-wrap would render as an
   // extra empty line inside the bubble.
-  function tidy(s: string | null | undefined): string {
-    return (s ?? '').replace(/\s+$/, '')
-  }
-
   // Recover the picked option from an ask_question tool result (the loop
   // writes "User answered: <option>"; timeouts get a different message).
   function questionAnswer(out: string | undefined): string | null {
@@ -57,12 +53,6 @@
     e.preventDefault()
     onContextMenu?.(e)
   }
-
-  async function copyCode(code: string) {
-    try {
-      await navigator.clipboard.writeText(code)
-    } catch { /* clipboard unavailable */ }
-  }
 </script>
 
 {#if !isToolResultMsg && (isUser ? !!userText : true)}
@@ -82,26 +72,7 @@
           {#each blocks as block}
             {#if block.type === 'text' && (block as TextBlock).text.trim()}
               {@const b = block as TextBlock}
-              {@const segs = segmentsOf(tidy(b.text))}
-              {#if segs.length > 0}
-                <div class="text-bubble">
-                  {#each segs as seg (seg.kind + seg.text.slice(0, 40))}
-                    {#if seg.kind === 'prose' && seg.text.trim()}
-                      <div class="md-prose">{@html renderMarkdown(seg.text)}</div>
-                    {:else if seg.kind === 'code' && seg.text.trim()}
-                      <div class="code-block">
-                        <button
-                          class="copy"
-                          aria-label="Copy code"
-                          title="Copy code"
-                          onclick={() => copyCode(seg.text)}
-                        ><Icon name="content_copy" size={14} /></button>
-                        <pre>{seg.text.trimEnd()}</pre>
-                      </div>
-                    {/if}
-                  {/each}
-                </div>
-              {/if}
+              <TextBubble text={b.text} />
             {:else if block.type === 'reasoning' && tidy(block.content)}
               <ThoughtCard title="Thought process">{tidy(block.content)}</ThoughtCard>
             {:else if block.type === 'thinking' && tidy(block.thinking)}
@@ -130,7 +101,7 @@
             {/if}
           {/each}
         {:else if typeof content === 'string' && content.trim()}
-          <div class="text-bubble"><p>{tidy(content)}</p></div>
+          <TextBubble text={content} />
         {/if}
 
         {#if message.model}
@@ -208,54 +179,6 @@
     display: flex;
     flex-direction: column;
     gap: 7px;
-  }
-
-  /* Text block: elevated bubble, asymmetric radius, prose + inline code. */
-  .text-bubble {
-    background: var(--bg-elevated);
-    border: 1px solid var(--border-subtle);
-    border-radius: 5px 18px 18px 18px;
-    padding: 11px 16px;
-    font-family: var(--font-body);
-    font-size: 14px;
-    color: var(--text-primary);
-    line-height: 1.55;
-  }
-  .text-bubble p {
-    margin: 0;
-    white-space: pre-wrap;
-    overflow-wrap: anywhere;
-  }
-  .code-block {
-    position: relative;
-    margin-top: 10px;
-    background: var(--bg-base);
-    border: 1px solid var(--border-default);
-    border-radius: var(--radius-sm);
-    padding: 12px 14px;
-    font-family: var(--font-mono);
-    font-size: 12.5px;
-    color: var(--text-secondary);
-  }
-  .code-block pre {
-    margin: 0;
-    white-space: pre;
-    overflow-x: auto;
-  }
-  .copy {
-    position: absolute;
-    top: 6px;
-    right: 6px;
-    background: var(--bg-overlay);
-    border: 1px solid var(--border-default);
-    border-radius: 2px;
-    color: var(--text-muted);
-    cursor: pointer;
-    padding: 3px;
-    display: flex;
-  }
-  .copy:hover {
-    color: var(--text-primary);
   }
 
   /* Meta: model · tokens · duration (design mono caption) */
