@@ -30,8 +30,8 @@ WEBKIT_DISABLE_COMPOSITING_MODE=1 WEBKIT_DISABLE_DMABUF_RENDERER=1 npm run tauri
 
 ## Tools available to the agent
 
-- File ops: `read_file`, `write_file`, `patch_file`, `create_directory`, `delete_file`,
-  `move_file`, `list_files`, `search_files`
+- File ops: `read_file`, `write_file`, `edit_file`, `delete_file`, `list_files`,
+  `search_files`
 - Shell: `run_command`
 - Git: `git_status`, `git_diff`, `git_log`, `git_add`, `git_commit`
 - Web: `web_search` (DuckDuckGo Lite, no key), `fetch_url`
