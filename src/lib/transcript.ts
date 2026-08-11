@@ -95,7 +95,7 @@ export function buildAgentTranscript(messages: Message[], toId: string): string 
 }
 
 // Keep the transcript digestible: elide any string field over 200 chars in a
-// tool input (e.g. write_file's `content`, patch_file's `diff`) instead of
+// tool input (e.g. write_file's `content`) instead of
 // pasting the payload verbatim, and cap the single-line JSON size.
 function compactInput(input: Record<string, unknown>): string {
   const slim: Record<string, unknown> = {}

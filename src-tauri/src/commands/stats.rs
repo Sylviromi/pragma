@@ -207,51 +207,17 @@ pub async fn record_tool_touch(
     input: &serde_json::Value,
 ) -> Result<(), String> {
     let (kind, path, added, removed): (&str, String, Option<i64>, Option<i64>) = match tool_name {
-        "write_file" => {
+        "write_file" | "edit_file" => {
             let path = input["path"].as_str().unwrap_or("").to_string();
             let content = input["content"].as_str().unwrap_or("");
             let n = content.lines().count().max(1) as i64;
             ("edited", path, Some(n), Some(0))
-        }
-        "patch_file" => {
-            let path = input["path"].as_str().unwrap_or("").to_string();
-            let mut add = 0i64;
-            let mut rem = 0i64;
-            // The tool's schema key is "diff" (unified patch text).
-            if let Some(patch) = input["diff"].as_str() {
-                for line in patch.lines() {
-                    let l = line.trim_start();
-                    if l.starts_with("+") && !l.starts_with("+++") {
-                        add += 1;
-                    } else if l.starts_with("-") && !l.starts_with("---") {
-                        rem += 1;
-                    }
-                }
-            }
-            ("edited", path, Some(add), Some(rem))
         }
         "delete_file" => (
             "deleted",
             input["path"].as_str().unwrap_or("").to_string(),
             Some(0),
             Some(0),
-        ),
-        "move_file" => (
-            "edited",
-            input["dest"]
-                .as_str()
-                .or_else(|| input["to"].as_str())
-                .or_else(|| input["destination"].as_str())
-                .unwrap_or("")
-                .to_string(),
-            Some(1),
-            Some(1),
-        ),
-        "create_directory" | "create_dir" => (
-            "created",
-            input["path"].as_str().unwrap_or("").to_string(),
-            Some(0),
-            None,
         ),
         "read_file" => ("read", input["path"].as_str().unwrap_or("").to_string(), None, None),
         "search_files" => ("read", input["pattern"].as_str().unwrap_or("").to_string(), None, None),

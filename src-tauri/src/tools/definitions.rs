@@ -33,7 +33,7 @@ pub fn core_tools() -> Vec<ToolDefinition> {
         },
         ToolDefinition {
             name: "edit_file".into(),
-            description: "Replace a range of lines in a file. Use the line numbers from read_file output. Preferred over patch_file — no diff format needed, just the new code. Pass the hash from the read_file header to verify the file hasn't changed since you read it.".into(),
+            description: "Replace a range of lines in a file. Use the line numbers from read_file output — no diff format needed, just the new code. Pass the hash from the read_file header to verify the file hasn't changed since you read it.".into(),
             input_schema: serde_json::json!({
                 "type": "object",
                 "properties": {
@@ -47,29 +47,6 @@ pub fn core_tools() -> Vec<ToolDefinition> {
             }),
         },
         ToolDefinition {
-            name: "patch_file".into(),
-            description: "Apply a unified diff to a file. Use this for targeted edits without rewriting the whole file. The diff must be exact: `--- a/<path>` and `+++ b/<path>` headers, then one or more `@@ -start,count +start,count @@` hunks whose line numbers, counts, and space-prefixed context lines match the current file verbatim. There is no fuzzy matching — any mismatch fails the whole patch. Read the file first to pin exact positions. Use write_file for full rewrites.".into(),
-            input_schema: serde_json::json!({
-                "type": "object",
-                "properties": {
-                    "path": { "type": "string", "description": "File path relative to working directory" },
-                    "diff": { "type": "string", "description": "Unified diff string: `--- a/<path>` / `+++ b/<path>` headers then `@@ -start,count +start,count @@` hunks. Prefix removed lines with '-', added lines with '+', context with a space. Line numbers, counts, and context must match the file exactly — no fuzzy matching." }
-                },
-                "required": ["path", "diff"]
-            }),
-        },
-        ToolDefinition {
-            name: "create_directory".into(),
-            description: "Create a directory and any missing parent directories.".into(),
-            input_schema: serde_json::json!({
-                "type": "object",
-                "properties": {
-                    "path": { "type": "string", "description": "Directory path relative to working directory" }
-                },
-                "required": ["path"]
-            }),
-        },
-        ToolDefinition {
             name: "delete_file".into(),
             description: "Delete a file. Does not delete directories. Fails if the path does not exist.".into(),
             input_schema: serde_json::json!({
@@ -78,18 +55,6 @@ pub fn core_tools() -> Vec<ToolDefinition> {
                     "path": { "type": "string", "description": "File path relative to working directory" }
                 },
                 "required": ["path"]
-            }),
-        },
-        ToolDefinition {
-            name: "move_file".into(),
-            description: "Move or rename a file or directory.".into(),
-            input_schema: serde_json::json!({
-                "type": "object",
-                "properties": {
-                    "src": { "type": "string", "description": "Source path relative to working directory" },
-                    "dest": { "type": "string", "description": "Destination path relative to working directory" }
-                },
-                "required": ["src", "dest"]
             }),
         },
         ToolDefinition {
@@ -358,12 +323,12 @@ mod tests {
     #[test]
     fn test_expected_tool_count() {
         // Ensures no tools are accidentally dropped when editing
-        assert_eq!(core_tools().len(), 13, "core: file ops + shell + load_skill + change_directory + ask_question");
+        assert_eq!(core_tools().len(), 10, "core: file ops + shell + load_skill + change_directory + ask_question");
         let skill_sets = skill_tools();
         assert_eq!(skill_sets.len(), 2, "git + web");
         let total: usize = skill_sets.iter().map(|(_, t)| t.len()).sum();
         assert_eq!(total, 7, "git(5) + web(2)");
-        assert_eq!(standard_tools().len(), 20);
+        assert_eq!(standard_tools().len(), 17);
     }
 
     #[test]

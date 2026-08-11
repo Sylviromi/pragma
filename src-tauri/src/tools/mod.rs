@@ -54,10 +54,7 @@ impl ToolExecutor {
             "read_file" => self.execute_read(input),
             "write_file" => self.execute_write(input),
             "edit_file" => self.execute_edit(input),
-            "patch_file" => self.execute_patch(input),
-            "create_directory" => file_ops::create_directory(&self.working_dir, input),
             "delete_file" => file_ops::delete_file(&self.working_dir, input),
-            "move_file" => file_ops::move_file(&self.working_dir, input),
             "list_files" => file_ops::list_files(&self.working_dir, input),
             "search_files" => file_ops::search_files(&self.working_dir, input),
             // shell
@@ -138,9 +135,10 @@ impl ToolExecutor {
         Ok(d.text)
     }
 
-    /// The partial-view gate shared by every content-rewriting tool (write_file,
-    /// patch_file): never touch a file the model has only partly seen — name
-    /// the recovery instead. Returns the full path when the gate passes.
+    /// The partial-view gate shared by every content-rewriting tool
+    /// (write_file, edit_file): never touch a file the model has only partly
+    /// seen — name the recovery instead. Returns the full path when the gate
+    /// passes.
     fn gate_seen_write(&self, path: &str) -> Result<Option<PathBuf>, String> {
         let (Some(session_id), Some(ledger)) = (&self.session_id, &self.ledger) else {
             return Ok(None); // no ledger → no gate
@@ -205,24 +203,6 @@ impl ToolExecutor {
             Err(denied) => return Ok(denied),
         };
         let r = file_ops::edit_file(&self.working_dir, input);
-        if let Some(f) = full {
-            self.clear_seen(&f);
-        }
-        r
-    }
-
-    /// patch_file with the same gate: a hunk applied over unseen content is
-    /// as blind as an overwrite.
-    fn execute_patch(&self, input: &serde_json::Value) -> Result<String, String> {
-        let (Some(_), Some(_)) = (&self.session_id, &self.ledger) else {
-            return file_ops::patch_file(&self.working_dir, input);
-        };
-        let path = input["path"].as_str().ok_or("missing path")?;
-        let full = match self.gate_seen_write(path) {
-            Ok(f) => f,
-            Err(denied) => return Ok(denied),
-        };
-        let r = file_ops::patch_file(&self.working_dir, input);
         if let Some(f) = full {
             self.clear_seen(&f);
         }
@@ -360,20 +340,19 @@ mod tests {
     }
 
     #[test]
-    fn test_patch_gate_denies_partial_overwrite() {
+    fn test_edit_gate_denies_partial_overwrite() {
         let dir = tempdir().unwrap();
         let content = (1..=4000).map(|i| format!("line {i}")).collect::<Vec<_>>().join("\n");
         fs::write(dir.path().join("big.rs"), &content).unwrap();
         let (ex, _) = ledger_executor(dir.path(), "s9");
         ex.execute("read_file", &serde_json::json!({"path":"big.rs"})).unwrap(); // head only
-        let diff = "@@ -3000,1 +3000,1 @@\n-line 3000\n+CHANGED\n";
-        let deny = ex.execute("patch_file", &serde_json::json!({"path":"big.rs","diff":diff})).unwrap();
-        assert!(deny.contains("write denied") && deny.contains("offset=2001"), "patch gated: {deny}");
+        let deny = ex.execute("edit_file", &serde_json::json!({"path":"big.rs","start_line":3000,"end_line":3000,"content":"CHANGED"})).unwrap();
+        assert!(deny.contains("write denied") && deny.contains("offset=2001"), "edit gated: {deny}");
         assert_eq!(fs::read_to_string(dir.path().join("big.rs")).unwrap(), content, "file untouched");
-        // Read the rest → the same patch applies.
+        // Read the rest → the same edit applies.
         ex.execute("read_file", &serde_json::json!({"path":"big.rs","offset":2001,"limit":3000})).unwrap();
-        let ok = ex.execute("patch_file", &serde_json::json!({"path":"big.rs","diff":diff})).unwrap();
-        assert!(ok.contains("patched"), "patch after full read: {ok}");
+        let ok = ex.execute("edit_file", &serde_json::json!({"path":"big.rs","start_line":3000,"end_line":3000,"content":"CHANGED"})).unwrap();
+        assert!(ok.contains("edited"), "edit after full read: {ok}");
         assert!(fs::read_to_string(dir.path().join("big.rs")).unwrap().contains("CHANGED"));
     }
 

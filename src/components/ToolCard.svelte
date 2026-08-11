@@ -44,12 +44,10 @@
       case 'run_command':    return `$ ${s('command')}`
       case 'read_file':      return s('path')
       case 'write_file':     return s('path')
-      case 'patch_file':     return s('path')
+      case 'edit_file':      return `${s('start_line')}..${s('end_line')} ${s('path')}`
       case 'list_files':     return s('path') || '.'
       case 'search_files':   return `"${s('pattern')}" in ${s('path') || '.'}`
-      case 'create_directory': return s('path')
       case 'delete_file':    return s('path')
-      case 'move_file':      return `${s('src')} → ${s('dest')}`
       case 'git_add':        return Array.isArray(input.paths) ? (input.paths as string[]).join(' ') : (s('paths') || '.')
       case 'git_commit':     return s('message')
       case 'git_diff':       return s('path') || 'staged'

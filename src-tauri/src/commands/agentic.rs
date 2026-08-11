@@ -20,8 +20,8 @@ use uuid::Uuid;
 /// plugin sidecar tools (incl. reload-style tools), ask_question (control
 /// flow), and change_directory (the fix).
 const PATH_GATED_TOOLS: &[&str] = &[
-    "read_file", "write_file", "patch_file", "create_directory", "delete_file",
-    "move_file", "list_files", "search_files", "run_command",
+    "read_file", "write_file", "edit_file", "delete_file",
+    "list_files", "search_files", "run_command",
     "git_status", "git_diff", "git_log", "git_add", "git_commit",
 ];
 
@@ -548,7 +548,7 @@ You converse with the user in turns. In each turn you can write text and call to
 ## Mandatory workflow\n\
 1. **Understand first — never guess.** Read the relevant files before editing. Never assume file contents, line numbers, or APIs; verify with read_file / search_files / list_files.\n\
 2. **Plan the minimal change.** Make the smallest set of edits that fully satisfies the request. No scope creep, no unsolicited refactoring, no extra features.\n\
-3. **Edit precisely.** edit_file for targeted edits (specify the line range from read_file and the replacement code — no diff format needed); patch_file for complex multi-hunk changes when you need to edit several disjoint sections at once; write_file for new files or full rewrites.\n\
+3. **Edit precisely.** edit_file for targeted edits (specify the line range from read_file and the replacement code — no diff format needed); write_file for new files or full rewrites (both create parent directories automatically). Move/rename: run `mv` via run_command.\n\
 4. **Verify.** After changing code, run the project's checks (cargo check / cargo test / npm run check / npm run test) and fix any failures before declaring done.\n\
 5. **Summarize.** Finish with a concise summary of what you changed and why.\n\
 \n\
@@ -1967,8 +1967,8 @@ mod tests {
     }
     #[test]
     fn path_tools_are_gated_without_wd() {
-        for t in ["read_file", "write_file", "patch_file", "create_directory", "delete_file",
-                  "move_file", "list_files", "search_files", "run_command",
+        for t in ["read_file", "write_file", "edit_file", "delete_file",
+                  "list_files", "search_files", "run_command",
                   "git_status", "git_diff", "git_log", "git_add", "git_commit"] {
             assert!(path_gated(t, false), "{t} must be gated without a working dir");
         }

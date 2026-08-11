@@ -4,7 +4,7 @@ use sqlx::SqlitePool;
 use std::path::{Path, PathBuf};
 
 /// File tools whose effects can be rolled back via the snapshot journal.
-pub const MUTATING_FILE_TOOLS: [&str; 5] = ["write_file", "edit_file", "patch_file", "delete_file", "move_file"];
+pub const MUTATING_FILE_TOOLS: [&str; 3] = ["write_file", "edit_file", "delete_file"];
 
 pub fn is_mutating_file_tool(name: &str) -> bool {
     MUTATING_FILE_TOOLS.contains(&name)
@@ -49,22 +49,10 @@ pub async fn record_snapshot(
     };
 
     let (path, content, existed, extra) = match tool_name {
-        "write_file" | "patch_file" | "delete_file" => {
+        "write_file" | "edit_file" | "delete_file" => {
             let rel = input["path"].as_str().unwrap_or("");
             let (c, e) = read_opt(rel);
             (wd.join(rel).display().to_string(), c, e, serde_json::json!({}))
-        }
-        "move_file" => {
-            let src = input["src"].as_str().unwrap_or("");
-            let dest = input["dest"].as_str().unwrap_or("");
-            let (src_c, src_e) = read_opt(src);
-            let (dest_c, dest_e) = read_opt(dest);
-            let extra = serde_json::json!({
-                "dest": wd.join(dest).display().to_string(),
-                "dest_content": dest_c,
-                "dest_existed": dest_e,
-            });
-            (wd.join(src).display().to_string(), src_c, src_e, extra)
         }
         _ => return Ok(()),
     };
@@ -149,7 +137,7 @@ fn write_with_dirs(p: &Path, content: &str) -> Result<(), String> {
 fn restore_snapshot(snap: &SnapshotRow) -> Result<Vec<String>, String> {
     let mut touched = Vec::new();
     match snap.tool_name.as_str() {
-        "write_file" | "patch_file" | "delete_file" => {
+        "write_file" | "edit_file" | "delete_file" => {
             let p = PathBuf::from(&snap.path);
             if snap.existed_before == 1 {
                 write_with_dirs(&p, &snap.content_before)?;
@@ -157,25 +145,6 @@ fn restore_snapshot(snap: &SnapshotRow) -> Result<Vec<String>, String> {
                 let _ = std::fs::remove_file(&p);
             }
             touched.push(snap.path.clone());
-        }
-        "move_file" => {
-            let extra: serde_json::Value =
-                serde_json::from_str(&snap.extra_before).unwrap_or(serde_json::Value::Null);
-            let src = PathBuf::from(&snap.path);
-            if snap.existed_before == 1 {
-                write_with_dirs(&src, &snap.content_before)?;
-                touched.push(snap.path.clone());
-            }
-            if let Some(dest) = extra.get("dest").and_then(|v| v.as_str()) {
-                let dest_p = PathBuf::from(dest);
-                if extra.get("dest_existed").and_then(|v| v.as_i64()).unwrap_or(0) == 1 {
-                    let dc = extra.get("dest_content").and_then(|v| v.as_str()).unwrap_or("");
-                    write_with_dirs(&dest_p, dc)?;
-                } else {
-                    let _ = std::fs::remove_file(&dest_p);
-                }
-                touched.push(dest.to_string());
-            }
         }
         _ => {}
     }
@@ -437,9 +406,8 @@ mod tests {
     #[test]
     fn is_mutating_tool_whitelist() {
         assert!(is_mutating_file_tool("write_file"));
-        assert!(is_mutating_file_tool("patch_file"));
+        assert!(is_mutating_file_tool("edit_file"));
         assert!(is_mutating_file_tool("delete_file"));
-        assert!(is_mutating_file_tool("move_file"));
         assert!(!is_mutating_file_tool("read_file"));
         assert!(!is_mutating_file_tool("run_command"));
     }
@@ -476,28 +444,4 @@ mod tests {
         assert!(!p2.exists());
     }
 
-    #[test]
-    fn restore_move_reverts_both_ends() {
-        let dir = tempfile::tempdir().unwrap();
-        let src = dir.path().join("a.txt");
-        let dest = dir.path().join("b.txt");
-        std::fs::write(&src, "A-content").unwrap();
-        std::fs::rename(&src, &dest).unwrap();
-
-        let snap = SnapshotRow {
-            tool_name: "move_file".into(),
-            path: src.display().to_string(),
-            content_before: "A-content".into(),
-            existed_before: 1,
-            extra_before: serde_json::json!({
-                "dest": dest.display().to_string(),
-                "dest_content": "",
-                "dest_existed": false,
-            })
-            .to_string(),
-        };
-        restore_snapshot(&snap).unwrap();
-        assert_eq!(std::fs::read_to_string(&src).unwrap(), "A-content");
-        assert!(!dest.exists());
-    }
 }
