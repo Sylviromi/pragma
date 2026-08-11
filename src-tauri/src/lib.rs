@@ -195,6 +195,8 @@ pub fn run() {
             commands::plugins::set_plugin_config,
             commands::plugins::request_plugin_confirmation,
             commands::plugins::respond_plugin_confirmation,
+            commands::skills::skill_sidecar_status,
+            commands::skills::call_skill_tool,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

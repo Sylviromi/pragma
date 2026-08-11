@@ -1,0 +1,12 @@
+{
+  "id": "pragma-dev",
+  "name": "Pragma Dev",
+  "version": "2.0.0",
+  "description": "First-party development plugin for working on Pragma from within itself: build/verify tools (dev server, checks, tests), convention verifiers, and a live status-bar widget. Load when working on the Pragma codebase.",
+  "contributes": {
+    "providers": [],
+    "slots": ["status-bar"],
+    "commands": [],
+    "skills": []
+  }
+}

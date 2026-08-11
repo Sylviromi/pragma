@@ -1,15 +1,25 @@
 <script lang="ts">
   import SlotStack from './SlotStack.svelte'
   import { pluginsForSlot } from '../stores/plugins.svelte'
+  import { sessions } from '../stores/sessions.svelte'
 
   // Render only when a plugin actually claims the `status-bar` slot — the
   // design keeps this strip (handsfree progress, etc.) hidden otherwise.
   const apps = $derived(pluginsForSlot('status-bar'))
+
+  // Give status-bar plugins the active session's working directory as slot
+  // context (empty when none) — widgets like pragma-dev use it to find the
+  // repo without extra plumbing.
+  const activeWorkingDir = $derived(
+    sessions.activeTabId
+      ? sessions.list.find((s) => s.id === sessions.activeTabId)?.workingDir ?? ''
+      : ''
+  )
 </script>
 
 {#if apps.length > 0}
   <div class="status-bar" role="status">
-    <SlotStack slot="status-bar" />
+    <SlotStack slot="status-bar" context={activeWorkingDir} />
   </div>
 {/if}
 

@@ -1,0 +1,182 @@
+[
+  {
+    "name": "pd_dev_start",
+    "description": "Start the Pragma dev app as a managed background process. mode 'app' (default) runs `npm run dev:app` — the project's canonical launcher: starts Vite on :1420 if free, runs the app via `cargo run`, and only relaunches on the reload_app code-23 signal (never hot-restarts on Rust edits). mode 'tauri' runs `npm run tauri` (full Tauri dev with auto-reload — mind that it restarts on Rust edits). mode 'vite' runs `npm run dev` (frontend-only). Streams logs into a ring buffer and tracks compile state. You cannot see the app window — verify via pd_dev_status / pd_dev_logs. Idempotent (alreadyRunning). Only one instance can run the dev app; if the user's main app was itself launched via dev:app, a second instance connects to the same Vite and both share the DB — prefer reload_app when Rust changes must land in the running app.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "mode": {
+          "type": "string",
+          "enum": ["app", "tauri", "vite"],
+          "description": "Which launcher to run (default app)"
+        },
+        "dir": {
+          "type": "string",
+          "description": "Repo directory (defaults to the session working directory)"
+        }
+      }
+    }
+  },
+  {
+    "name": "pd_dev_status",
+    "description": "Report the managed dev server state: running?, mode, pid, directory, start time, parsed state (starting/compiling/running/error/exited), detected Vite port, error/warning counts, and log-line count.",
+    "inputSchema": { "type": "object", "properties": {} }
+  },
+  {
+    "name": "pd_dev_logs",
+    "description": "Return recent dev server log lines from the ring buffer. filter: 'all' (default), 'errors', 'warnings', or 'vite' (Vite-ready/built/port lines). Use this to inspect compile errors and confirm the build state — the logs are your eyes on the dev build.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "filter": {
+          "type": "string",
+          "enum": ["all", "errors", "warnings", "vite"],
+          "description": "Line filter (default all)"
+        },
+        "limit": {
+          "type": "integer",
+          "description": "Number of lines, default 100, max 2000"
+        }
+      }
+    }
+  },
+  {
+    "name": "pd_dev_stop",
+    "description": "Stop the managed dev server (kills its process group). Idempotent — reports alreadyStopped if nothing is running.",
+    "inputSchema": { "type": "object", "properties": {} }
+  },
+  {
+    "name": "pd_check",
+    "description": "Run the frontend typecheck (`npm run check` — svelte-kit sync + svelte-check) and return parsed errors/warnings (file, line, col, message), a summary, and a raw tail. Fast feedback for Svelte/TS edits. Long-running; honor timeoutSecs.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "dir": {
+          "type": "string",
+          "description": "Repo directory (defaults to the session working directory)"
+        },
+        "timeoutSecs": {
+          "type": "integer",
+          "description": "Timeout in seconds, default 300"
+        }
+      }
+    }
+  },
+  {
+    "name": "pd_cargo_check",
+    "description": "Run `cargo check --message-format=json` in src-tauri and return a clean, grouped list of Rust errors and warnings (file:line:col, code, message) — no full warning wall — plus a raw tail. Much better signal than a raw run_command grep. Generous default timeout (600s) for cold builds.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "dir": {
+          "type": "string",
+          "description": "Repo directory containing src-tauri (defaults to the session working directory)"
+        },
+        "timeoutSecs": {
+          "type": "integer",
+          "description": "Timeout in seconds, default 600"
+        }
+      }
+    }
+  },
+  {
+    "name": "pd_test",
+    "description": "Run the frontend test suite (`npm run test` — vitest run) and return the pass/fail summary plus any failed test names and a raw tail.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "dir": {
+          "type": "string",
+          "description": "Repo directory (defaults to the session working directory)"
+        },
+        "timeoutSecs": {
+          "type": "integer",
+          "description": "Timeout in seconds, default 300"
+        }
+      }
+    }
+  },
+  {
+    "name": "pd_cargo_test",
+    "description": "Run `cargo test` in src-tauri and return the test-result summary, the list of failed test names, failure detail text, and a raw tail. Generous default timeout (900s) because Rust tests compile first.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "dir": {
+          "type": "string",
+          "description": "Repo directory containing src-tauri (defaults to the session working directory)"
+        },
+        "timeoutSecs": {
+          "type": "integer",
+          "description": "Timeout in seconds, default 900"
+        }
+      }
+    }
+  },
+  {
+    "name": "pd_verify_command",
+    "description": "Verify a Tauri command is fully wired per pragma conventions: implementation under src-tauri/src/commands/, `pub mod` in commands/mod.rs, registration in lib.rs generate_handler!, and a wrapper in src/lib/tauri.ts. Returns per-check pass/fail with file:line evidence. Call this after adding a Tauri command.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "The command name (snake_case) to verify"
+        },
+        "dir": {
+          "type": "string",
+          "description": "Repo directory (defaults to the session working directory)"
+        }
+      },
+      "required": ["name"]
+    }
+  },
+  {
+    "name": "pd_verify_tool",
+    "description": "Verify a tool is fully wired per pragma conventions: a ToolDefinition in tools/definitions.rs (core_tools or skill_tools), a dispatch arm in tools/mod.rs (or agentic.rs for inline/session-aware tools), and its SAFE_TOOLS/approval classification in src/stores/chat.svelte.ts (informational). Returns per-check pass/fail with file:line evidence.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "The tool name (snake_case) to verify"
+        },
+        "dir": {
+          "type": "string",
+          "description": "Repo directory (defaults to the session working directory)"
+        }
+      },
+      "required": ["name"]
+    }
+  },
+  {
+    "name": "pd_todo",
+    "description": "Scan the pragma source (src/ and src-tauri/src/) for TODO/FIXME/HACK/XXX markers and return them grouped by file with a count and the matching lines. Useful when scoping work or auditing tech debt.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "dir": {
+          "type": "string",
+          "description": "Repo directory (defaults to the session working directory)"
+        },
+        "limit": {
+          "type": "integer",
+          "description": "Max items to return, default 100"
+        }
+      }
+    }
+  },
+  {
+    "name": "pd_arch",
+    "description": "Dump the current architecture surface of the repo: all registered Tauri commands (parsed from lib.rs generate_handler!), all core tool names (from tools/definitions.rs), frontend components, and routes. Use when you need the authoritative list of commands/tools/components rather than trusting memory.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "dir": {
+          "type": "string",
+          "description": "Repo directory (defaults to the session working directory)"
+        }
+      }
+    }
+  }
+]

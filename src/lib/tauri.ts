@@ -82,6 +82,22 @@ export const readPluginSkill = (id: string) => tauriInvoke<string>('read_plugin_
 export const listSkills = () => mock<SkillInfo[]>(mockSkills, 'list_skills')
 export const openPluginFolder = (id: string) => tauriInvoke<void>('open_plugin_folder', { id })
 
+// ── Plugin skill sidecars ───────────────────────────────────────────────────
+// Bridge for UI widgets to see model-driven skill sidecars and drive their
+// tools (used by the pragma-dev status-bar widget).
+export interface SkillSidecarInfo {
+  skillId: string
+  pid: number
+  running: boolean
+  tools: string[]
+}
+
+export const skillSidecarStatus = (): Promise<SkillSidecarInfo[]> =>
+  isBrowserMock ? Promise.resolve([]) : tauriInvoke<SkillSidecarInfo[]>('skill_sidecar_status')
+
+export const callSkillTool = (skillId: string, name: string, args: Record<string, unknown> = {}) =>
+  isBrowserMock ? Promise.resolve('{}') : tauriInvoke<string>('call_skill_tool', { skillId, name, arguments: args })
+
 // ── Plugin process management ────────────────────────────────────────────────
 export const spawnPluginProcess = (pluginId: string, program: string, args: string[], cwd?: string | null) =>
   tauriInvoke<number>('spawn_plugin_process', { pluginId, program, args, cwd: cwd ?? null })

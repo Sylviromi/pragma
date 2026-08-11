@@ -30,6 +30,18 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::Command;
 use tokio::sync::{mpsc, oneshot, Mutex};
 
+/// Snapshot of one registered skill sidecar, serialized to the frontend
+/// (camelCase). `running=false` means the skill is registered for routing
+/// but its handler failed to start.
+#[derive(serde::Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct SidecarStatus {
+    pub skill_id: String,
+    pub pid: u32,
+    pub running: bool,
+    pub tools: Vec<String>,
+}
+
 /// Per-skill running sidecar (or a registered-but-failed placeholder).
 pub struct SidecarState {
     #[allow(dead_code)] // kept for a future status surface (process_skill_status)
@@ -234,6 +246,24 @@ impl SkillSidecarRegistry {
             .filter(|(_, s)| s.running)
             .map(|(k, _)| k.clone())
             .collect()
+    }
+
+    /// Snapshot of every registered skill sidecar (running or marked down) —
+    /// the status surface for the `skill_sidecar_status` command (UI widgets
+    /// like the pragma-dev status bar poll this).
+    pub async fn status(&self) -> Vec<SidecarStatus> {
+        let map = self.inner.lock().await;
+        let mut out: Vec<SidecarStatus> = map
+            .iter()
+            .map(|(skill_id, st)| SidecarStatus {
+                skill_id: skill_id.clone(),
+                pid: st.pid,
+                running: st.running,
+                tools: st.tools.iter().map(|t| t.name.clone()).collect(),
+            })
+            .collect();
+        out.sort_by(|a, b| a.skill_id.cmp(&b.skill_id));
+        out
     }
 
     /// Mark a skill down (spawn/handshake failure) — keeps its advertised
@@ -942,5 +972,106 @@ rl.on('line', (line) => {
             .call_tool("frontend-dev/frontend-dev", "nope", &serde_json::json!({}))
             .await;
         assert!(bad.is_err() && bad.as_ref().unwrap_err().contains("unknown tool"));
+    }
+
+    /// pragma-dev is a first-party plugin committed INSIDE the repo
+    /// (plugins/pragma-dev), so the e2e test exercises the real tree rather
+    /// than a pinned fixture — the whole point of the plugin is tracking the
+    /// code.
+    fn pragma_dev_plugin_dir() -> Option<std::path::PathBuf> {
+        // CARGO_MANIFEST_DIR = <repo>/src-tauri; parent = repo root.
+        let repo = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).parent()?;
+        let dir = repo.join("plugins/pragma-dev");
+        dir.join("manifest.json").is_file().then_some(dir)
+    }
+
+    #[tokio::test]
+    async fn pragma_dev_skill_end_to_end() {
+        if !node_available() {
+            eprintln!("node not found — skipping pragma-dev e2e");
+            return;
+        }
+        let Some(dir) = pragma_dev_plugin_dir() else {
+            eprintln!("plugins/pragma-dev not present — skipping pragma-dev e2e");
+            return;
+        };
+        // dir = <repo>/plugins/pragma-dev → plugins dir = dir.parent(), repo = grandparent.
+        let plugins_dir = dir.parent().unwrap();
+        let repo = plugins_dir.parent().unwrap();
+        let mgr = PluginManager::new(plugins_dir.to_path_buf(), vec![]);
+
+        let skill = mgr.skill("pragma-dev/pragma-dev").expect("skill discovered");
+        assert!(skill.has_handler && skill.has_tools);
+
+        let reg = SkillSidecarRegistry::new();
+        reg.ensure(&mgr, "pragma-dev/pragma-dev", Some(repo.to_str().unwrap()))
+            .await
+            .unwrap();
+
+        // status() snapshot reflects the running sidecar (new bridge surface).
+        let st = reg.status().await;
+        assert!(st.iter().any(|s| s.skill_id == "pragma-dev/pragma-dev" && s.running));
+
+        // Convention verifier against the real tree: a fully-wired command
+        // passes every check.
+        let out = reg
+            .call_tool(
+                "pragma-dev/pragma-dev",
+                "pd_verify_command",
+                &serde_json::json!({"name": "list_providers"}),
+            )
+            .await
+            .unwrap();
+        assert!(out.contains("\"ok\": true"), "verify: {out}");
+        assert!(out.contains("tauri.ts wrapper"), "verify should check all wiring: {out}");
+
+        // Verify_tool on a real tool (the ledger-aware edit_file, dispatched
+        // inline in agentic.rs).
+        let vt = reg
+            .call_tool(
+                "pragma-dev/pragma-dev",
+                "pd_verify_tool",
+                &serde_json::json!({"name": "edit_file"}),
+            )
+            .await
+            .unwrap();
+        assert!(vt.contains("\"ok\": true"), "verify_tool: {vt}");
+
+        // A command that is NOT wired fails loudly on the missing points.
+        let missing = reg
+            .call_tool(
+                "pragma-dev/pragma-dev",
+                "pd_verify_command",
+                &serde_json::json!({"name": "no_such_command_xyz"}),
+            )
+            .await
+            .unwrap();
+        assert!(missing.contains("\"ok\": false"), "missing command should fail: {missing}");
+
+        // dev_status works with zero dev server started (sidecar just up).
+        let st = reg
+            .call_tool("pragma-dev/pragma-dev", "pd_dev_status", &serde_json::json!({}))
+            .await
+            .unwrap();
+        assert!(st.contains("\"running\": false"), "status: {st}");
+
+        // pd_todo scans the real tree and returns the file-grouped summary.
+        let todo = reg
+            .call_tool(
+                "pragma-dev/pragma-dev",
+                "pd_todo",
+                &serde_json::json!({"limit": 5}),
+            )
+            .await
+            .unwrap();
+        assert!(todo.contains("\"total\""), "todo: {todo}");
+
+        // Unknown tool → handler error.
+        let bad = reg
+            .call_tool("pragma-dev/pragma-dev", "nope", &serde_json::json!({})).await;
+        assert!(bad.is_err() && bad.as_ref().unwrap_err().contains("unknown tool"));
+
+        reg.stop("pragma-dev/pragma-dev").await;
+        assert!(reg.status().await.is_empty());
     }
 }
