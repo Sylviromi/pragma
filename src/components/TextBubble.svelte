@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { renderMarkdown, segmentsOf, tidy } from '../lib/markdown'
+  import { renderMarkdown, segmentsOf, tidy, withCaret } from '../lib/markdown'
   import Icon from './Icon.svelte'
 
   let {
@@ -31,8 +31,7 @@
     {#each segs as seg, si (seg.kind + seg.text.slice(0, 40))}
       {#if seg.kind === 'prose' && seg.text.trim()}
         <div class="md-prose">
-          {@html renderMarkdown(seg.text)}
-          {#if showCaret && si === last}<span class="caret" aria-hidden="true">▌</span>{/if}
+          {@html showCaret && si === last ? withCaret(renderMarkdown(seg.text)) : renderMarkdown(seg.text)}
         </div>
       {:else if seg.kind === 'code' && seg.text.trim()}
         <div class="code-block">
@@ -63,7 +62,7 @@
     white-space: pre-wrap;
     overflow-wrap: anywhere;
   }
-  .caret {
+  :global(.caret) {
     color: var(--accent);
     animation: cursorblink 1s step-start infinite;
   }

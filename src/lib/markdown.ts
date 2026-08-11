@@ -57,7 +57,20 @@ function buildMarkdownHtml(prose: string): string {
         if (/^https?:\/\//i.test(src.trim())) return m
         return ''
       })
+      // marked always ends its output with "\n"; inside the pre-wrap bubble
+      // that stays a real text node and renders as a phantom empty line under
+      // every response. Strip trailing whitespace from the generated HTML.
+      .replace(/\s+$/, '')
   )
+}
+
+/** Place the streaming caret on the LAST rendered line — injected just
+ *  before the final `</p>` — so it sits after the last word instead of
+ *  starting its own empty line (a sibling span after the closing tag). */
+export function withCaret(html: string): string {
+  const p = html.lastIndexOf('</p>')
+  if (p === -1) return html + '<span class="caret">▌</span>'
+  return html.slice(0, p) + '<span class="caret">▌</span>' + html.slice(p)
 }
 
 /** Split prose from fenced code blocks so code renders as a styled block and
