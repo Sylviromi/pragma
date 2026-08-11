@@ -13,6 +13,12 @@ use std::sync::Arc;
 /// gate (never overwrite a partially-seen file) and the one-shot read dedup.
 pub type SeenLedger = Arc<std::sync::Mutex<HashMap<String, HashMap<PathBuf, SeenFile>>>>;
 
+/// Per-session cap on stale-anchor snapshot text kept for drift reporting.
+const LEDGER_CONTENT_BUDGET: usize = 16 * 1024 * 1024;
+
+/// Monotonic stamp for per-session snapshot eviction (oldest read first).
+static _SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
 #[derive(Clone)]
 pub struct SeenFile {
     /// mtime + size at serve time (dedup key).
@@ -26,6 +32,16 @@ pub struct SeenFile {
     pub partial: bool,
     /// One-shot dedup record: exact (mtime, size, window) served last time.
     pub dedup: Option<(u64, Option<(usize, usize)>)>,
+    /// Whole-file content tag from that read (stable across windows).
+    pub tag: Option<String>,
+    /// Canonical text the tag hashes — kept so a stale-edit mismatch can
+    /// point at the drifted lines instead of "re-read the whole file".
+    pub content: Option<String>,
+    /// Insertion order stamp (per-session eviction by age under budget).
+    pub seq: u64,
+    /// True after the model edited this file — its layout (and the snapshot)
+    /// are stale until the next read. Forces a re-read before the next edit.
+    pub edited: bool,
 }
 
 pub struct ToolExecutor {
@@ -120,6 +136,8 @@ impl ToolExecutor {
 
             // Record what was served (replaces any previous record). Only a
             // real served window arms dedup — facts re-read fresh every time.
+            let next_seq = _SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            let (content, tag) = (d.canonical, d.tag);
             entry.insert(
                 d.abs_path.clone(),
                 SeenFile {
@@ -129,8 +147,36 @@ impl ToolExecutor {
                     total: d.total,
                     partial: d.partial,
                     dedup: if d.window.is_some() { Some((size, d.window)) } else { None },
+                    tag,
+                    content,
+                    seq: next_seq,
+                    edited: false,
                 },
             );
+            // Bounded stale-anchor memory: keep at most LEDGER_CONTENT_BUDGET
+            // of snapshot text per session; evict oldest by read order first.
+            let budget: usize = entry
+                .values()
+                .map(|f| f.content.as_ref().map(|c| c.len()).unwrap_or(0))
+                .sum();
+            if budget > LEDGER_CONTENT_BUDGET {
+                let mut aged: Vec<(PathBuf, u64)> = entry
+                    .iter()
+                    .filter(|(_, f)| f.content.is_some())
+                    .map(|(p, f)| (p.clone(), f.seq))
+                    .collect();
+                aged.sort_by_key(|(_, s)| *s);
+                let mut freed = 0usize;
+                for (path, _) in aged {
+                    let f = entry.get_mut(&path).unwrap();
+                    if let Some(c) = f.content.take() {
+                        freed += c.len();
+                    }
+                    if budget.saturating_sub(freed) <= LEDGER_CONTENT_BUDGET {
+                        break;
+                    }
+                }
+            }
         }
         Ok(d.text)
     }
@@ -192,19 +238,59 @@ impl ToolExecutor {
         r
     }
 
-    /// edit_file with the same gate.
+    /// Edit_file with hash anchoring + the seen-window gate: edits must stay
+    /// inside what the model actually read (hashline rule — touch only
+    /// displayed lines); a stale anchor or an edit after your own last edit
+    /// is denied and names the recovery. The whole-file hash carries the rest
+    /// of the staleness check.
     fn execute_edit(&self, input: &serde_json::Value) -> Result<String, String> {
-        let (Some(_), Some(_)) = (&self.session_id, &self.ledger) else {
-            return file_ops::edit_file(&self.working_dir, input);
+        let (Some(session_id), Some(ledger)) = (&self.session_id, &self.ledger) else {
+            return file_ops::edit_file(&self.working_dir, input, None);
         };
         let path = input["path"].as_str().ok_or("missing path")?;
-        let full = match self.gate_seen_write(path) {
-            Ok(f) => f,
-            Err(denied) => return Ok(denied),
+        let start = input["start_line"].as_u64().unwrap_or(0) as usize;
+        let end = input["end_line"].as_u64().unwrap_or(start as u64) as usize;
+        let full = file_ops::abs(&self.working_dir, path);
+
+        let (denial, stale) = {
+            let map = ledger.lock().unwrap();
+            let seen = map.get(session_id).and_then(|m| m.get(&full));
+            match seen {
+                // Your own last edit moved the layout — line numbers are stale.
+                Some(f) if f.edited => (
+                    Some(format!(
+                        "[edit denied]: {path} — the file changed under your last edit; re-read it (offset=1) to get fresh line numbers and the new hash, then retry"
+                    )),
+                    None,
+                ),
+                // Edited range must lie within the window the model saw.
+                Some(f) if start < 1 || (f.partial && end > f.window.map(|(_, l)| l).unwrap_or(0)) => (
+                    Some(
+                        f.window
+                            .map(|(first, last)| {
+                                format!(
+                                    "[edit denied]: {path} — lines {start}-{end} are outside the window you have seen ({first}-{last}); re-read the part you want to edit (offset={}) then retry",
+                                    last + 1
+                                )
+                            })
+                            .unwrap_or_else(|| format!("[edit denied]: {path} — the file extends beyond what you have seen; re-read the part you want to edit then retry")),
+                    ),
+                    None,
+                ),
+                _ => (None, seen.and_then(|f| f.content.clone())),
+            }
         };
-        let r = file_ops::edit_file(&self.working_dir, input);
-        if let Some(f) = full {
-            self.clear_seen(&f);
+        if let Some(denied) = denial {
+            return Ok(denied);
+        }
+        let r = file_ops::edit_file(&self.working_dir, input, stale.as_deref());
+        if r.is_ok() {
+            // The model's window/snapshot is now stale: mark the file edited so
+            // the next edit forces a re-read (line numbers moved under it).
+            if let Some(seen) = ledger.lock().unwrap().get_mut(session_id).and_then(|m| m.get_mut(&full)) {
+                seen.edited = true;
+                seen.content = None; // pre-edit snapshot no longer matches
+            }
         }
         r
     }
@@ -346,14 +432,82 @@ mod tests {
         fs::write(dir.path().join("big.rs"), &content).unwrap();
         let (ex, _) = ledger_executor(dir.path(), "s9");
         ex.execute("read_file", &serde_json::json!({"path":"big.rs"})).unwrap(); // head only
-        let deny = ex.execute("edit_file", &serde_json::json!({"path":"big.rs","start_line":3000,"end_line":3000,"content":"CHANGED"})).unwrap();
-        assert!(deny.contains("write denied") && deny.contains("offset=2001"), "edit gated: {deny}");
+        let deny = ex.execute("edit_file", &serde_json::json!({"path":"big.rs","hash":file_ops::file_tag(&content),"start_line":3000,"content":"CHANGED"})).unwrap();
+        assert!(deny.contains("denied") && deny.contains("offset=2001"), "edit gated: {deny}");
         assert_eq!(fs::read_to_string(dir.path().join("big.rs")).unwrap(), content, "file untouched");
         // Read the rest → the same edit applies.
         ex.execute("read_file", &serde_json::json!({"path":"big.rs","offset":2001,"limit":3000})).unwrap();
-        let ok = ex.execute("edit_file", &serde_json::json!({"path":"big.rs","start_line":3000,"end_line":3000,"content":"CHANGED"})).unwrap();
+        let ok = ex.execute("edit_file", &serde_json::json!({"path":"big.rs","hash":file_ops::file_tag(&content),"start_line":3000,"content":"CHANGED"})).unwrap();
         assert!(ok.contains("edited"), "edit after full read: {ok}");
         assert!(fs::read_to_string(dir.path().join("big.rs")).unwrap().contains("CHANGED"));
+    }
+
+    // Pull the hex after "hash: " out of a read header — tolerant of the
+    // "; offset=…" hint that follows it on partial-window reads.
+    fn hash_of(read: &str) -> String {
+        read.split("hash: ")
+            .nth(1)
+            .unwrap()
+            .split(|c: char| !c.is_ascii_hexdigit())
+            .next()
+            .unwrap()
+            .to_string()
+    }
+
+    #[test]
+    fn test_edit_stale_anchor_names_drifted_lines() {
+        let dir = tempdir().unwrap();
+        fs::write(dir.path().join("f.txt"), "a\nb\nc\nd\ne\n").unwrap();
+        let (ex, _) = ledger_executor(dir.path(), "s-drift");
+        let read = ex.execute("read_file", &serde_json::json!({"path":"f.txt"})).unwrap();
+        let hash = hash_of(&read);
+        // External edit elsewhere in the file (line 1) — the anchor goes stale.
+        fs::write(dir.path().join("f.txt"), "A\nb\nc\nd\ne\n").unwrap();
+        let r = ex.execute("edit_file", &serde_json::json!({
+            "path":"f.txt", "hash": hash, "start_line": 3, "content": "CC"
+        })).unwrap_err();
+        assert!(r.contains("hash mismatch"), "error: {r}");
+        assert!(r.contains("lines 1-1"), "should name the drifted line: {r}");
+        assert_eq!(fs::read_to_string(dir.path().join("f.txt")).unwrap(), "A\nb\nc\nd\ne\n", "file untouched");
+    }
+
+    #[test]
+    fn test_edit_subwindow_whole_file_hash_succeeds() {
+        let dir = tempdir().unwrap();
+        fs::write(dir.path().join("f.txt"), "a\nb\nc\nd\ne\nf\n").unwrap();
+        let (ex, _) = ledger_executor(dir.path(), "s-sub");
+        let read = ex.execute("read_file", &serde_json::json!({"path":"f.txt","limit":2})).unwrap();
+        let hash = hash_of(&read);
+        // Edit a line INSIDE the read window with the header's whole-file hash.
+        let ok = ex.execute("edit_file", &serde_json::json!({
+            "path":"f.txt", "hash": hash, "start_line": 2, "content": "BB"
+        })).unwrap();
+        assert!(ok.contains("edited"), "sub-window edit must succeed: {ok}");
+        assert_eq!(fs::read_to_string(dir.path().join("f.txt")).unwrap(), "a\nBB\nc\nd\ne\nf\n");
+    }
+
+    #[test]
+    fn test_edit_required_hash_and_endline_default() {
+        let dir = tempdir().unwrap();
+        fs::write(dir.path().join("f.txt"), "a\nb\nc\n").unwrap();
+        let (ex, _) = ledger_executor(dir.path(), "s-req");
+        // Missing hash → hard error telling the model to re-read.
+        let miss = ex.execute("edit_file", &serde_json::json!({"path":"f.txt","start_line":1,"content":"x"})).unwrap_err();
+        assert!(miss.contains("missing hash"), "error: {miss}");
+        // Omitted end_line → single-line replace; drift text via ledger snapshot.
+        let read = ex.execute("read_file", &serde_json::json!({"path":"f.txt"})).unwrap();
+        let hash = hash_of(&read);
+        let ok = ex.execute("edit_file", &serde_json::json!({
+            "path":"f.txt", "hash": hash, "start_line": 2, "content": "B2"
+        })).unwrap();
+        assert!(ok.contains("replaced lines 2-2"), "single-line default: {ok}");
+        // Insertion still works via explicit end_line = start - 1.
+        let read2 = ex.execute("read_file", &serde_json::json!({"path":"f.txt"})).unwrap();
+        let hash2 = read2.split("hash: ").nth(1).unwrap().split(']').next().unwrap().to_string();
+        let ok2 = ex.execute("edit_file", &serde_json::json!({
+            "path":"f.txt", "hash": hash2, "start_line": 3, "end_line": 2, "content": "INS"
+        })).unwrap();
+        assert!(ok2.contains("inserted") || ok2.contains("replaced lines 3-2"), "insertion: {ok2}");
     }
 
     #[test]

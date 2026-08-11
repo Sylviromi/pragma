@@ -45,6 +45,13 @@ pub struct ReadDetail {
     pub total: Option<usize>,
     /// True when more of the file exists beyond what was served.
     pub partial: bool,
+    /// Whole-file content tag (stable across windows of the same file) —
+    /// the value edit_file verifies. None for fact reads (binary/empty/etc.).
+    pub tag: Option<String>,
+    /// The canonical text the tag hashes (full file or the 128 KB head) —
+    /// kept in the seen-ledger so a stale-edit mismatch can point at the
+    /// exact drifted lines instead of "re-read the whole file".
+    pub canonical: Option<String>,
 }
 
 pub fn read_file_detailed(wd: &Path, input: &serde_json::Value) -> Result<ReadDetail, String> {
@@ -53,7 +60,7 @@ pub fn read_file_detailed(wd: &Path, input: &serde_json::Value) -> Result<ReadDe
 
     // ── Device blocklist, BEFORE any I/O (a read of /dev/zero never EOFs).
     if let Some(reason) = device_blocklist(&full) {
-        return Ok(ReadDetail { text: format!("[{path}]: {reason}"), abs_path: full, window: None, total: None, partial: false });
+        return Ok(ReadDetail { text: format!("[{path}]: {reason}"), abs_path: full, window: None, total: None, partial: false, tag: None, canonical: None });
     }
 
     // ── Adversarial filenames: the path the model typed may be byte-identical
@@ -73,15 +80,15 @@ pub fn read_file_detailed(wd: &Path, input: &serde_json::Value) -> Result<ReadDe
         } else {
             format!("[{path}]: not found — did you mean: {sugg}?")
         };
-        return Ok(ReadDetail { text, abs_path: full, window: None, total: None, partial: false });
+        return Ok(ReadDetail { text, abs_path: full, window: None, total: None, partial: false, tag: None, canonical: None });
     };
 
     let meta = match std::fs::metadata(&full) {
         Ok(m) => m,
-        Err(e) => return Ok(ReadDetail { text: format!("[{path}]: not found — {e}"), abs_path: full, window: None, total: None, partial: false }),
+        Err(e) => return Ok(ReadDetail { text: format!("[{path}]: not found — {e}"), abs_path: full, window: None, total: None, partial: false, tag: None, canonical: None }),
     };
     if !meta.is_file() {
-        return Ok(ReadDetail { text: format!("[{path}]: not a regular file"), abs_path: full, window: None, total: None, partial: false });
+        return Ok(ReadDetail { text: format!("[{path}]: not a regular file"), abs_path: full, window: None, total: None, partial: false, tag: None, canonical: None });
     }
 
     // ── Boring formats get one-line answers: sniff magic bytes (never the
@@ -98,13 +105,13 @@ pub fn read_file_detailed(wd: &Path, input: &serde_json::Value) -> Result<ReadDe
             } else {
                 " — not readable as text"
             };
-            return Ok(ReadDetail { text: format!("[{path}]: binary file ({mime}){extra}"), abs_path: full, window: None, total: None, partial: false });
+            return Ok(ReadDetail { text: format!("[{path}]: binary file ({mime}){extra}"), abs_path: full, window: None, total: None, partial: false, tag: None, canonical: None });
         }
         // NUL in the head (without a known signature) → not text. Real text
         // files — even UTF-16 — would be caught here; that's the honest
         // one-liner rather than feeding junk to the model.
         if head[..n].contains(&0) {
-            return Ok(ReadDetail { text: format!("[{path}]: binary file (application/octet-stream) — not readable as text"), abs_path: full, window: None, total: None, partial: false });
+            return Ok(ReadDetail { text: format!("[{path}]: binary file (application/octet-stream) — not readable as text"), abs_path: full, window: None, total: None, partial: false, tag: None, canonical: None });
         }
     }
 
@@ -132,7 +139,7 @@ pub fn read_file_detailed(wd: &Path, input: &serde_json::Value) -> Result<ReadDe
         raw = rest.to_string();
     }
     if raw.is_empty() {
-        return Ok(ReadDetail { text: format!("[{path}]: is empty"), abs_path: full, window: None, total: None, partial: false });
+        return Ok(ReadDetail { text: format!("[{path}]: is empty"), abs_path: full, window: None, total: None, partial: false, tag: None, canonical: None });
     }
 
     let all_lines: Vec<&str> = raw.lines().collect();
@@ -146,6 +153,7 @@ pub fn read_file_detailed(wd: &Path, input: &serde_json::Value) -> Result<ReadDe
             return Ok(ReadDetail {
                 text: format!("[{path}]: offset {offset} is past the loaded 128 KB — the file is larger than that; only the first {} lines are within the budget. Use search_files to find content, or read a smaller file.]", all_lines.len()),
                 abs_path: full, window: None, total: None, partial: true,
+                tag: None, canonical: None,
             });
         }
     }
@@ -156,7 +164,7 @@ pub fn read_file_detailed(wd: &Path, input: &serde_json::Value) -> Result<ReadDe
             // Past EOF — name the recovery instead of failing.
             return Ok(ReadDetail {
                 text: format!("[{path}]: offset {offset} is past the end — the file has {n} lines; retry smaller"),
-                abs_path: full, window: None, total, partial: false,
+                abs_path: full, window: None, total, partial: false, tag: None, canonical: None,
             });
         }
         _ => usize::MAX,
@@ -191,15 +199,11 @@ pub fn read_file_detailed(wd: &Path, input: &serde_json::Value) -> Result<ReadDe
     let last = last_shown;
     let next = last + 1;
 
-    // Compute a short hash of the served content so the model can pass it to
-    // edit_file for stale-edit detection. Uses the raw line content (no line
-    // number prefixes) joined with \n — same format edit_file will re-hash.
-    let content_hash = {
-        use std::hash::{Hash, Hasher};
-        let mut hasher = std::collections::hash_map::DefaultHasher::new();
-        shown.join("\n").hash(&mut hasher);
-        format!("{:08x}", hasher.finish() as u32)
-    };
+    // Whole-file content tag: stable for any window of this file, and the
+    // same value edit_file verifies. Computed over the loaded text (full file
+    // or the 128 KB head), not the served window — a sub-window edit with
+    // this hash must succeed, and ANY drift in the viewed region fails it.
+    let content_hash = file_tag(&raw);
 
     let header = match total {
         Some(n) if n == last && first == 1 => format!("[{path}: {n} lines | hash: {content_hash}]"),
@@ -212,12 +216,12 @@ pub fn read_file_detailed(wd: &Path, input: &serde_json::Value) -> Result<ReadDe
             // emit a recovery that lies). `ends_with('\n')` + the stat make
             // the "is there more?" decision exact — never a guess.
             if raw.ends_with('\n') {
-                format!("[{path}: lines {first}-{last} of more — the file exceeds the 128 KB read budget and this window ends exactly at the boundary; use search_files to find content beyond it]")
+                format!("[{path}: lines {first}-{last} of more — the file exceeds the 128 KB read budget and this window ends exactly at the boundary; use search_files to find content beyond it | hash: {content_hash}]")
             } else {
-                format!("[{path}: lines {first}-{last} of more — the file exceeds the 128 KB read budget and the last line shown was cut by it; there is no offset to resume with (re-reading returns the same head); use search_files to find content beyond the budget]")
+                format!("[{path}: lines {first}-{last} of more — the file exceeds the 128 KB read budget and the last line shown was cut by it; there is no offset to resume with (re-reading returns the same head); use search_files to find content beyond the budget | hash: {content_hash}]")
             }
         }
-        None => format!("[{path}: lines {first}-{last}]"),
+        None => format!("[{path}: lines {first}-{last} | hash: {content_hash}]"),
     };
     let clamp_note = if clamped_any { "\n[single line(s) truncated at 2000 chars — see per-line notes]" } else { "" };
     let repair_note = match &repair_note {
@@ -231,6 +235,8 @@ pub fn read_file_detailed(wd: &Path, input: &serde_json::Value) -> Result<ReadDe
         window: Some((first, last)),
         total,
         partial,
+        tag: Some(content_hash),
+        canonical: Some(raw.clone()),
     })
 }
 
@@ -246,6 +252,52 @@ fn read_prefix(file: &mut File, cap: u64) -> Result<String, String> {
             Ok(String::from_utf8(e.into_bytes()[..valid].to_vec()).unwrap_or_default())
         }
     }
+}
+
+/// Whole-file content tag for stale-edit detection. Hashes the file's
+/// readable text (BOM-stripped) so the tag is stable across read windows and
+/// identical between read_file's header and edit_file's verification.
+pub(crate) fn file_tag(raw: &str) -> String {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    raw.strip_prefix('\u{feff}').unwrap_or(raw).hash(&mut hasher);
+    format!("{:08x}", hasher.finish() as u32)
+}
+
+/// Read the same text read_file_detailed would load for tag purposes (full
+/// file, or the 128 KB head when the file exceeds the byte budget). Keeps
+/// read↔edit tags identical for large files.
+fn tag_source(full: &Path) -> Result<String, String> {
+    match std::fs::metadata(full).map(|m| m.len()).unwrap_or(0) > MAX_BYTES {
+        false => std::fs::read_to_string(full).map_err(|e| format!("read failed: {e}")),
+        true => {
+            let mut f = std::fs::File::open(full).map_err(|e| format!("open failed: {e}"))?;
+            read_prefix(&mut f, MAX_BYTES)
+        }
+    }
+}
+
+/// Coarse but honest "what changed" report between two canonical texts:
+/// trim common prefix/suffix lines, then report the remaining middle span in
+/// 1-based NEW-file line numbers. Points a re-read at the drifted region
+/// without shipping a full diff engine.
+pub(crate) fn changed_line_ranges(old: &str, new: &str) -> Option<(usize, usize)> {
+    let o: Vec<&str> = old.lines().collect();
+    let n: Vec<&str> = new.lines().collect();
+    let (mut lo, mut hi_o) = (0usize, o.len());
+    let (mut ln, mut hi_n) = (0usize, n.len());
+    while lo < hi_o && ln < hi_n && o[lo] == n[ln] {
+        lo += 1;
+        ln += 1;
+    }
+    while hi_o > lo && hi_n > ln && o[hi_o - 1] == n[hi_n - 1] {
+        hi_o -= 1;
+        hi_n -= 1;
+    }
+    if ln >= hi_n {
+        return None; // no drift
+    }
+    Some((ln + 1, hi_n))
 }
 
 
@@ -514,16 +566,25 @@ pub fn write_file(wd: &Path, input: &serde_json::Value) -> Result<String, String
     Ok(format!("wrote {} bytes to {path}", content.len()))
 }
 
-pub fn edit_file(wd: &Path, input: &serde_json::Value) -> Result<String, String> {
+/// Edit_file with whole-file hash anchoring. `stale_canonical` is the text
+/// the expected hash was computed over (from read_file's seen-ledger) — when
+/// the current hash diverges it lets the error point at the exact drifted
+/// lines instead of "re-read the whole file".
+pub fn edit_file(
+    wd: &Path,
+    input: &serde_json::Value,
+    stale_canonical: Option<&str>,
+) -> Result<String, String> {
     let path = input["path"].as_str().ok_or("missing path")?;
     let start = input["start_line"]
         .as_u64()
         .ok_or("missing start_line (must be a positive integer)")? as usize;
-    let end = input["end_line"]
-        .as_u64()
-        .ok_or("missing end_line (must be a positive integer)")? as usize;
+    // end_line is OPTIONAL — omitted = single-line replace (start_line only).
+    let end = input["end_line"].as_u64().unwrap_or(start as u64) as usize;
     let content = input["content"].as_str().ok_or("missing content")?;
-    let hash = input["hash"].as_str();
+    let hash = input["hash"]
+        .as_str()
+        .ok_or("missing hash — pass the hash from the latest read_file header; re-read the file to get the current hash")?;
 
     if start == 0 {
         return Err("start_line must be >= 1 (lines are 1-based)".into());
@@ -552,32 +613,30 @@ pub fn edit_file(wd: &Path, input: &serde_json::Value) -> Result<String, String>
         ));
     }
 
-    // Extract old content and verify hash if provided.
     let old_start = start - 1; // 0-based
     let old_end = end.min(total); // inclusive → exclusive
     let old_lines = &lines[old_start..old_end];
-    let old_content = old_lines.join("\n");
     let old_count = old_end - old_start;
 
-    if let Some(expected_hash) = hash {
-        use std::hash::{Hash, Hasher};
-        let mut hasher = std::collections::hash_map::DefaultHasher::new();
-        old_content.hash(&mut hasher);
-        let actual_hash = format!("{:08x}", hasher.finish() as u32);
-        if !expected_hash.eq_ignore_ascii_case(&actual_hash) {
-            let snippet: String = old_lines
-                .iter()
-                .take(5)
-                .enumerate()
-                .map(|(i, l)| format!("  {:>4} | {l}", old_start + i + 1))
-                .collect::<Vec<_>>()
-                .join("\n");
-            return Err(format!(
-                "hash mismatch: expected {expected_hash} but the file has {actual_hash} at lines {start}-{end}. \
-                 The file may have changed since you read it — re-read it and retry.\n\
-                 Current content at those lines:\n{snippet}"
-            ));
-        }
+    // Verify the whole-file tag: the file must still be exactly what the last
+    // read served — any drift anywhere fails the edit (stale-anchor reject).
+    let actual_tag = file_tag(&tag_source(&full)?);
+    if !hash.eq_ignore_ascii_case(&actual_tag) {
+        let snippet: String = old_lines
+            .iter()
+            .take(5)
+            .enumerate()
+            .map(|(i, l)| format!("  {:>4} | {l}", old_start + i + 1))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let drift = stale_canonical
+            .and_then(|old| changed_line_ranges(old, &original))
+            .map(|(a, b)| format!(" The file changed since you read it — currently at lines {a}-{b} (re-read that range or the whole file, then retry with the new hash)."))
+            .unwrap_or_else(|| " The file may have changed since you read it — re-read it and retry with the new hash.".to_string());
+        return Err(format!(
+            "hash mismatch: expected {hash} but the file has {actual_tag}.{drift}\n\
+             Current content at your target lines {start}-{end}:\n{snippet}"
+        ));
     }
 
     // Build the new file content.
@@ -600,7 +659,8 @@ pub fn edit_file(wd: &Path, input: &serde_json::Value) -> Result<String, String>
     std::fs::write(&full, &output).map_err(|e| e.to_string())?;
 
     Ok(format!(
-        "edited {path}: replaced lines {start}-{end} ({old_count} lines \u{2192} {new_count} lines)"
+        "edited {path}: replaced lines {start}-{end} ({old_count} lines \u{2192} {new_count} lines); hash now {}",
+        file_tag(&output)
     ))
 }
 
@@ -714,13 +774,19 @@ mod tests {
         assert!(r.contains("[hello.txt: 1 lines | hash:"), "expected header in: {r}");
     }
 
+    // Whole-file hash of a literal file body (what read_file's header would
+    // carry) — the value edit_file now REQUIRES.
+    fn tag(body: &str) -> String {
+        file_tag(body)
+    }
+
     #[test]
     fn test_edit_file_basic() {
         let dir = tempdir().unwrap();
         fs::write(dir.path().join("f.txt"), "line1\nline2\nline3\n").unwrap();
         let r = edit_file(dir.path(), &serde_json::json!({
-            "path": "f.txt", "start_line": 2, "end_line": 2, "content": "LINE2"
-        })).unwrap();
+            "path": "f.txt", "hash": tag("line1\nline2\nline3\n"), "start_line": 2, "content": "LINE2"
+        }), None).unwrap();
         assert!(r.contains("replaced lines 2-2"), "result: {r}");
         let content = fs::read_to_string(dir.path().join("f.txt")).unwrap();
         assert_eq!(content, "line1\nLINE2\nline3\n");
@@ -731,8 +797,8 @@ mod tests {
         let dir = tempdir().unwrap();
         fs::write(dir.path().join("f.txt"), "a\nb\nc\nd\ne\n").unwrap();
         edit_file(dir.path(), &serde_json::json!({
-            "path": "f.txt", "start_line": 2, "end_line": 4, "content": "X\nY"
-        })).unwrap();
+            "path": "f.txt", "hash": tag("a\nb\nc\nd\ne\n"), "start_line": 2, "end_line": 4, "content": "X\nY"
+        }), None).unwrap();
         let content = fs::read_to_string(dir.path().join("f.txt")).unwrap();
         assert_eq!(content, "a\nX\nY\ne\n");
     }
@@ -742,8 +808,8 @@ mod tests {
         let dir = tempdir().unwrap();
         fs::write(dir.path().join("f.txt"), "a\nb\nc\n").unwrap();
         edit_file(dir.path(), &serde_json::json!({
-            "path": "f.txt", "start_line": 2, "end_line": 2, "content": ""
-        })).unwrap();
+            "path": "f.txt", "hash": tag("a\nb\nc\n"), "start_line": 2, "content": ""
+        }), None).unwrap();
         let content = fs::read_to_string(dir.path().join("f.txt")).unwrap();
         assert_eq!(content, "a\nc\n");
     }
@@ -752,16 +818,12 @@ mod tests {
     fn test_edit_file_hash_match() {
         let dir = tempdir().unwrap();
         fs::write(dir.path().join("f.txt"), "line1\nline2\nline3\n").unwrap();
-        // Compute expected hash of "line2" (the content at line 2).
-        let hash = {
-            use std::hash::{Hash, Hasher};
-            let mut hasher = std::collections::hash_map::DefaultHasher::new();
-            "line2".hash(&mut hasher);
-            format!("{:08x}", hasher.finish() as u32)
-        };
+        // The hash from read_file's header covers the WHOLE file, so a
+        // sub-window edit (line 2 of 3) passes just like a full-window one.
+        let hash = { file_tag(&fs::read_to_string(dir.path().join("f.txt")).unwrap()) };
         edit_file(dir.path(), &serde_json::json!({
-            "path": "f.txt", "start_line": 2, "end_line": 2, "content": "LINE2", "hash": hash
-        })).unwrap();
+            "path": "f.txt", "hash": hash, "start_line": 2, "content": "LINE2"
+        }), None).unwrap();
         let content = fs::read_to_string(dir.path().join("f.txt")).unwrap();
         assert_eq!(content, "line1\nLINE2\nline3\n");
     }
@@ -771,8 +833,8 @@ mod tests {
         let dir = tempdir().unwrap();
         fs::write(dir.path().join("f.txt"), "line1\nline2\nline3\n").unwrap();
         let r = edit_file(dir.path(), &serde_json::json!({
-            "path": "f.txt", "start_line": 2, "end_line": 2, "content": "LINE2", "hash": "deadbeef"
-        }));
+            "path": "f.txt", "hash": "deadbeef", "start_line": 2, "content": "LINE2"
+        }), None);
         assert!(r.is_err(), "should fail on hash mismatch");
         let e = r.unwrap_err();
         assert!(e.contains("hash mismatch"), "error: {e}");
@@ -786,8 +848,8 @@ mod tests {
         let dir = tempdir().unwrap();
         fs::write(dir.path().join("f.txt"), "a\nb\n").unwrap();
         let r = edit_file(dir.path(), &serde_json::json!({
-            "path": "f.txt", "start_line": 5, "end_line": 5, "content": "x"
-        }));
+            "path": "f.txt", "hash": tag("a\nb\n"), "start_line": 5, "content": "x"
+        }), None);
         assert!(r.is_err(), "should fail for out of range");
     }
 

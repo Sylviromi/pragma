@@ -33,17 +33,17 @@ pub fn core_tools() -> Vec<ToolDefinition> {
         },
         ToolDefinition {
             name: "edit_file".into(),
-            description: "Replace a range of lines in a file. Use the line numbers from read_file output — no diff format needed, just the new code. Pass the hash from the read_file header to verify the file hasn't changed since you read it.".into(),
+            description: "Replace a line range in a file. Hash-anchored: pass the `hash` from the latest read_file header — the edit is REJECTED if the file changed since that read (stale-anchor protection), so a partial read of a big file is fine; you only re-read what drifted. `content` is ONLY the new lines (the range deletes; never restate unchanged or removed lines). Omit `end_line` to replace a single line; `end_line = start_line - 1` inserts before `start_line`.".into(),
             input_schema: serde_json::json!({
                 "type": "object",
                 "properties": {
                     "path": { "type": "string", "description": "File path relative to working directory" },
+                    "hash": { "type": "string", "description": "REQUIRED — the whole-file hash from the latest read_file header. Covers the whole file (stable across partial reads), so it catches drift anywhere, not just at the edited lines." },
                     "start_line": { "type": "integer", "description": "First line to replace (1-based, from read_file output)" },
-                    "end_line": { "type": "integer", "description": "Last line to replace (1-based, inclusive). Same as start_line to replace one line." },
-                    "content": { "type": "string", "description": "Replacement content. Replaces the entire start_line..end_line range. Empty string deletes the range." },
-                    "hash": { "type": "string", "description": "The hash from the read_file output header (e.g. 'a1b2c3d4'). Catches stale edits when the file changed since your read." }
+                    "end_line": { "type": "integer", "description": "Last line to replace (1-based, inclusive). OMIT to replace exactly one line (start_line). Set to start_line - 1 to insert before start_line." },
+                    "content": { "type": "string", "description": "Replacement content — the final lines only. Replaces the entire start_line..end_line range; empty string deletes the range." }
                 },
-                "required": ["path", "start_line", "end_line", "content"]
+                "required": ["path", "hash", "start_line", "content"]
             }),
         },
         ToolDefinition {

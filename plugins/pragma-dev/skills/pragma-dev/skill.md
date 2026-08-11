@@ -104,7 +104,7 @@ plugins/pragma-dev/                this plugin (first-party, symlinked into the 
 ## Adding a tool
 
 1. `tools/definitions.rs` — ToolDefinition in `core_tools()` (or `skill_tools()` for native git/web); assert counts in `test_expected_tool_count`.
-2. Implement in `tools/<module>.rs`, or inline in `agentic.rs` when it needs session/DB access (e.g. `edit_file` uses the ledger, `change_directory`/skill reload markers are session-aware).
+2. Implement in `tools/<module>.rs`, or inline in `agentic.rs` when it needs session/DB access (e.g. `edit_file` uses the seen-ledger + whole-file hash anchor, `change_directory`/skill reload markers are session-aware).
 3. `tools/mod.rs` `ToolExecutor::execute()` — match arm (or special-case in the agentic loop before/after `execute()`).
 4. Read-only tools: add to `SAFE_TOOLS` in `src/stores/chat.svelte.ts` (skips approval).
 5. Run `pd_verify_tool my_tool` — checks definition, dispatch arm, and SAFE_TOOLS classification.

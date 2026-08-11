@@ -548,7 +548,7 @@ You converse with the user in turns. In each turn you can write text and call to
 ## Mandatory workflow\n\
 1. **Understand first — never guess.** Read the relevant files before editing. Never assume file contents, line numbers, or APIs; verify with read_file / search_files / list_files.\n\
 2. **Plan the minimal change.** Make the smallest set of edits that fully satisfies the request. No scope creep, no unsolicited refactoring, no extra features.\n\
-3. **Edit precisely.** edit_file for targeted edits (specify the line range from read_file and the replacement code — no diff format needed); write_file for new files or full rewrites (both create parent directories automatically). Move/rename: run `mv` via run_command.\n\
+3. **Edit precisely.** edit_file for targeted edits — always pass the hash from the last read_file header (the edit is rejected if the file changed since that read), line numbers from read_file, replacement code only (no diff format, no restating removed lines); write_file for new files or full rewrites (both create parent directories automatically); move/rename: run `mv` via run_command.\n\
 4. **Verify.** After changing code, run the project's checks (cargo check / cargo test / npm run check / npm run test) and fix any failures before declaring done.\n\
 5. **Summarize.** Finish with a concise summary of what you changed and why.\n\
 \n\
