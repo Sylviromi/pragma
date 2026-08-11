@@ -1,6 +1,6 @@
 # Pragma — Claude Code Guide
 
-Pragma is a Tauri 2 desktop AI coding harness. Rust backend + Svelte 5 frontend. The AI runs agentic loops with 14 core tools (file ops, shell, git, web basics); the git/web tools arrive with their native skills, and plugins contribute on-demand skills (each with its own tools + optional Node sidecar).
+Pragma is a Tauri 2 desktop AI coding harness. Rust backend + Svelte 5 frontend. The AI runs agentic loops with 13 core tools (file ops, shell, control flow); the git/web tools arrive with their native skills, and plugins contribute on-demand skills (each with its own tools + optional Node sidecar).
 
 ## Run / Build
 
@@ -35,9 +35,9 @@ src-tauri/src/
     types.rs                Shared types: ContentBlock, AgentEvent, ModelInfo, ProviderInfo
     mod.rs                  ProviderRegistry (Arc<RwLock<HashMap>>)
   tools/
-    definitions.rs          JSON schema definitions for all 21 tools
+    definitions.rs          JSON schema definitions for all 17 tools
     mod.rs                  ToolExecutor::execute() dispatch
-    file_ops.rs             read_file, write_file, patch_file, create_directory, delete_file, move_file, list_files, search_files
+    file_ops.rs             read_file, write_file, edit_file, delete_file, list_files, search_files
     shell.rs                run_command
     git.rs                  git_status, git_diff, git_log, git_add, git_commit
     web.rs                  web_search (DuckDuckGo), fetch_url
