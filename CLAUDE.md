@@ -201,11 +201,24 @@ The plugin watcher (`plugins/watcher.rs`) detects any file change under the plug
 
 ## Database
 
-SQLite at `~/.config/dev.pragma.app/sessions.db`. Schema in `db/migrations/001_init.sql`.
+SQLite at `~/.config/dev.pragma.app/sessions.db`. Schema in `db/migrations/` (001 → 006).
 - `sessions` — id, name, working_dir, model, provider, archived, metadata_json, timestamps
 - `messages` — id, session_id, role, content (JSON), model, provider, timestamp, tokens
+- `session_usage` — per-call telemetry: input/output tokens (provider-counted), cost, plus the
+  real per-part prompt breakdown the loop recorded when the request was built
+  (`system_tokens` / `conversation_tokens` / `files_tokens`, chars/4 — 006)
 
 Message `content` is stored as JSON: a plain string for simple text, or a `ContentBlock[]` array for tool use/results.
+
+### Context ring semantics (`commands/stats.rs`)
+`get_session_stats` / `session:stats` pushes share `build_session_stats`:
+- `used` = newest `session_usage.input_tokens` (what the next call would send — the honest basis
+  for the future auto-compaction); percent = `used` / provider context window (may exceed 100).
+- Segments: the last usage row's recorded breakdown (system prompt + tool schemas, conversation,
+  `tool_result` payloads), scaled onto `used` so the ring's fill == percent. Sessions with no
+  breakdown row (legacy) fall back to char-estimates from `messages`.
+- The sidebar shows the last pushed/loaded payload (store-first, no refetch on open);
+  `session:stats` events from the run loop keep it live.
 
 ## Settings
 
