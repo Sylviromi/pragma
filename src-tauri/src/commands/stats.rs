@@ -8,6 +8,7 @@ use serde::Serialize;
 use sqlx::SqlitePool;
 use std::path::Path;
 use tauri::Emitter;
+use tauri::Manager;
 
 // ── Serialized shapes (camelCase to match src/lib/types.ts) ────────────────
 
@@ -243,46 +244,63 @@ pub async fn record_tool_touch(
 
 // ── Readers (used by get_session_stats + session:stats events) ─────────────
 
-async fn total_usage(db: &SqlitePool, session_id: &str) -> (i64, i64) {
-    let row: Option<(i64, i64)> = sqlx::query_as(
-        "SELECT COALESCE(SUM(input_tokens),0), COALESCE(SUM(output_tokens),0) FROM session_usage WHERE session_id=?",
+/// The context that would be sent on the NEXT call ≈ the input the provider
+/// just counted for the most recent call (system prompt + full history).
+/// Returns (input_tokens, output_tokens) of the newest session_usage row.
+/// Using the provider's own count is exact — no local tokenizer needed, and
+/// it reflects the true live context (unlike a cumulative SUM, which
+/// re-counts the history on every turn and grows unbounded).
+async fn last_call_tokens(db: &SqlitePool, session_id: &str) -> Option<(i64, i64)> {
+    sqlx::query_as::<_, (i64, i64)>(
+        "SELECT input_tokens, output_tokens FROM session_usage WHERE session_id=? ORDER BY rowid DESC LIMIT 1",
     )
     .bind(session_id)
     .fetch_optional(db)
     .await
     .ok()
-    .flatten();
-    row.unwrap_or((0, 0))
+    .flatten()
 }
 
-/// Estimate the conversation-half of the context budget from persisted
-/// messages (chars / 4 ≈ tokens). Tool-result user messages are excluded —
-/// they're counted under "files in context" style tool payloads.
-async fn conversation_tokens(db: &SqlitePool, session_id: &str) -> i64 {
+/// Estimate the context breakdown from persisted messages (chars / 4 ≈
+/// tokens). Returns (conversation, files):
+///   conversation — user prose, assistant text/reasoning/thinking, and
+///                  tool_use inputs (the model's own words + commands)
+///   files       — tool_result payloads (read_file/search output, file
+///                  contents carried back) — the bulk of "files in context"
+/// These are estimates (the ring's exact sum comes from the provider's
+/// last-call input_tokens); they just make the ring's composition honest.
+/// Pure split of persisted message rows into (conversation, files) token
+/// estimates — extracted from context_breakdown so it's unit-testable.
+async fn context_breakdown(db: &SqlitePool, session_id: &str) -> (i64, i64) {
     let rows: Vec<(String, String)> = sqlx::query_as("SELECT role, content FROM messages WHERE session_id=?")
         .bind(session_id)
         .fetch_all(db)
         .await
         .unwrap_or_default();
-    let mut n = 0i64;
-    for (role, content) in rows {
-        let is_tool_result = role == "user" && content.contains("\"tool_result\"");
-        if is_tool_result {
-            continue;
-        }
-        if let Ok(v) = serde_json::from_str::<serde_json::Value>(&content) {
-            // content is either a plain string or a ContentBlock[] — serialize both to text
+    breakdown_from_rows(&rows)
+}
+
+fn breakdown_from_rows(rows: &[(String, String)]) -> (i64, i64) {
+    let (mut conv, mut files) = (0i64, 0i64);
+    for (_role, content) in rows {
+        // content is either a plain string or a ContentBlock[] — serialize both to text
+        if let Ok(v) = serde_json::from_str::<serde_json::Value>(content) {
             if let Some(s) = v.as_str() {
-                n += (s.chars().count() / 4) as i64;
+                conv += (s.chars().count() / 4) as i64;
             } else if let Some(arr) = v.as_array() {
                 for b in arr {
                     let t = serde_json::to_string(b).unwrap_or_default();
-                    n += (t.chars().count() / 4) as i64;
+                    let n = (t.chars().count() / 4) as i64;
+                    if b["type"].as_str() == Some("tool_result") {
+                        files += n;
+                    } else {
+                        conv += n;
+                    }
                 }
             }
         }
     }
-    n
+    (conv, files)
 }
 
 async fn cost_rows(db: &SqlitePool, session_id: &str) -> SessionCost {
@@ -460,6 +478,11 @@ async fn touched_files(db: &SqlitePool, session_id: &str) -> Vec<TouchedFile> {
 
 /// Assemble the full sidebar stats for a session (context ring, cost, plan,
 /// files, git). Cheap enough to rebuild on every `session:stats` push.
+///
+/// Context semantics: `used` = the newest provider-counted input_tokens
+/// (what the next call would send), NOT a cumulative lifetime sum. Segments
+/// are char-estimates so the ring's composition stays honest; the exact
+/// total comes from `used`. Auto-compaction keys off `percent` crossing 100.
 pub async fn build_session_stats(
     db: &SqlitePool,
     session_id: &str,
@@ -467,14 +490,18 @@ pub async fn build_session_stats(
     context_limit: Option<i64>,
 ) -> SessionStats {
     let limit = context_limit.unwrap_or(200_000).max(1);
-    let (in_tok, out_tok) = total_usage(db, session_id).await;
-    let used = in_tok + out_tok;
-    let conv = conversation_tokens(db, session_id).await;
+    // Live context = the last call the provider counted (system + full
+    // history); a session that never ran has no provider count, so fall
+    // back to the char-estimates (legacy sessions pre-telemetry).
+    let (conv, files) = context_breakdown(db, session_id).await;
     // System+skills: a fixed estimate of the harness system prompt (rewritten
     // per turn from the system content — the actual prompt is never persisted,
     // so this is the honest best estimate).
     let sys = 7_400i64;
-    let files_ctx = (used - sys - conv).max(0);
+    let used = match last_call_tokens(db, session_id).await {
+        Some((input, _)) => input,
+        None => sys + conv + files,
+    };
     let percent = ((used as f64 / limit as f64) * 100.0).floor() as i64;
 
     SessionStats {
@@ -482,7 +509,7 @@ pub async fn build_session_stats(
         context: ContextUsage {
             segments: vec![
                 ContextSegment { label: "System + skills".into(), tokens: sys, color: "var(--text-muted)".into() },
-                ContextSegment { label: "Files in context".into(), tokens: files_ctx, color: "var(--warning)".into() },
+                ContextSegment { label: "Files in context".into(), tokens: files, color: "var(--warning)".into() },
                 ContextSegment { label: "Conversation".into(), tokens: conv, color: "var(--accent)".into() },
             ],
             used,
@@ -496,6 +523,32 @@ pub async fn build_session_stats(
     }
 }
 
+/// Resolve a session's provider context window from the registry (fallback
+/// 200k) — shared by get_session_stats AND emit_stats so a live push and a
+/// direct load agree on the limit (the ring must not change its scale
+/// mid-run).
+async fn context_limit_for(
+    db: &SqlitePool,
+    registry: &crate::providers::ProviderRegistry,
+    session_id: &str,
+) -> i64 {
+    let (_, model, provider) = session_basics(db, session_id).await;
+    match (provider.as_deref(), model.as_deref()) {
+        (Some(p_id), Some(m_id)) => registry
+            .get(p_id)
+            .and_then(|h| {
+                h.info()
+                    .models
+                    .iter()
+                    .find(|m| m.id == m_id)
+                    .and_then(|m| m.context_window)
+                    .map(|c| c as i64)
+            })
+            .unwrap_or(200_000),
+        _ => 200_000,
+    }
+}
+
 /// Emit the `session:stats` Tauri event so the sidebar updates live.
 pub async fn emit_stats(
     app_handle: &tauri::AppHandle,
@@ -503,7 +556,11 @@ pub async fn emit_stats(
     session_id: &str,
     working_dir: Option<&str>,
 ) {
-    let stats = build_session_stats(db, session_id, working_dir, None).await;
+    let limit = match app_handle.try_state::<crate::AppState>() {
+        Some(s) => context_limit_for(db, &s.registry, session_id).await,
+        None => 200_000,
+    };
+    let stats = build_session_stats(db, session_id, working_dir, Some(limit)).await;
     let _ = app_handle.emit(&format!("session:stats:{session_id}"), &stats);
     let _ = app_handle.emit("session:stats", &stats);
 }
@@ -532,21 +589,58 @@ pub async fn get_session_stats(
     session_id: String,
     state: tauri::State<'_, AppState>,
 ) -> Result<SessionStats, String> {
-    let (working_dir, model, provider) = session_basics(&state.db, &session_id).await;
-    let limit = match (provider.as_deref(), model.as_deref()) {
-        (Some(p_id), Some(m_id)) => state
-            .registry
-            .get(p_id)
-            .and_then(|h| {
-                h.info()
-                    .models
-                    .iter()
-                    .find(|m| m.id == m_id)
-                    .and_then(|m| m.context_window)
-                    .map(|c| c as i64)
-            })
-            .unwrap_or(200_000),
-        _ => 200_000,
-    };
+    let (working_dir, _, _) = session_basics(&state.db, &session_id).await;
+    let limit = context_limit_for(&state.db, &state.registry, &session_id).await;
     Ok(build_session_stats(&state.db, &session_id, working_dir.as_deref(), Some(limit)).await)
+}#[cfg(test)]
+mod tests {
+    use super::breakdown_from_rows;
+
+    #[test]
+    fn breakdown_counts_tool_results_as_files_only() {
+        let rows = vec![
+            ("user".to_string(), serde_json::json!("a short prompt").to_string()),
+            (
+                "user".to_string(),
+                serde_json::json!([
+                    { "type": "tool_result", "tool_use_id": "x", "content": [{ "type": "text", "text": "this is a big file payload with lots and lots of characters to count toward files — file content read back into context is far longer than any single chat turn in this test" }] }
+                ]).to_string(),
+            ),
+            (
+                "assistant".to_string(),
+                serde_json::json!([
+                    { "type": "reasoning", "thinking": "brief" },
+                    { "type": "text", "text": "short answer" },
+                    { "type": "tool_use", "id": "x", "name": "read_file", "input": { "path": "a.txt" } }
+                ]).to_string(),
+            ),
+        ];
+        let (conv, files) = breakdown_from_rows(&rows);
+        assert!(conv > 0, "conversation must be counted: {conv}");
+        assert!(files > 0, "tool_result payload must land in files: {files}");
+        // The tool_result payload is the longest single block — make sure the
+        // bulk lands in files, not conversation.
+        assert!(files > conv, "files payload should dominate: files={files} conv={conv}");
+    }
+
+    #[test]
+    fn breakdown_plain_string_messages_are_conversation() {
+        let rows = vec![
+            ("user".to_string(), "hello world this is a plain user message".to_string()),
+            ("assistant".to_string(), serde_json::json!([{ "type": "text", "text": "hi back" }]).to_string()),
+        ];
+        let (conv, files) = breakdown_from_rows(&rows);
+        assert!(conv > 0 && files == 0, "conv={conv} files={files}");
+    }
+
+    #[test]
+    fn breakdown_empty_and_garbage_rows_are_zero() {
+        let rows = vec![
+            ("user".to_string(), String::new()),
+            ("assistant".to_string(), "not json".to_string()),
+            ("user".to_string(), serde_json::json!(null).to_string()),
+        ];
+        let (conv, files) = breakdown_from_rows(&rows);
+        assert_eq!((conv, files), (0, 0));
+    }
 }
