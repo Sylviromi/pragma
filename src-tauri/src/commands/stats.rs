@@ -502,15 +502,21 @@ pub async fn build_session_stats(
         Some((input, _)) => input,
         None => sys + conv + files,
     };
+    let est_total = sys + conv + files;
+    // The ring must visually equal used/limit: the char-estimates are only a
+    // COMPOSITION signal (they overshoot the provider's tokenizer on JSON
+    // overhead etc.), so scale them onto the exact provider-counted `used`.
+    // Legacy fallback (used == est_total) keeps the estimates as-is.
+    let segments = scale_to_used(est_total, used, &[sys, files, conv]);
     let percent = ((used as f64 / limit as f64) * 100.0).floor() as i64;
 
     SessionStats {
         session_id: session_id.to_string(),
         context: ContextUsage {
             segments: vec![
-                ContextSegment { label: "System + skills".into(), tokens: sys, color: "var(--text-muted)".into() },
-                ContextSegment { label: "Files in context".into(), tokens: files, color: "var(--warning)".into() },
-                ContextSegment { label: "Conversation".into(), tokens: conv, color: "var(--accent)".into() },
+                ContextSegment { label: "System + skills".into(), tokens: segments[0], color: "var(--text-muted)".into() },
+                ContextSegment { label: "Files in context".into(), tokens: segments[1], color: "var(--warning)".into() },
+                ContextSegment { label: "Conversation".into(), tokens: segments[2], color: "var(--accent)".into() },
             ],
             used,
             limit,
@@ -521,6 +527,18 @@ pub async fn build_session_stats(
         files: touched_files(db, session_id).await,
         git: git_working_tree(working_dir),
     }
+}
+
+/// Scale token estimates onto the exact provider-counted `used` so the
+/// segments always sum to it (the ring's filled fraction then equals
+/// percent exactly). Keeps the estate composition ratios; legacy fallback
+/// passes through unchanged when `used` == `est_total`.
+fn scale_to_used(est_total: i64, used: i64, tokens: &[i64]) -> Vec<i64> {
+    if est_total <= 0 || used <= 0 {
+        return tokens.iter().map(|_| 0).collect();
+    }
+    let s = used as f64 / est_total as f64;
+    tokens.iter().map(|t| ((*t as f64) * s).round() as i64).collect()
 }
 
 /// Resolve a session's provider context window from the registry (fallback
@@ -594,7 +612,31 @@ pub async fn get_session_stats(
     Ok(build_session_stats(&state.db, &session_id, working_dir.as_deref(), Some(limit)).await)
 }#[cfg(test)]
 mod tests {
-    use super::breakdown_from_rows;
+    use super::{breakdown_from_rows, scale_to_used};
+
+    #[test]
+    fn scale_maps_estimates_onto_exact_used() {
+        // Used 2k of a window while estimates claim 41k → every segment
+        // shrinks so the ring's filled fraction equals used/limit exactly.
+        let scaled = scale_to_used(41_000, 2_000, &[7_400, 28_000, 5_600]);
+        assert_eq!(scaled.iter().sum::<i64>(), 2_000);
+        let per = scaled.iter().map(|t| t * 1000 / 2000).collect::<Vec<_>>();
+        // Ratios preserved: sys ≈ 18% of estimates, stays ≈18% of used.
+        assert!((per[0] - 180).abs() < 20, "sys share drifted: {per:?}");
+    }
+
+    #[test]
+    fn scale_is_identity_for_legacy_fallback() {
+        // No usage recorded → used == estimates → pass-through.
+        let scaled = scale_to_used(41_000, 41_000, &[7_400, 28_000, 5_600]);
+        assert_eq!(scaled, vec![7_400, 28_000, 5_600]);
+    }
+
+    #[test]
+    fn scale_guards_zero() {
+        assert_eq!(scale_to_used(0, 5_000, &[100, 200]), vec![0, 0]);
+        assert_eq!(scale_to_used(5_000, 0, &[100, 200]), vec![0, 0]);
+    }
 
     #[test]
     fn breakdown_counts_tool_results_as_files_only() {
