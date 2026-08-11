@@ -1,6 +1,6 @@
 # Pragma — Claude Code Guide
 
-Pragma is a Tauri 2 desktop AI coding harness. Rust backend + Svelte 5 frontend. The AI runs agentic loops with 16 built-in tools (file ops, shell, git, web) and supports plugins contributed by the user.
+Pragma is a Tauri 2 desktop AI coding harness. Rust backend + Svelte 5 frontend. The AI runs agentic loops with 14 core tools (file ops, shell, git, web basics); the git/web tools arrive with their native skills, and plugins contribute on-demand skills (each with its own tools + optional Node sidecar).
 
 ## Run / Build
 
@@ -35,7 +35,7 @@ src-tauri/src/
     types.rs                Shared types: ContentBlock, AgentEvent, ModelInfo, ProviderInfo
     mod.rs                  ProviderRegistry (Arc<RwLock<HashMap>>)
   tools/
-    definitions.rs          JSON schema definitions for all 16 tools
+    definitions.rs          JSON schema definitions for all 21 tools
     mod.rs                  ToolExecutor::execute() dispatch
     file_ops.rs             read_file, write_file, patch_file, create_directory, delete_file, move_file, list_files, search_files
     shell.rs                run_command
@@ -49,7 +49,6 @@ src-tauri/src/
   db/
     mod.rs                  sqlx SQLite init + migrations
     migrations/001_init.sql sessions + messages tables
-  screenshot.rs             capture_app_screenshot
 ```
 
 ## Key Conventions
@@ -76,11 +75,11 @@ pub enum AgentEvent {
 4. Add `export const myCommand = (arg: string) => tauriInvoke<T>('my_command', { arg })` to `src/lib/tauri.ts`
 
 ### Adding a tool
-1. Add the `ToolDefinition` with JSON schema to `tools/definitions.rs` → `standard_tools()`
-2. Implement the logic in the appropriate `tools/*.rs` file
-3. Add the match arm in `tools/mod.rs` → `ToolExecutor::execute()`
-4. Update the count assertion in `definitions.rs` tests
-5. Add the tool name to `SAFE_TOOLS` in `src/stores/chat.svelte.ts` if it's read-only
+A tool belongs to exactly one surface:
+1. **Core tool** — schema in `tools/definitions.rs` → `core_tools()`; logic in the matching `tools/*.rs`; match arm in `tools/mod.rs` → `ToolExecutor::execute()`.
+2. **Native skill tool** (git/web) — schema in `tools/definitions.rs` → `skill_tools()`; doc lives in `src-tauri/assets/skills/<skill>/skill.md` (embedded in the binary).
+3. **Plugin skill tool** — declared in the plugin's `skills/<id>/tools.json` (model-facing schema) and implemented by a Node sidecar `handler.js` (JSON-RPC over stdio, see `tools/sidecar.rs`).
+Read-only tools may be added to `SAFE_TOOLS` in `src/stores/chat.svelte.ts`.
 
 ### Adding a provider
 **Built-in**: Add a constructor function in `providers/openai_compat.rs` (or a new file), register in `lib.rs` with `registry.register(...)`.
@@ -96,19 +95,16 @@ let { prop } = $props()      // component props
 All stores are in `src/stores/*.svelte.ts` using top-level `$state` objects (no writable/readable).
 
 ### SSE streaming
-Both `anthropic.rs` and `openai_compat.rs` buffer across HTTP chunk boundaries:
+`providers/sse.rs` (`SseStream`) is the single shared SSE helper — both
+`anthropic.rs` and `openai_compat.rs` consume it. It handles the fiddly parts
+(multi-byte UTF-8 split across HTTP chunks, `\r\n` trimming, 60s idle timeout,
+clean-vs-broken stream end) and yields `data:` payloads one line at a time:
 ```rust
-let mut buf = String::new();
-while let Some(chunk) = stream.next().await {
-    buf.push_str(&String::from_utf8_lossy(&bytes));
-    loop {
-        let Some(nl) = buf.find('\n') else { break };
-        let line = buf[..nl].trim_end_matches('\r').to_string();
-        buf.drain(..=nl);
-        // process line
-    }
-}
+let mut sse = SseStream::new(resp);
+while let Some(data) = sse.next_data().await { /* parse payload */ }
 ```
+`[DONE]` / `message_stop` are interpreted by each provider (they recognize
+their own end-of-stream markers).
 
 ## Plugin System
 
@@ -118,8 +114,34 @@ A plugin is a folder at `~/.config/dev.pragma.app/plugins/<id>/` containing:
 manifest.json   required — declares id, name, version, contributes
 provider.json   optional — registers an OpenAI-compat provider
 component.js    optional — ES module Web Component for UI slots
-skill.md        optional — injected as system context in every conversation
+skills/<id>/    optional — modern layout: one folder per skill
+  skill.md      the skill's reference material (loaded on demand)
+  tools.json    optional — tool schemas the skill contributes
+  handler.js    optional — Node sidecar implementing the tools
 ```
+
+### Developing plugins outside the repo
+Plugin code is **not** part of this source tree. The example plugins (`demo`, the
+`frontend-dev` developer plugin) live as plain folders at
+`/mnt/Projects/pragma-plugins/` (untracked, outside the git repo) and are linked
+into the config dir manually:
+
+```bash
+ln -s /mnt/Projects/pragma-plugins/frontend-dev ~/.config/dev.pragma.app/plugins/frontend-dev
+```
+
+The app resolves plugins through the symlink (manifests, skills, sidecars all
+work) and the watcher explicitly watches symlink targets, so edits to the
+untracked folder hot-reload like any other plugin. The Rust side never creates
+or copies plugin folders — what's in the plugin dir is the source of truth.
+
+**First-party exception — `pragma-dev`:** this plugin is committed IN the repo at
+`plugins/pragma-dev/` and symlinked into the config dir, because its content is
+an architecture reference for this codebase and must track it (a stale
+reference is worse than none). The Rust e2e test `pragma_dev_skill_end_to_end`
+loads it straight from the repo tree. When you refactor pragma internals
+(commands, tools, providers, DB), update `plugins/pragma-dev/skills/pragma-dev/skill.md`
+in the same change.
 
 ### manifest.json
 ```json
@@ -169,12 +191,13 @@ export default class MyPlugin extends HTMLElement {
 Available slots: `input-toolbar`, `chat-toolbar-extra`, `model-picker-extra`
 
 ### skill.md
-Injected verbatim as a system message prefix in every conversation.
-Keep it short and non-prescriptive — it affects all AI interactions.
-Don't use first-person "You are..." constructs; prefer concise reference material.
+Loaded on demand (model calls `load_skill`); loading also adds the skill's
+tools to the session. Keep it short and non-prescriptive — it's injected as
+reference material, not a persona. Don't use first-person "You are..."
+constructs; prefer concise reference material.
 
 ### Hot-reload
-The plugin watcher (`plugins/watcher.rs`) detects any file change under the plugins dir and re-registers providers + emits `plugin:reload` to the frontend. No restart needed during development.
+The plugin watcher (`plugins/watcher.rs`) detects any file change under the plugins dir — including inside symlinked plugin folders, whose real targets are watched explicitly — and re-registers providers + emits `plugin:reload` to the frontend. No restart needed during development.
 
 ## Database
 
