@@ -1,6 +1,9 @@
 use crate::providers::types::ToolDefinition;
 
-pub fn standard_tools() -> Vec<ToolDefinition> {
+/// Core tools every run gets, regardless of which skills are loaded. Loading a
+/// skill ADDS its tools (see `tools_for_skill`) — the model never sees git or
+/// web tools unless the matching skill is loaded for the session.
+pub fn core_tools() -> Vec<ToolDefinition> {
     vec![
         // ── File operations ──────────────────────────────────────────────
         ToolDefinition {
@@ -129,76 +132,14 @@ pub fn standard_tools() -> Vec<ToolDefinition> {
                 "required": ["command"]
             }),
         },
-        // ── Git ───────────────────────────────────────────────────────────
-        ToolDefinition {
-            name: "git_status".into(),
-            description: "Return `git status --short` output for the working directory.".into(),
-            input_schema: serde_json::json!({
-                "type": "object",
-                "properties": {
-                    "repo_path": { "type": "string", "description": "Path to git repo root. Defaults to session working directory." }
-                }
-            }),
-        },
-        ToolDefinition {
-            name: "git_diff".into(),
-            description: "Return git diff output. Shows unstaged changes by default.".into(),
-            input_schema: serde_json::json!({
-                "type": "object",
-                "properties": {
-                    "repo_path": { "type": "string" },
-                    "staged": { "type": "boolean", "description": "If true, show staged changes (--cached). Default false." },
-                    "path": { "type": "string", "description": "Limit diff to a specific file or directory." }
-                }
-            }),
-        },
-        ToolDefinition {
-            name: "git_log".into(),
-            description: "Return recent git commit log.".into(),
-            input_schema: serde_json::json!({
-                "type": "object",
-                "properties": {
-                    "repo_path": { "type": "string" },
-                    "limit": { "type": "integer", "description": "Number of commits to show. Default 10." }
-                }
-            }),
-        },
-        ToolDefinition {
-            name: "git_add".into(),
-            description: "Stage files for commit with `git add`.".into(),
-            input_schema: serde_json::json!({
-                "type": "object",
-                "properties": {
-                    "paths": {
-                        "type": "array",
-                        "items": { "type": "string" },
-                        "description": "List of file paths to stage. Use ['.'] to stage everything."
-                    },
-                    "repo_path": { "type": "string" }
-                },
-                "required": ["paths"]
-            }),
-        },
-        ToolDefinition {
-            name: "git_commit".into(),
-            description: "Create a git commit with the given message. Staged files must be added first with git_add.".into(),
-            input_schema: serde_json::json!({
-                "type": "object",
-                "properties": {
-                    "message": { "type": "string", "description": "Commit message" },
-                    "repo_path": { "type": "string" }
-                },
-                "required": ["message"]
-            }),
-        },
         // ── Skills ────────────────────────────────────────────────────────
         ToolDefinition {
             name: "load_skill".into(),
-            description: "Load the full content of a plugin skill by its id. Use the skill index in the system prompt to decide which skill is relevant, then call this to read it.".into(),
+            description: "Load a skill by its id and make it active. Reading the full content gives you that skill's working knowledge, AND any tools declared by the skill are added to your available tools for the rest of this session. Use the skill index in the system prompt to decide which skill is relevant, then call this to read it and gain its tools.".into(),
             input_schema: serde_json::json!({
                 "type": "object",
                 "properties": {
-                    "skill_id": { "type": "string", "description": "The plugin id whose skill.md to load" }
+                    "skill_id": { "type": "string", "description": "The id of the skill to load (from the skill index in the system prompt)" }
                 },
                 "required": ["skill_id"]
             }),
@@ -239,32 +180,172 @@ pub fn standard_tools() -> Vec<ToolDefinition> {
             description: "Apply Rust backend changes by rebuilding and restarting the app. Runs `cargo build` first (using the project's Cargo manifest) and only restarts if the build succeeds. This ends the current run — the app relaunches with the new code, so call it LAST, after your edits are complete and verified. Do not call it for frontend-only changes; only when the Rust backend must be reloaded.".into(),
             input_schema: serde_json::json!({ "type": "object", "properties": {} }),
         },
-        // ── Web ───────────────────────────────────────────────────────────
-        ToolDefinition {
-            name: "web_search".into(),
-            description: "Search the web using DuckDuckGo. Returns titles, URLs, and snippets. No API key required.".into(),
-            input_schema: serde_json::json!({
-                "type": "object",
-                "properties": {
-                    "query": { "type": "string", "description": "Search query" },
-                    "num_results": { "type": "integer", "description": "Number of results to return. Default 5, max 10." }
-                },
-                "required": ["query"]
-            }),
-        },
-        ToolDefinition {
-            name: "fetch_url".into(),
-            description: "Fetch a URL and return its text content (HTML tags stripped). Useful for reading documentation, articles, or search result pages.".into(),
-            input_schema: serde_json::json!({
-                "type": "object",
-                "properties": {
-                    "url": { "type": "string", "description": "URL to fetch" },
-                    "max_chars": { "type": "integer", "description": "Truncate output to this many characters. Default 8000." }
-                },
-                "required": ["url"]
-            }),
-        },
     ]
+}
+
+/// Tool sets contributed by skills, keyed by skill id. Native skills are
+/// dispatched by the Rust ToolExecutor; plugin skills with a handler execute
+/// via their sidecar process instead (their tools are declared in the
+/// plugin's tools.json — this list only covers the built-in skills).
+pub fn skill_tools() -> Vec<(&'static str, Vec<ToolDefinition>)> {
+    vec![
+        (
+            "git",
+            vec![
+                // ── Git ───────────────────────────────────────────────────
+                ToolDefinition {
+                    name: "git_status".into(),
+                    description: "Return `git status --short` output for the working directory.".into(),
+                    input_schema: serde_json::json!({
+                        "type": "object",
+                        "properties": {
+                            "repo_path": { "type": "string", "description": "Path to git repo root. Defaults to session working directory." }
+                        }
+                    }),
+                },
+                ToolDefinition {
+                    name: "git_diff".into(),
+                    description: "Return git diff output. Shows unstaged changes by default.".into(),
+                    input_schema: serde_json::json!({
+                        "type": "object",
+                        "properties": {
+                            "repo_path": { "type": "string" },
+                            "staged": { "type": "boolean", "description": "If true, show staged changes (--cached). Default false." },
+                            "path": { "type": "string", "description": "Limit diff to a specific file or directory." }
+                        }
+                    }),
+                },
+                ToolDefinition {
+                    name: "git_log".into(),
+                    description: "Return recent git commit log.".into(),
+                    input_schema: serde_json::json!({
+                        "type": "object",
+                        "properties": {
+                            "repo_path": { "type": "string" },
+                            "limit": { "type": "integer", "description": "Number of commits to show. Default 10." }
+                        }
+                    }),
+                },
+                ToolDefinition {
+                    name: "git_add".into(),
+                    description: "Stage files for commit with `git add`.".into(),
+                    input_schema: serde_json::json!({
+                        "type": "object",
+                        "properties": {
+                            "paths": {
+                                "type": "array",
+                                "items": { "type": "string" },
+                                "description": "List of file paths to stage. Use ['.'] to stage everything."
+                            },
+                            "repo_path": { "type": "string" }
+                        },
+                        "required": ["paths"]
+                    }),
+                },
+                ToolDefinition {
+                    name: "git_commit".into(),
+                    description: "Create a git commit with the given message. Staged files must be added first with git_add.".into(),
+                    input_schema: serde_json::json!({
+                        "type": "object",
+                        "properties": {
+                            "message": { "type": "string", "description": "Commit message" },
+                            "repo_path": { "type": "string" }
+                        },
+                        "required": ["message"]
+                    }),
+                },
+            ],
+        ),
+        (
+            "web",
+            vec![
+                // ── Web ───────────────────────────────────────────────────
+                ToolDefinition {
+                    name: "web_search".into(),
+                    description: "Search the web using DuckDuckGo. Returns titles, URLs, and snippets. No API key required.".into(),
+                    input_schema: serde_json::json!({
+                        "type": "object",
+                        "properties": {
+                            "query": { "type": "string", "description": "Search query" },
+                            "num_results": { "type": "integer", "description": "Number of results to return. Default 5, max 10." }
+                        },
+                        "required": ["query"]
+                    }),
+                },
+                ToolDefinition {
+                    name: "fetch_url".into(),
+                    description: "Fetch a URL and return its text content (HTML tags stripped). Useful for reading documentation, articles, or search result pages.".into(),
+                    input_schema: serde_json::json!({
+                        "type": "object",
+                        "properties": {
+                            "url": { "type": "string", "description": "URL to fetch" },
+                            "max_chars": { "type": "integer", "description": "Truncate output to this many characters. Default 8000." }
+                        },
+                        "required": ["url"]
+                    }),
+                },
+            ],
+        ),
+    ]
+}
+
+/// All tools in one flat list (core first, then skill tools). Kept for
+/// back-compat and tests — the agent loop builds its set from `core_tools()` +
+/// `tools_for_skill()` instead.
+#[allow(dead_code)]
+pub fn standard_tools() -> Vec<ToolDefinition> {
+    let mut all = core_tools();
+    for (_, tools) in skill_tools() {
+        all.extend(tools);
+    }
+    all
+}
+
+/// The tools contributed by one skill (empty for unknown/untooled skills).
+pub fn tools_for_skill(skill_id: &str) -> Vec<ToolDefinition> {
+    skill_tools()
+        .into_iter()
+        .find(|(id, _)| *id == skill_id)
+        .map(|(_, tools)| tools)
+        .unwrap_or_default()
+}
+
+/// Parse a plugin skill's tools.json into tool definitions. Format:
+/// a JSON array of `{ "name", "description", "inputSchema": <JSON Schema> }`.
+pub fn parse_plugin_tools(text: &str) -> Result<Vec<ToolDefinition>, String> {
+    let v: serde_json::Value =
+        serde_json::from_str(text).map_err(|e| format!("invalid tools.json: {e}"))?;
+    let arr = v
+        .as_array()
+        .ok_or("tools.json must be a JSON array of tool definitions")?;
+    let mut out = Vec::new();
+    for t in arr {
+        let name = t
+            .get("name")
+            .and_then(|x| x.as_str())
+            .ok_or("tool entry missing string \"name\"")?
+            .to_string();
+        if name.is_empty() {
+            return Err("tool entry has empty name".into());
+        }
+        let description = t
+            .get("description")
+            .and_then(|x| x.as_str())
+            .ok_or_else(|| format!("tool '{name}' missing string \"description\""))?
+            .to_string();
+        let input_schema = t.get("inputSchema").cloned().unwrap_or_else(|| {
+            serde_json::json!({ "type": "object", "properties": {} })
+        });
+        if input_schema.get("type").is_none() {
+            return Err(format!("tool '{name}' inputSchema must have a \"type\""));
+        }
+        out.push(ToolDefinition {
+            name,
+            description,
+            input_schema,
+        });
+    }
+    Ok(out)
 }
 
 #[cfg(test)]
@@ -283,6 +364,43 @@ mod tests {
     #[test]
     fn test_expected_tool_count() {
         // Ensures no tools are accidentally dropped when editing
+        assert_eq!(core_tools().len(), 14, "core: file ops + shell + load_skill + change_directory + ask_question + reload_app");
+        let skill_sets = skill_tools();
+        assert_eq!(skill_sets.len(), 2, "git + web");
+        let total: usize = skill_sets.iter().map(|(_, t)| t.len()).sum();
+        assert_eq!(total, 7, "git(5) + web(2)");
         assert_eq!(standard_tools().len(), 21);
+    }
+
+    #[test]
+    fn test_tools_for_skill_lookup() {
+        let git = tools_for_skill("git");
+        assert_eq!(git.len(), 5);
+        assert!(git.iter().any(|t| t.name == "git_status"));
+        assert!(git.iter().all(|t| t.name.starts_with("git_")));
+        let web = tools_for_skill("web");
+        assert_eq!(web.len(), 2);
+        assert_eq!(tools_for_skill("nope").len(), 0);
+        // Core tools must never leak into a skill's set.
+        assert!(!git.iter().any(|t| t.name == "read_file"));
+    }
+
+    #[test]
+    fn test_parse_plugin_tools() {
+        let text = r#"[
+            { "name": "frontend_serve_start", "description": "Start the dev server", "inputSchema": { "type": "object", "properties": { "port": { "type": "integer" } } } },
+            { "name": "frontend_serve_status", "description": "Is the server up?" }
+        ]"#;
+        let tools = parse_plugin_tools(text).unwrap();
+        assert_eq!(tools.len(), 2);
+        assert_eq!(tools[0].name, "frontend_serve_start");
+        assert_eq!(tools[0].input_schema["properties"]["port"]["type"], "integer");
+        // missing schema defaults to an empty object schema
+        assert_eq!(tools[1].input_schema["type"], "object");
+        // errors: not an array / missing name / missing description
+        assert!(parse_plugin_tools("not json").is_err());
+        assert!(parse_plugin_tools(r#"{"a":1}"#).is_err());
+        assert!(parse_plugin_tools(r#"[{"description":"x"}]"#).is_err());
+        assert!(parse_plugin_tools(r#"[{"name":"x"}]"#).is_err());
     }
 }

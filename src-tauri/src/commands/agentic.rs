@@ -3,7 +3,7 @@
 //! `commands/providers.rs` so the provider CRUD commands stay small.
 
 use crate::providers::types::{AgentEvent, ContentBlock, ThinkingPref};
-use crate::tools::{definitions::standard_tools, ToolExecutor};
+use crate::tools::{definitions, ToolExecutor};
 use crate::AppState;
 use futures_util::StreamExt;
 use sqlx::SqlitePool;
@@ -398,6 +398,11 @@ pub async fn run_agentic_loop(
     // so the dev launcher rebuilds and relaunches with the new Rust code.
     let mut exit_app = false;
 
+    let mut active_skills = load_active_skills(&state.db, &session_id).await;
+    // Drop stale ids (plugin removed/disabled or native skill gone) so a dead
+    // skill can't advertise tools that no longer resolve.
+    active_skills.retain(|sid| state.plugins.skill(sid).is_some());
+
     let result = run_loop(
         &session_id,
         user_message,
@@ -409,9 +414,14 @@ pub async fn run_agentic_loop(
         &app_handle,
         &state,
         cancel_rx,
+        &mut active_skills,
         &mut exit_app,
     )
     .await;
+
+    // Persist the session's loaded-skill set (grown by load_skill mid-run) so
+    // the next run restores the same tools without a re-load.
+    persist_active_skills(&state.db, &session_id, &active_skills).await;
 
     // Stop refreshing the heartbeat, then release the lock + cancel handle.
     heartbeat_task.abort();
@@ -445,6 +455,7 @@ async fn run_loop(
     app_handle: &tauri::AppHandle,
     state: &tauri::State<'_, AppState>,
     mut cancel: tokio::sync::watch::Receiver<bool>,
+    active_skills: &mut Vec<String>,
     exit_app: &mut bool,
 ) -> Result<(), String> {
     let api_key = state
@@ -461,7 +472,38 @@ async fn run_loop(
                 .into(),
         );
     }
-    let tools = standard_tools();
+    // Tool set = core tools + the tools of every skill already loaded for this
+    // session (restored from metadata_json). `load_skill` grows the set mid-run;
+    // the caller persists the accumulated list when the run ends.
+    let mut tools = definitions::core_tools();
+    for sid in active_skills.iter() {
+        for t in skill_tool_definitions(&state.plugins, sid) {
+            if !tools.iter().any(|x| x.name == t.name) {
+                tools.push(t);
+            }
+        }
+    }
+    // Bring up sidecars for handler-bearing loaded skills (respawn after
+    // plugin hot-reload / app restart). Failures are logged, not fatal — the
+    // tool call itself then reports the down sidecar clearly.
+    for sid in active_skills.iter() {
+        if let Some(skill) = state.plugins.skill(sid) {
+            if skill.has_handler {
+                let wd = if working_dir.is_empty() {
+                    None
+                } else {
+                    Some(working_dir.as_str())
+                };
+                if let Err(e) = state
+                    .skill_sidecars
+                    .ensure(&state.plugins, sid, wd)
+                    .await
+                {
+                    eprintln!("[sidecar] failed to start for '{sid}': {e}");
+                }
+            }
+        }
+    }
     let ledger = state.seen_ledger.clone();
     // The session's working dir. Empty = no project is open: path-gated tools
     // are blocked (never silently run in the app's own cwd) until the model
@@ -517,6 +559,7 @@ You converse with the user in turns. In each turn you can write text and call to
 - Use run_command for builds, tests, scripts, or inspecting git.\n\
 - git_status / git_diff / git_log are read-only. NEVER run git_add or git_commit unless the user explicitly asks.\n\
 - web_search / fetch_url only when you need external documentation.\n\
+- **Skills**: your tool set is sized to the task. Core tools (file ops, shell, change_directory, ask_question, reload_app, load_skill) are always available; everything else — git, web, plugin-provided tools — arrives by loading a skill. Call load_skill on any skill from the index below that seems relevant: its guidance is injected AND its tools are added to your set for the rest of the session. Don't solve a git problem without loading the git skill; don't fetch the web without the web skill.\n\
 - change_directory switches the working directory when a task targets another subproject; it is instant and never needs permission.\n\
 - **Working directory**: file/shell/git tools run relative to it. When none is set, the harness auto-picks an existing path from your message when it finds one, otherwise asks the user ONE time and then uses whatever path they name. You can also call change_directory yourself with a path you already know (from a loaded skill, the user's message, or their earlier answer) — it always works. Never ask the user for a directory twice; reuse what they already told you.\n\
 - reload_app: after Rust/backend changes, it verifies the build then restarts the whole app so the new code takes effect. It ends this run, so call it LAST — never for frontend-only or plugin-only changes (those hot-reload automatically).\n\
@@ -948,14 +991,38 @@ You converse with the user in turns. In each turn you can write text and call to
                     Err(e) => (e, true),
                 }
             } else if name == "load_skill" {
-                let skill_id = input.get("skill_id").and_then(|v| v.as_str()).unwrap_or("");
-                if !state.plugins.is_enabled(skill_id) {
-                    (format!("No enabled skill found with id: {skill_id}"), true)
-                } else {
-                    match state.plugins.skill_md(skill_id) {
-                        Ok(md) => (md, false),
+                let skill_id = input.get("skill_id").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                match state.plugins.skill(&skill_id) {
+                    None => (
+                        format!("No enabled skill found with id: {skill_id} — see the skill index in the system prompt for valid skill ids"),
+                        true,
+                    ),
+                    Some(_) => match state.plugins.skill_doc(&skill_id) {
+                        Ok(md) => {
+                            if !active_skills.iter().any(|s| s == &skill_id) {
+                                active_skills.push(skill_id.clone());
+                            }
+                            // Advertise the skill's tools to the model from the
+                            // next provider call onward (tools is borrowed per
+                            // call payload, so mutating it here is safe).
+                            let mut added: Vec<String> = Vec::new();
+                            for t in skill_tool_definitions(&state.plugins, &skill_id) {
+                                if !tools.iter().any(|x| x.name == t.name) {
+                                    added.push(t.name.clone());
+                                    tools.push(t);
+                                }
+                            }
+                            let mut msg = md;
+                            msg.push('\n');
+                            msg.push_str(&if added.is_empty() {
+                                format!("Skill '{skill_id}' is now active. It declares no extra tools.")
+                            } else {
+                                format!("Skill '{skill_id}' is now active. New tools available to you: {}", added.join(", "))
+                            });
+                            (msg, false)
+                        }
                         Err(e) => (format!("Failed to load skill '{skill_id}': {e}"), true),
-                    }
+                    },
                 }
             } else if name == "change_directory" {
                 let new_dir = input.get("path").and_then(|v| v.as_str()).unwrap_or("");
@@ -1000,6 +1067,23 @@ You converse with the user in turns. In each turn you can write text and call to
                         }
                         Err(()) => return Ok(()), // Esc pressed — unwind
                     }
+                }
+            } else if let Some(skill_id) = state.skill_sidecars.owner(&name) {
+                // Plugin-skill sidecar tool: routed to the skill's handler
+                // process over JSON-RPC (a tool the skill declared in its
+                // tools.json). Runs inline — plugin tools are usually
+                // stateful (they control the plugin's own server), so no
+                // batch parallelism. Approval already happened above.
+                let out = tokio::select! {
+                    res = state.skill_sidecars.call_tool(&skill_id, &name, input) => res,
+                    _ = cancel.changed() => {
+                        emit(app_handle, session_id, AgentEvent::Interrupted);
+                        return Ok(());
+                    }
+                };
+                match out {
+                    Ok(s) => (s, false),
+                    Err(e) => (e, true),
                 }
             } else {
                 // Plain tool (file/shell/git/web): queue for the parallel
@@ -1216,6 +1300,65 @@ You converse with the user in turns. In each turn you can write text and call to
     }
 
     Ok(())
+}
+
+/// Tool definitions contributed by a skill: native Rust tools (git/web) plus
+/// any tools declared in a plugin skill's tools.json. Used both at run start
+/// (restoring a session's already-loaded skills) and when load_skill fires.
+fn skill_tool_definitions(
+    plugins: &crate::plugins::PluginManager,
+    skill_id: &str,
+) -> Vec<crate::providers::types::ToolDefinition> {
+    let mut out = definitions::tools_for_skill(skill_id);
+    if let Ok(tools) = plugins.skill_tools_json(skill_id) {
+        out.extend(tools);
+    }
+    out
+}
+
+/// The session's metadata_json as a JSON value ({} when missing/broken).
+async fn session_metadata(pool: &SqlitePool, session_id: &str) -> serde_json::Value {
+    let meta: Option<String> = sqlx::query_scalar("SELECT metadata_json FROM sessions WHERE id=?")
+        .bind(session_id)
+        .fetch_optional(pool)
+        .await
+        .ok()
+        .flatten();
+    meta.and_then(|m| serde_json::from_str(&m).ok())
+        .unwrap_or_else(|| serde_json::json!({}))
+}
+
+/// Skills the model has loaded for this session (persisted in
+/// sessions.metadata_json.activeSkills) — restored at every run start so their
+/// tools stay available across user turns and app restarts.
+async fn load_active_skills(pool: &SqlitePool, session_id: &str) -> Vec<String> {
+    session_metadata(pool, session_id)
+        .await
+        .get("activeSkills")
+        .and_then(|v| v.as_array())
+        .map(|a| {
+            a.iter()
+                .filter_map(|x| x.as_str().map(String::from))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Merge the session's loaded-skill list into its metadata_json (keeps other
+/// keys, updates updated_at).
+async fn persist_active_skills(pool: &SqlitePool, session_id: &str, skills: &[String]) {
+    let mut obj = session_metadata(pool, session_id)
+        .await
+        .as_object()
+        .cloned()
+        .unwrap_or_default();
+    obj.insert("activeSkills".into(), serde_json::json!(skills));
+    let _ = sqlx::query("UPDATE sessions SET metadata_json=?, updated_at=? WHERE id=?")
+        .bind(serde_json::Value::Object(obj).to_string())
+        .bind(chrono::Utc::now().to_rfc3339())
+        .bind(session_id)
+        .execute(pool)
+        .await;
 }
 
 /// Repair a raw DB history (list of `{role, content}`) into a well-formed
@@ -1869,6 +2012,55 @@ mod tests {
         }
         // Unknown tools fall through to the normal unknown-tool error.
         assert!(!path_gated("bogus_tool", false));
+    }
+
+    #[tokio::test]
+    async fn active_skills_persist_and_restore_across_runs() {
+        let pool = crate::db::init_db(":memory:").await.unwrap();
+        let session_id = "s-skill-persist";
+        sqlx::query(
+            "INSERT INTO sessions (id,name,working_dir,created_at,updated_at,metadata_json) VALUES (?,?,?,?,?,?)",
+        )
+        .bind(session_id)
+        .bind("t")
+        .bind("")
+        .bind(chrono::Utc::now().to_rfc3339())
+        .bind(chrono::Utc::now().to_rfc3339())
+        .bind("{\"other\": 1}")
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        // nothing loaded initially
+        assert!(load_active_skills(&pool, session_id).await.is_empty());
+
+        // persist a set, keep other metadata keys
+        persist_active_skills(&pool, session_id, &["git".into(), "web".into()]).await;
+        let skills = load_active_skills(&pool, session_id).await;
+        assert_eq!(skills, vec!["git".to_string(), "web".to_string()]);
+        let meta = session_metadata(&pool, session_id).await;
+        assert_eq!(meta["other"], 1, "unrelated metadata keys survive");
+
+        // re-persist replaces the list
+        persist_active_skills(&pool, session_id, &["git".into()]).await;
+        assert_eq!(
+            load_active_skills(&pool, session_id).await,
+            vec!["git".to_string()]
+        );
+    }
+
+    #[test]
+    fn skill_tool_definitions_merge_native_and_plugin_tools() {
+        // native git tools resolve even with no plugins installed
+        let mgr = crate::plugins::PluginManager::new(
+            std::env::temp_dir().join(format!("pragma-test-{}", std::process::id())),
+            vec![],
+        );
+        let git = skill_tool_definitions(&mgr, "git");
+        assert!(git.iter().any(|t| t.name == "git_status"));
+        assert!(git.iter().any(|t| t.name == "git_commit"));
+        // unknown skill → empty
+        assert!(skill_tool_definitions(&mgr, "nope").is_empty());
     }
 
     #[test]

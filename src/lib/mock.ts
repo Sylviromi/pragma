@@ -1,7 +1,7 @@
 // Browser-only mock data — used when the frontend runs without the Tauri
 // backend (plain `vite dev` in a browser, design iteration, plugin dev).
 // Guarded by tauri.ts: never active inside the real app.
-import type { Message, ProviderInfo, Session, PluginInfo, SessionStats } from './types'
+import type { Message, ProviderInfo, Session, PluginInfo, SessionStats, SkillInfo } from './types'
 
 export const isBrowserMock =
   typeof window !== 'undefined' && !('__TAURI_INTERNALS__' in (window as unknown as Record<string, unknown>))
@@ -92,13 +92,28 @@ export const mockProviders: ProviderInfo[] = [
 export const mockPlugins: PluginInfo[] = [
   {
     id: 'zen-warp', name: 'Zen WARP', version: '2.4.1', description: 'Free and low-cost model routing through the WARP relay.',
-    enabled: true, folder: 'zen-warp', hasComponent: false, hasSkill: false,
+    enabled: true, folder: 'zen-warp', hasComponent: false, hasSkill: false, skills: [],
     contributes: { providers: ['zen-warp'], slots: [], commands: [], skills: [] },
   },
   {
     id: 'handsfree', name: 'Handsfree', version: '1.1.0', description: 'Autonomous multi-step execution with phase reporting.',
-    enabled: true, folder: 'handsfree', hasComponent: true, hasSkill: false,
+    enabled: true, folder: 'handsfree', hasComponent: true, hasSkill: false, skills: [],
     contributes: { providers: [], slots: ['status-bar'], commands: [], skills: [] },
+  },
+]
+
+export const mockSkills: SkillInfo[] = [
+  {
+    id: 'git', name: 'git', source: 'native', pluginId: null,
+    description: 'Version control: git status, diff, log, add, commit', hasTools: true, hasHandler: false,
+  },
+  {
+    id: 'web', name: 'web', source: 'native', pluginId: null,
+    description: 'Web search + fetch for external documentation', hasTools: true, hasHandler: false,
+  },
+  {
+    id: 'frontend-dev/frontend-dev', name: 'frontend-dev', source: 'plugin-skill', pluginId: 'frontend-dev',
+    description: 'Frontend Developer skill: live localhost server with tool control', hasTools: true, hasHandler: true,
   },
 ]
 

@@ -5,7 +5,9 @@ use std::time::Duration;
 
 /// Spawn a background thread that watches `plugins_dir` recursively and calls
 /// `on_changed` (debounced by ~350ms) whenever any file inside changes.
-pub fn spawn_plugin_watcher<F>(plugins_dir: impl AsRef<Path>, on_changed: F)
+/// `extra_dirs` are watched too (shipped-plugin symlink targets — notify
+/// does not follow symlinked directories by default).
+pub fn spawn_plugin_watcher<F>(plugins_dir: impl AsRef<Path>, extra_dirs: Vec<std::path::PathBuf>, on_changed: F)
 where
     F: Fn() + Send + 'static,
 {
@@ -27,6 +29,13 @@ where
             return;
         };
         eprintln!("[plugins] watching {}", dir.display());
+        for extra in extra_dirs {
+            if extra.exists() {
+                if watcher.watch(&extra, RecursiveMode::Recursive).is_ok() {
+                    eprintln!("[plugins] also watching symlink target {}", extra.display());
+                }
+            }
+        }
 
         let mut pending = false;
         loop {

@@ -1,44 +1,47 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import { plugins, loadPlugins, setEnabled } from '../../../stores/plugins.svelte'
+  import { listSkills } from '../../../lib/tauri'
+  import type { SkillInfo } from '../../../lib/types'
   import Toggle from '../../../components/Toggle.svelte'
   import Icon from '../../../components/Icon.svelte'
   import { pushToast } from '../../../stores/toast.svelte'
 
-  let skillRows = $state<
-    { id: string; name: string; enabled: boolean; source: string }[]
-  >([])
+  let skillRows = $state<SkillInfo[]>([])
 
   onMount(async () => {
     await loadPlugins()
-    skillRows = plugins.list
-      .filter((p) => p.hasSkill)
-      .map((p) => ({
-        id: p.id,
-        name: p.name,
-        enabled: p.enabled,
-        source: 'plugin'
-      }))
+    skillRows = await listSkills()
   })
 
-  async function toggleRow(row: { id: string; enabled: boolean }) {
-    const next = !row.enabled
+  function skillEnabled(skill: SkillInfo): boolean {
+    if (!skill.pluginId) return true // native skills are always on
+    return plugins.list.find((p) => p.id === skill.pluginId)?.enabled ?? false
+  }
+
+  async function toggleRow(skill: SkillInfo) {
+    if (!skill.pluginId) return
+    const next = !skillEnabled(skill)
     try {
-      await setEnabled(row.id, next)
-      const cur = skillRows.find((r) => r.id === row.id)
-      if (cur) cur.enabled = next
-      pushToast(`${next ? 'Enabled' : 'Disabled'} ${row.id} skill`, 'success')
+      await setEnabled(skill.pluginId, next)
+      pushToast(`${next ? 'Enabled' : 'Disabled'} ${skill.id}`, 'success')
+      skillRows = await listSkills()
     } catch (err) {
       pushToast(String(err), 'error')
     }
+  }
+
+  function sourceLabel(source: string) {
+    return source === 'native' ? 'built-in' : source === 'plugin-skill' ? 'plugin skill' : 'plugin'
   }
 </script>
 
 <div class="page">
   <div class="title">Skills</div>
   <div class="desc-lead">
-    Skills are injected into every conversation as system context. Include one via
-    <code>manifest.json → contributes.skills</code>.
+    The model loads skills on demand with <code>load_skill</code> — loading a skill injects its
+    guidance and adds its tools to the session. Plugins ship skills as
+    <code>skills/&lt;id&gt;/skill.md</code> (+ optional <code>tools.json</code> / <code>handler.js</code>).
   </div>
 
   {#if skillRows.length === 0}
@@ -48,13 +51,26 @@
     </div>
   {:else}
     <div class="card">
-      {#each skillRows as row (row.id)}
+      {#each skillRows as skill (skill.id)}
         <div class="row">
           <div class="row-text">
-            <div class="label">{row.name}</div>
-            <div class="desc">injected · {row.source} skill</div>
+            <div class="label">{skill.name}<span class="id"> · {skill.id}</span></div>
+            <div class="desc">{skill.description}</div>
+            <div class="badges">
+              <span class="b source">{sourceLabel(skill.source)}</span>
+              {#if skill.hasTools}<span class="b tools">tools</span>{/if}
+              {#if skill.hasHandler}<span class="b handler">sidecar</span>{/if}
+            </div>
           </div>
-          <Toggle label={`Enable ${row.name}`} checked={row.enabled} onChange={(v) => toggleRow(row)} />
+          {#if skill.pluginId}
+            <Toggle
+              label={`Enable ${skill.id}`}
+              checked={skillEnabled(skill)}
+              onChange={() => toggleRow(skill)}
+            />
+          {:else}
+            <span class="always">always available</span>
+          {/if}
         </div>
       {/each}
     </div>
@@ -116,9 +132,35 @@
     color: var(--text-primary);
     font-size: 13.5px;
   }
+  .label .id {
+    color: var(--text-muted);
+    font-size: 11.5px;
+  }
   .desc {
     color: var(--text-muted);
     font-size: 12px;
     margin-top: 1px;
+  }
+  .badges {
+    display: flex;
+    gap: 6px;
+    margin-top: 6px;
+  }
+  .b {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    background: var(--bg-overlay);
+    border: 1px solid var(--border-subtle);
+    border-radius: 3px;
+    padding: 1px 6px;
+  }
+  .b.tools     { color: var(--accent); }
+  .b.handler   { color: var(--warning); }
+  .always {
+    color: var(--text-muted);
+    font-size: 11.5px;
   }
 </style>

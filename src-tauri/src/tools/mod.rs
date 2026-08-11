@@ -3,6 +3,7 @@ pub mod file_ops;
 pub mod shell;
 pub mod git;
 pub mod web;
+pub mod sidecar;
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};

@@ -53,7 +53,18 @@ export interface PluginInfo {
   contributes: PluginContributes
   hasComponent: boolean
   hasSkill: boolean
+  skills: SkillInfo[]
   folder: string
+}
+
+export interface SkillInfo {
+  id: string
+  name: string
+  description: string
+  source: 'native' | 'plugin' | 'plugin-skill'
+  pluginId: string | null
+  hasTools: boolean
+  hasHandler: boolean
 }
 
 export interface ModelInfo {

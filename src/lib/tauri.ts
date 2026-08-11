@@ -7,6 +7,7 @@ import {
   mockMessages,
   mockProviders,
   mockPlugins,
+  mockSkills,
   mockStats,
 } from './mock'
 
@@ -21,7 +22,7 @@ function mock<T>(fallback: T, cmd: string): Promise<T> {
 
 // Contributes as serialized by Rust (all camelCase) — shared with the plugin
 // store (which imports from this module for compatibility).
-import type { PluginContributes, PluginInfo } from './types'
+import type { PluginContributes, PluginInfo, SkillInfo } from './types'
 export type { PluginContributes, PluginInfo } from './types'
 
 export const listSessions = () => mock<Session[]>(mockSessions, 'list_sessions')
@@ -78,6 +79,7 @@ export const readPluginComponent = (id: string) =>
       }`)
     : tauriInvoke<string>('read_plugin_component', { id })
 export const readPluginSkill = (id: string) => tauriInvoke<string>('read_plugin_skill', { id })
+export const listSkills = () => mock<SkillInfo[]>(mockSkills, 'list_skills')
 export const openPluginFolder = (id: string) => tauriInvoke<void>('open_plugin_folder', { id })
 
 // ── Plugin process management ────────────────────────────────────────────────

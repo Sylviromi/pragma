@@ -42,6 +42,15 @@ pub async fn read_plugin_skill(
     state.plugins.skill_md(&id)
 }
 
+/// All discoverable skills (native built-ins + every enabled plugin's
+/// skills, subfolder and legacy), for the Skills settings page.
+#[tauri::command]
+pub async fn list_skills(
+    state: tauri::State<'_, AppState>,
+) -> Result<Vec<crate::plugins::SkillInfo>, String> {
+    Ok(state.plugins.skills())
+}
+
 #[tauri::command]
 pub async fn open_plugin_folder(id: String, state: tauri::State<'_, AppState>) -> Result<(), String> {
     let dir = state.plugins.plugin_dir(&id);

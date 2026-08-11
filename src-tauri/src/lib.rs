@@ -47,6 +47,8 @@ pub struct AppState {
     pub loop_cancels: Arc<tokio::sync::Mutex<HashMap<String, tokio::sync::watch::Sender<bool>>>>,
     // managed plugin sidecar processes (plugin_id → process handle)
     pub plugin_processes: commands::process::PluginProcesses,
+    // skill sidecars (skill_id → JSON-RPC handler process) for plugin tool execution
+    pub skill_sidecars: tools::sidecar::SkillSidecarRegistry,
     // pending plugin confirmation dialogs: request_id → oneshot sender
     pub plugin_confirmations: Arc<tokio::sync::Mutex<HashMap<String, tokio::sync::oneshot::Sender<bool>>>>,
 }
@@ -103,10 +105,10 @@ pub fn run() {
 
             let plugin_manager =
                 plugins::PluginManager::new(plugins_dir.clone(), settings.disabled_plugins.clone());
-            let wrote_demo = plugin_manager.ensure_demo_plugin();
-            if wrote_demo {
-                eprintln!("[plugins] wrote demo plugin into {}", plugins_dir.display());
-            }
+            // Symlinked plugin entries (dev workflow: plugin lives in an
+            // untracked folder, linked in with `ln -s`) — watch their real
+            // targets explicitly since notify doesn't follow symlinks.
+            let symlink_targets = plugin_manager.symlink_targets();
             plugins::provider::register_plugin_providers(&registry, &plugin_manager, &settings.api_keys, &app.handle());
 
             app.manage(AppState {
@@ -120,6 +122,7 @@ pub fn run() {
                 seen_ledger: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
                 loop_cancels: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
                 plugin_processes: commands::process::new_process_map(),
+                skill_sidecars: tools::sidecar::SkillSidecarRegistry::new(),
                 plugin_confirmations: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
                 plugins: plugin_manager,
             });
@@ -131,10 +134,16 @@ pub fn run() {
 
             // Hot-reload watcher: rebind providers + tell the frontend to re-scan.
             let app_handle = app.handle().clone();
-            plugins::watcher::spawn_plugin_watcher(&plugins_dir, move || {
+            let symlink_targets2 = symlink_targets.clone();
+            plugins::watcher::spawn_plugin_watcher(&plugins_dir, symlink_targets2, move || {
                 let handle = app_handle.clone();
                 std::thread::spawn(move || {
                     let state = handle.state::<AppState>();
+                    // Kill skill sidecars — a plugin/skill change may have
+                    // replaced handler.js; they respawn at the next run start.
+                    let sidecars = state.skill_sidecars.clone();
+                    let _ = tokio::runtime::Runtime::new()
+                        .map(|rt| rt.block_on(sidecars.stop_all()));
                     let api_keys = state.settings.read().unwrap().api_keys.clone();
                     plugins::provider::unregister_plugin_providers(&state.registry, &state.plugins);
                     plugins::provider::register_plugin_providers(&state.registry, &state.plugins, &api_keys, &handle);
@@ -175,6 +184,7 @@ pub fn run() {
             commands::plugins::set_plugin_enabled,
             commands::plugins::read_plugin_component,
             commands::plugins::read_plugin_skill,
+            commands::plugins::list_skills,
             commands::plugins::open_plugin_folder,
             commands::process::spawn_plugin_process,
             commands::process::stop_plugin_process,
