@@ -10,6 +10,7 @@
   import { pushToast } from '../stores/toast.svelte'
   import { buildAgentTranscript } from '../lib/transcript'
   import { messageText, isToolResultTurn, parseContent } from '../lib/types'
+  import { renderMarkdown, segmentsOf } from '../lib/markdown'
   import type { Message, ToolResultBlock } from '../lib/types'
 
   let { sessionId }: { sessionId: string } = $props()
@@ -244,7 +245,19 @@
               streaming={!block.done}
             >{block.text}</ThoughtCard>
           {:else if block.type === 'text'}
-            <div class="live-bubble">{block.text}{#if running && bi === liveBlocks.length - 1}<span class="caret" aria-hidden="true">▌</span>{/if}</div>
+            {@const segs = segmentsOf(block.text)}
+            <div class="live-bubble">
+              {#each segs as seg, si (seg.kind + seg.text.slice(0, 40))}
+                {#if seg.kind === 'prose' && seg.text.trim()}
+                  <div class="md-prose">
+                    {@html renderMarkdown(seg.text)}
+                    {#if running && bi === liveBlocks.length - 1 && si === segs.length - 1}<span class="caret" aria-hidden="true">▌</span>{/if}
+                  </div>
+                {:else if seg.kind === 'code' && seg.text.trim()}
+                  <pre class="live-code">{seg.text.trimEnd()}</pre>
+                {/if}
+              {/each}
+            </div>
           {:else if block.type === 'tool'}
             {@const tool = toolItems.find(t => t.toolUseId === block.toolUseId)}
             {#if tool}
@@ -382,6 +395,20 @@
   .caret {
     color: var(--accent);
     animation: cursorblink 1s step-start infinite;
+  }
+  /* Streamed fenced code inside the live bubble (mirrors .code-block). */
+  .live-code {
+    margin: 0;
+    margin-top: 10px;
+    background: var(--bg-base);
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius-sm);
+    padding: 12px 14px;
+    font-family: var(--font-mono);
+    font-size: 12.5px;
+    color: var(--text-secondary);
+    white-space: pre;
+    overflow-x: auto;
   }
 
   /* Live indicator — design: bubble, icon + mono label + bounce

@@ -59,3 +59,22 @@ function buildMarkdownHtml(prose: string): string {
       })
   )
 }
+
+/** Split prose from fenced code blocks so code renders as a styled block and
+ *  prose goes through renderMarkdown. Shared by ChatMessage (persisted turns)
+ *  and MessageList (streaming live bubbles). */
+export interface Segment { kind: 'prose' | 'code'; text: string }
+export function segmentsOf(text: string): Segment[] {
+  const re = /```(\w*)\n?([\s\S]*?)```/g
+  const out: Segment[] = []
+  let last = 0
+  let m: RegExpExecArray | null
+  while ((m = re.exec(text)) !== null) {
+    if (m.index > last) out.push({ kind: 'prose', text: text.slice(last, m.index) })
+    out.push({ kind: 'code', text: m[2] })
+    last = m.index + m[0].length
+  }
+  if (last < text.length) out.push({ kind: 'prose', text: text.slice(last) })
+  if (out.length === 0 && text.trim()) out.push({ kind: 'prose', text })
+  return out
+}
