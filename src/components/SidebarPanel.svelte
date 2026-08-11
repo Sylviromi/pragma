@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { statsFor, loadSessionStats } from '../stores/stats.svelte'
+  import { statsFor, hasSessionStats, loadSessionStats } from '../stores/stats.svelte'
   import { sessions, openTab } from '../stores/sessions.svelte'
   import { chat, STATUS_META, type AgentStatus } from '../stores/chat.svelte'
   import SlotStack from './SlotStack.svelte'
@@ -8,10 +8,12 @@
 
   const st = $derived(statsFor(sessionId))
 
-  // Sidebar only mounts when opened; reload telemetry whenever the visible
-  // session changes (tab switch) so a loaded session never shows stale zeros.
+  // Sidebar only mounts when opened. Load telemetry once per session (the
+  // run loop pushes `session:stats` updates while active, and a session that
+  // already has a payload must show THAT — not a re-fetch — when the panel
+  // reopens or the tab is switched).
   $effect(() => {
-    loadSessionStats(sessionId)
+    if (!hasSessionStats(sessionId)) loadSessionStats(sessionId)
   })
 
   // Sidebar lists only the *open* sessions (the restored tabs above); the

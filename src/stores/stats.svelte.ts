@@ -31,13 +31,21 @@ export function statsFor(sessionId: string): SessionStats {
   return stats[sessionId] ?? emptyStats(sessionId)
 }
 
+/** True once a payload has been fetched or pushed for this session. Lets
+ *  the sidebar show what it ALREADY has (last push from the run loop or the
+ *  one load) instead of re-fetching telemetry every time the panel opens. */
+export function hasSessionStats(sessionId: string): boolean {
+  return stats[sessionId] !== undefined
+}
+
 function setStats(sessionId: string, s: SessionStats) {
   stats[sessionId] = s
 }
 
 /** Load stats for a session. Falls back to mock data in the plain-browser
- *  dev mode. Called lazily when the sidebar first opens, plus on the
- *  `session:stats` push event. */
+ *  dev mode. Called lazily the first time the sidebar needs a session (a
+ *  session that has already been pushed via `session:stats` stays as-is);
+ *  live pushes keep it fresh while a run is active. */
 export async function loadSessionStats(sessionId: string): Promise<void> {
   try {
     const s = isBrowserMock ? (mockStats[sessionId] ?? null) : await getSessionStats(sessionId)
