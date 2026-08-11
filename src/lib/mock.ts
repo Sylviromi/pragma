@@ -122,11 +122,11 @@ export const mockStats: Record<string, SessionStats> = {
     sessionId: 'mock-my-project',
     context: {
       segments: [
-        { label: 'System + skills', tokens: 7400, color: 'var(--text-muted)' },
-        { label: 'Files in context', tokens: 31200, color: 'var(--warning)' },
-        { label: 'Conversation', tokens: 18600, color: 'var(--accent)' },
+        { label: 'System + skills', tokens: 3800, color: 'var(--text-muted)' },
+        { label: 'Files in context', tokens: 12000, color: 'var(--warning)' },
+        { label: 'Conversation', tokens: 8000, color: 'var(--accent)' },
       ],
-      used: 57200, limit: 200000, percent: 29,
+      used: 23800, limit: 200000, percent: 12,
     },
     cost: {
       rows: [

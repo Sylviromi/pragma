@@ -36,11 +36,17 @@
   const CIRC = 2 * Math.PI * 35
   const fmt = (n: number) => (n >= 1000 ? (n / 1000).toFixed(1) + 'k' : String(n))
   const totalUsed = $derived(st.context.used)
+  // Name of the session this ring belongs to — with multiple open tabs the
+  // pinned ring would otherwise look unattributed (its numbers are THIS
+  // session's: used = the provider-counted tokens the last call sent).
+  const sessionName = $derived(
+    sessions.list.find((x) => x.id === sessionId)?.name ?? sessionId
+  )
   const segments = $derived.by(() => {
-    // Segments are char-estimates that may not sum exactly to `used`; the
-    // ring is drawn from cumulative fractions CLAMPED at 1.0 so an
-    // over-budget session never overflows the circumference (the % text
-    // above still shows the true number).
+    // Segments are scaled by the backend to sum exactly to `used`, so the
+    // ring's filled fraction always equals percent. The cumulative clamp at
+    // 1.0 only guards an over-budget session (>100%) from overflowing the
+    // circumference (the % text still shows the true number).
     const limit = Math.max(st.context.limit, 1)
     let acc = 0
     return st.context.segments.map((p) => {
@@ -72,8 +78,11 @@
 </script>
 
 <aside class="sidebar" aria-label="Session telemetry">
-  <!-- pinned: context ring + cost -->
+  <!-- pinned: context ring + cost → always labeled with its session -->
   <div class="pinned">
+    <div class="pinned-head" title={sessionId}>
+      <span class="ring-session">{sessionName}</span>
+    </div>
     <div class="ring-row">
       <div class="ring-wrap">
         <svg width="84" height="84" viewBox="0 0 84 84" style="transform:rotate(-90deg)">
@@ -100,8 +109,11 @@
             <span class="legend-tokens">{seg.tokensLabel}</span>
           </div>
         {/each}
-        <div class="legend-footer">
-          {fmt(totalUsed)} / {fmt(st.context.limit)}
+        <div class="legend-footer" title="Context in the next call / model window — used is the provider-counted input of the last call (system + full history); segments are its estimated composition">
+          <span class="legend-used">{fmt(totalUsed)}</span>
+          <span class="legend-div">/</span>
+          <span class="legend-limit">{fmt(st.context.limit)}</span>
+          <span class="legend-hint">in window</span>
         </div>
       </div>
     </div>
@@ -236,6 +248,24 @@
     padding: 16px 16px 14px;
     border-bottom: 1px solid var(--border-default);
   }
+  .pinned-head {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    margin-bottom: 10px;
+    min-width: 0;
+  }
+  .ring-session {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-family: var(--font-body);
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-primary);
+  }
   .ring-row {
     display: flex;
     align-items: center;
@@ -308,6 +338,17 @@
     color: var(--text-muted);
     padding-top: 2px;
     border-top: 1px solid var(--border-subtle);
+    display: flex;
+    align-items: baseline;
+    gap: 3px;
+  }
+  .legend-used {
+    color: var(--text-secondary);
+  }
+  .legend-hint {
+    margin-left: auto;
+    color: var(--text-muted);
+    opacity: 0.8;
   }
   .cost {
     margin-top: 13px;

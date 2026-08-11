@@ -494,10 +494,11 @@ pub async fn build_session_stats(
     // history); a session that never ran has no provider count, so fall
     // back to the char-estimates (legacy sessions pre-telemetry).
     let (conv, files) = context_breakdown(db, session_id).await;
-    // System+skills: a fixed estimate of the harness system prompt (rewritten
-    // per turn from the system content — the actual prompt is never persisted,
-    // so this is the honest best estimate).
-    let sys = 7_400i64;
+    // System+skills: fixed estimate of the harness system prompt + tool
+    // schemas (rewritten per turn — the actual prompt is never persisted).
+    // Measured: minimal sessions' used minus history ≈ 3.8k tokens for the
+    // base tool set (verified against 'Greeting' 3838 and 'Echo Test' 3826).
+    let sys = 3_800i64;
     let used = match last_call_tokens(db, session_id).await {
         Some((input, _)) => input,
         None => sys + conv + files,
