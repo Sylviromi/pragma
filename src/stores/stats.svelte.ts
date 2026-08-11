@@ -5,7 +5,7 @@ import { listen } from '@tauri-apps/api/event'
 
 /// Empty stats — rendered sections show placeholders until the backend
 /// telemetry lands (get_session_stats / `session:stats` events).
-export function emptyStats(sessionId: string): SessionStats {
+function emptyStats(sessionId: string): SessionStats {
   return {
     sessionId,
     context: {
@@ -31,7 +31,7 @@ export function statsFor(sessionId: string): SessionStats {
   return stats[sessionId] ?? emptyStats(sessionId)
 }
 
-export function setStats(sessionId: string, s: SessionStats) {
+function setStats(sessionId: string, s: SessionStats) {
   stats[sessionId] = s
 }
 

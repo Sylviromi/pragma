@@ -66,7 +66,25 @@ describe('theme palette engine', () => {
   });
 
   it('bootstrap theme matches the design reference values', () => {
-    expect(BOOTSTRAP_THEME['bg-base']).toBe('oklch(16% 0.033 250)');
-    expect(BOOTSTRAP_THEME.accent).toBe('oklch(72% 0.055 250)');
+    // Steel/dark reference (also declared by tokens.css as the first-paint
+    // fallback): bg-base = 16% light, 0.033 chroma @ 250 hue; accent = 72%
+    // light, 0.055 chroma @ 250 hue.
+    expect(oklchParts(BOOTSTRAP_THEME['bg-base'])).toEqual({ l: 16, c: 0.033, h: 250 });
+    expect(oklchParts(BOOTSTRAP_THEME.accent)).toEqual({ l: 72, c: 0.055, h: 250 });
+  });
+
+  it('tokens.css first-paint values match the engine bootstrap', () => {
+    const cssBase = tokens.match(/--bg-base:\s*([^;]+);/)?.[1]?.trim() ?? '';
+    const cssAccent = tokens.match(/--accent:\s*([^;]+);/)?.[1]?.trim() ?? '';
+    // Same numbers, formatting-agnostic (CSS hand-trims trailing zeros, the
+    // engine formats with toFixed(4)) — compare the oklch components.
+    expect(oklchParts(cssBase)).toEqual(oklchParts(BOOTSTRAP_THEME['bg-base']));
+    expect(oklchParts(cssAccent)).toEqual(oklchParts(BOOTSTRAP_THEME.accent));
   });
 });
+
+/// Parse "oklch(L% C H" (alpha ignored) into comparable numbers.
+function oklchParts(v: string): { l: number; c: number; h: number } | null {
+  const m = v.match(/oklch\(([\d.]+)%\s+([\d.]+)\s+([\d.]+)/);
+  return m ? { l: parseFloat(m[1]), c: parseFloat(m[2]), h: parseFloat(m[3]) } : null;
+}

@@ -1,7 +1,6 @@
 import {
   listSessions as fetch,
   createSession as apiCreate,
-  archiveSession as apiArchive,
   listenSessionRenamed
 } from '../lib/tauri'
 import type { Session } from '../lib/types'
@@ -103,12 +102,6 @@ export async function newSession(name?: string) {
   sessions.list = [s, ...sessions.list]
   openTab(s.id)
   return s
-}
-
-export async function archiveTab(id: string) {
-  await apiArchive(id)
-  closeTab(id)
-  sessions.list = sessions.list.filter((s) => s.id !== id)
 }
 
 export function getSession(id: string) {

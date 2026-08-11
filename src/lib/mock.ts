@@ -1,7 +1,7 @@
 // Browser-only mock data — used when the frontend runs without the Tauri
 // backend (plain `vite dev` in a browser, design iteration, plugin dev).
 // Guarded by tauri.ts: never active inside the real app.
-import type { Message, ProviderInfo, Session, PluginInfo, SessionStats, AgentEvent } from './types'
+import type { Message, ProviderInfo, Session, PluginInfo, SessionStats } from './types'
 
 export const isBrowserMock =
   typeof window !== 'undefined' && !('__TAURI_INTERNALS__' in (window as unknown as Record<string, unknown>))
@@ -148,7 +148,3 @@ export const mockStats: Record<string, SessionStats> = {
     },
   },
 }
-
-export const mockAgentEvents: AgentEvent[] = [
-  { event: 'token', content: 'Mock event' },
-]

@@ -4,7 +4,7 @@
   import Icon from './Icon.svelte'
   import SlotStack from './SlotStack.svelte'
   import { getSession } from '../stores/sessions.svelte'
-  import { updateSession, captureAppScreenshot } from '../lib/tauri'
+  import { updateSession } from '../lib/tauri'
   import { pushToast } from '../stores/toast.svelte'
   import type { ThinkingPref } from '../lib/types'
 
@@ -104,26 +104,6 @@
       if (e.key === 'Escape' && (chat.running[sessionId] ?? false)) {
         e.preventDefault()
         stopTurn(sessionId)
-      }
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  })
-
-  async function shoot() {
-    try {
-      const path = await captureAppScreenshot()
-      pushToast(`Screenshot → ${path}`, 'success')
-    } catch (err) {
-      pushToast(String(err), 'error')
-    }
-  }
-
-  $effect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === 's') {
-        e.preventDefault()
-        shoot()
       }
     }
     window.addEventListener('keydown', onKey)

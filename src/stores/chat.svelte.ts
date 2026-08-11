@@ -134,7 +134,7 @@ export interface ToolItem {
 /** A block in the live (in-progress) assistant turn — mirrors the ContentBlock
  *  order of the persisted message so the streamed view looks exactly like the
  *  completed one (thoughts separate, in place; tools interleaved). */
-export type LiveBlock =
+type LiveBlock =
   | { type: 'thinking'; text: string; done: boolean }
   | { type: 'text'; text: string }
   | { type: 'tool'; toolUseId: string }
@@ -183,18 +183,6 @@ export const chat = $state({
   /** Aggregate session status for the design's status dots / labels. */
   status:         {} as Record<string, AgentStatus>,
 })
-
-export type AgentState = 'idle' | 'working' | 'waiting' | 'error'
-
-/** Aggregate agent state for a session — shown in the top bar.
- *  `waiting` (a tool paused on an approval question) outranks `working`,
- *  a terminal error lingers as `error` until the next turn starts. */
-export function agentState(sessionId: string): AgentState {
-  if ((chat.toolItems[sessionId] ?? []).some((t) => t.status === 'waiting')) return 'waiting'
-  if (chat.running[sessionId]) return 'working'
-  if (chat.error[sessionId]) return 'error'
-  return 'idle'
-}
 
 /** Turn-completion notices: in-app toast only. Native OS notifications live on
  *  the Rust side (src-tauri/src/notify.rs) so they fire even when this frontend
