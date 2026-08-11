@@ -1,5 +1,4 @@
 <script lang="ts">
-  import { onMount } from 'svelte'
   import { statsFor, loadSessionStats } from '../stores/stats.svelte'
   import { sessions, openTab } from '../stores/sessions.svelte'
   import { chat, STATUS_META, type AgentStatus } from '../stores/chat.svelte'
@@ -9,8 +8,9 @@
 
   const st = $derived(statsFor(sessionId))
 
-  // Sidebar only mounts when opened — load telemetry on first show.
-  onMount(() => {
+  // Sidebar only mounts when opened; reload telemetry whenever the visible
+  // session changes (tab switch) so a loaded session never shows stale zeros.
+  $effect(() => {
     loadSessionStats(sessionId)
   })
 
@@ -37,13 +37,19 @@
   const fmt = (n: number) => (n >= 1000 ? (n / 1000).toFixed(1) + 'k' : String(n))
   const totalUsed = $derived(st.context.used)
   const segments = $derived.by(() => {
+    // Segments are char-estimates that may not sum exactly to `used`; the
+    // ring is drawn from cumulative fractions CLAMPED at 1.0 so an
+    // over-budget session never overflows the circumference (the % text
+    // above still shows the true number).
+    const limit = Math.max(st.context.limit, 1)
     let acc = 0
     return st.context.segments.map((p) => {
-      const frac = p.tokens / Math.max(st.context.limit, 1)
+      const frac = p.tokens / limit
+      const clamped = Math.max(0, Math.min(frac, 1 - acc))
       const seg = {
         ...p,
         tokensLabel: fmt(p.tokens),
-        dash: `${(CIRC * frac).toFixed(2)} ${CIRC.toFixed(2)}`,
+        dash: `${(CIRC * clamped).toFixed(2)} ${CIRC.toFixed(2)}`,
         offset: (-CIRC * acc).toFixed(2),
       }
       acc += frac
@@ -82,7 +88,7 @@
           {/each}
         </svg>
         <div class="ring-center">
-          <span class="ring-pct">{st.context.percent}%</span>
+          <span class="ring-pct" class:over={st.context.percent > 100}>{st.context.percent}%</span>
           <span class="ring-label">context</span>
         </div>
       </div>
@@ -256,6 +262,10 @@
     font-size: 20px;
     color: var(--text-primary);
     line-height: 1;
+  }
+  /* Over the window — the point where auto-compaction will kick in. */
+  .ring-pct.over {
+    color: var(--danger);
   }
   .ring-label {
     font-family: var(--font-mono);
