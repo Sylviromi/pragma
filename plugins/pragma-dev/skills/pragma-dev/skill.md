@@ -150,6 +150,9 @@ session_usage(id, session_id, model, provider, input_tokens, output_tokens, cost
 - `provider.json` — optional OpenAI-compat model registration (auth "api-key"|"none", discover, reasoningEffort, per-model supportsThinking/thinkingBudget/maxTokens).
 - `component.js` — ES module Web Component for UI slots: `input-toolbar`, `chat-toolbar-extra`, `model-picker-extra`, `status-bar`, `composer-center`, `sidebar-section`, `settings-page`.
 - `config.json` — plugin-scoped persistent config via `get/set_plugin_config` commands.
+- Enable/disable is persisted app-wide in `settings.json` (`disabled_plugins`), toggled from
+  Settings → Plugins. The PluginManager's live list is the source of truth;
+  `save_settings` persists `manager.disabled_ids()` so toggles survive restarts.
 - Hot-reload: the watcher watches symlink targets; any file change re-registers providers + emits `plugin:reload`.
 
 **This plugin is first-party** (lives at `plugins/pragma-dev/` in the repo, symlinked into the config dir) — a deliberate exception to the "plugins live outside the repo" convention, so its reference stays in sync with the code it documents.

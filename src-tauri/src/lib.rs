@@ -205,15 +205,31 @@ pub fn run() {
 /// Persist settings.json (api_keys + disabled_plugins).
 pub fn save_settings(state: &AppState) {
     let settings = state.settings.read().unwrap();
-    let json = serde_json::json!({
-        "api_keys": settings.api_keys,
-        "disabled_plugins": settings.disabled_plugins,
-        "notifications_enabled": settings.notifications_enabled,
-    });
-    let _ = std::fs::write(
+    write_settings(
         &state.settings_path,
-        serde_json::to_string_pretty(&json).unwrap(),
+        &settings.api_keys,
+        settings.notifications_enabled,
+        // PluginManager is the single source of truth for plugin on/off state:
+        // toggles mutate its internal list (set_plugin_enabled), so persisting
+        // the live list — not the startup-time Settings snapshot — is what
+        // makes plugins remember their state across restarts.
+        &state.plugins.disabled_ids(),
     );
+}
+
+/// Serialize + write settings.json.
+fn write_settings(
+    path: &std::path::Path,
+    api_keys: &HashMap<String, String>,
+    notifications_enabled: bool,
+    disabled_plugins: &[String],
+) {
+    let json = serde_json::json!({
+        "api_keys": api_keys,
+        "disabled_plugins": disabled_plugins,
+        "notifications_enabled": notifications_enabled,
+    });
+    let _ = std::fs::write(path, serde_json::to_string_pretty(&json).unwrap());
 }
 
 fn load_settings(path: &std::path::Path) -> Settings {
@@ -278,6 +294,25 @@ fn detects_wayland(xdg_session_type: Option<String>, wayland_display: Option<Str
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn settings_round_trip_preserves_disabled_plugins() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("settings.json");
+        let mut keys = HashMap::new();
+        keys.insert("anthropic".to_string(), "sk-test".to_string());
+        // A disable toggle persisted the PluginManager's live list:
+        write_settings(&path, &keys, false, &["demo".to_string()]);
+        // Restart: load_settings must restore the exact disabled set.
+        let loaded = load_settings(&path);
+        assert_eq!(loaded.disabled_plugins, vec!["demo"]);
+        assert_eq!(loaded.api_keys.get("anthropic").unwrap(), "sk-test");
+        assert!(!loaded.notifications_enabled);
+        // Defaults when the file is absent.
+        let loaded_default = load_settings(&dir.path().join("missing.json"));
+        assert!(loaded_default.disabled_plugins.is_empty());
+        assert!(loaded_default.notifications_enabled);
+    }
 
     #[test]
     fn wayland_detection() {
