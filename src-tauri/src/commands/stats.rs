@@ -53,6 +53,7 @@ pub struct PlanItem {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+#[derive(Default)]
 pub struct SessionPlan {
     pub items: Vec<PlanItem>,
     pub progress: String,
@@ -77,6 +78,7 @@ pub struct GitRow {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+#[derive(Default)]
 pub struct GitWorkingTree {
     pub branch: String,
     pub added: i64,
@@ -128,27 +130,6 @@ impl Default for SessionCost {
         Self {
             rows: Vec::new(),
             total: "$0.00".into(),
-        }
-    }
-}
-
-impl Default for SessionPlan {
-    fn default() -> Self {
-        Self {
-            items: Vec::new(),
-            progress: String::new(),
-        }
-    }
-}
-
-impl Default for GitWorkingTree {
-    fn default() -> Self {
-        Self {
-            branch: String::new(),
-            added: 0,
-            removed: 0,
-            files: 0,
-            rows: Vec::new(),
         }
     }
 }

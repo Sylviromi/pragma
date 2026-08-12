@@ -42,6 +42,10 @@ pub struct SidecarStatus {
     pub tools: Vec<String>,
 }
 
+/// In-flight JSON-RPC calls shared by a sidecar and its call path:
+/// request id → oneshot response channel.
+type PendingCalls = Arc<Mutex<HashMap<u64, oneshot::Sender<Result<serde_json::Value, String>>>>>;
+
 /// Per-skill running sidecar (or a registered-but-failed placeholder).
 pub struct SidecarState {
     #[allow(dead_code)] // kept for a future status surface (process_skill_status)
@@ -60,7 +64,7 @@ pub struct SidecarState {
     /// Outbound frame channel; an idle writer task owns the child's stdin.
     tx: mpsc::UnboundedSender<String>,
     /// In-flight requests: JSON-RPC id → response channel.
-    pending: Arc<Mutex<HashMap<u64, oneshot::Sender<Result<serde_json::Value, String>>>>>,
+    pending: PendingCalls,
     next_id: u64,
 }
 
@@ -429,7 +433,7 @@ async fn spawn_handler(
         tokio::process::Child,
         u32,
         mpsc::UnboundedSender<String>,
-        Arc<Mutex<HashMap<u64, oneshot::Sender<Result<serde_json::Value, String>>>>>,
+        PendingCalls,
     ),
     String,
 > {
@@ -453,8 +457,7 @@ async fn spawn_handler(
     let stdout = child.stdout.take().ok_or("handler stdout unavailable")?;
     let stderr = child.stderr.take().ok_or("handler stderr unavailable")?;
 
-    let pending: Arc<Mutex<HashMap<u64, oneshot::Sender<Result<serde_json::Value, String>>>>> =
-        Arc::new(Mutex::new(HashMap::new()));
+    let pending: PendingCalls = Arc::new(Mutex::new(HashMap::new()));
 
     // Writer: serializes outbound frames onto the child's stdin.
     let (tx, mut rx) = mpsc::unbounded_channel::<String>();

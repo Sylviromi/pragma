@@ -592,7 +592,7 @@ async fn run_loop(
         } else {
             working_dir
         },
-        &session_id,
+        session_id,
         ledger.clone(),
     );
 
@@ -679,7 +679,7 @@ You converse with the user in turns. In each turn you can write text and call to
     let db_messages = sqlx::query_as::<_, crate::commands::messages::Message>(
         "SELECT * FROM messages WHERE session_id=? ORDER BY timestamp ASC",
     )
-    .bind(&session_id)
+    .bind(session_id)
     .fetch_all(&state.db)
     .await
     .map_err(|e| e.to_string())?;
@@ -721,9 +721,9 @@ You converse with the user in turns. In each turn you can write text and call to
     // message persists so the COUNT(*) detector below sees a fresh session,
     // and never blocks the loop.
     spawn_session_naming(
-        &state,
-        &app_handle,
-        &session_id,
+        state,
+        app_handle,
+        session_id,
         &model,
         &provider,
         &user_message,
@@ -733,7 +733,7 @@ You converse with the user in turns. In each turn you can write text and call to
     // Persist user message
     persist_message(
         &state.db,
-        &session_id,
+        session_id,
         "user",
         &serde_json::to_string(&user_message).unwrap(),
         &model,
@@ -827,7 +827,7 @@ You converse with the user in turns. In each turn you can write text and call to
         let (conversation_tokens, files_tokens) = prompt_breakdown(&history);
         let _ = crate::commands::stats::record_usage(
             &state.db,
-            &session_id,
+            session_id,
             &model,
             &provider,
             usage.input_tokens,
@@ -898,7 +898,7 @@ You converse with the user in turns. In each turn you can write text and call to
         let blocks_json = serde_json::to_string(&blocks).unwrap();
         let asst_rowid = persist_message(
             &state.db,
-            &session_id,
+            session_id,
             "assistant",
             &blocks_json,
             &model,
@@ -915,7 +915,7 @@ You converse with the user in turns. In each turn you can write text and call to
             let _ = crate::commands::stats::emit_stats(
                 app_handle,
                 &state.db,
-                &session_id,
+                session_id,
                 Some(&executor.working_dir.to_string_lossy()),
             )
             .await;
@@ -951,7 +951,7 @@ You converse with the user in turns. In each turn you can write text and call to
             //      user's answer text to mine for a path on its own.
             // Once a working dir is set the tool falls through to the normal
             // approval + execution path (non-path tools always run freely).
-            if path_gated(&name, has_wd) {
+            if path_gated(name, has_wd) {
                 if !has_wd {
                     if let Some(guess) = guess_dir_from_text(&user_message) {
                         let _ = set_working_dir(
@@ -959,7 +959,7 @@ You converse with the user in turns. In each turn you can write text and call to
                             &mut has_wd,
                             &guess,
                             &state.db,
-                            &session_id,
+                            session_id,
                             app_handle,
                             ledger.clone(),
                         )
@@ -972,8 +972,8 @@ You converse with the user in turns. In each turn you can write text and call to
                         path_question_asked = true;
                         ask_user(
                             app_handle,
-                            &state,
-                            &session_id,
+                            state,
+                            session_id,
                             "Which project folder should I use as the working directory? Name a path (e.g. /home/you/project) or just say where to work.",
                             Vec::new(),
                             600,
@@ -994,7 +994,7 @@ You converse with the user in turns. In each turn you can write text and call to
                                     &mut has_wd,
                                     &p,
                                     &state.db,
-                                    &session_id,
+                                    session_id,
                                     app_handle,
                                     ledger.clone(),
                                 )
@@ -1004,7 +1004,7 @@ You converse with the user in turns. In each turn you can write text and call to
                     }
                 }
                 if !has_wd {
-                    let fact = no_working_dir_fact(&name, user_said.as_deref());
+                    let fact = no_working_dir_fact(name, user_said.as_deref());
                     emit(
                         app_handle,
                         session_id,
@@ -1130,7 +1130,7 @@ You converse with the user in turns. In each turn you can write text and call to
                     &mut has_wd,
                     &abs.to_string_lossy(),
                     &state.db,
-                    &session_id,
+                    session_id,
                     app_handle,
                     ledger.clone(),
                 )
@@ -1170,8 +1170,8 @@ You converse with the user in turns. In each turn you can write text and call to
                         .max(10);
                     match ask_user(
                         app_handle,
-                        &state,
-                        &session_id,
+                        state,
+                        session_id,
                         &text,
                         options,
                         timeout_secs,
@@ -1189,14 +1189,14 @@ You converse with the user in turns. In each turn you can write text and call to
                         Err(()) => return Ok(()), // Esc pressed — unwind
                     }
                 }
-            } else if let Some(skill_id) = state.skill_sidecars.owner(&name) {
+            } else if let Some(skill_id) = state.skill_sidecars.owner(name) {
                 // Plugin-skill sidecar tool: routed to the skill's handler
                 // process over JSON-RPC (a tool the skill declared in its
                 // tools.json). Runs inline — plugin tools are usually
                 // stateful (they control the plugin's own server), so no
                 // batch parallelism. Approval already happened above.
                 let out = tokio::select! {
-                    res = state.skill_sidecars.call_tool(&skill_id, &name, input) => res,
+                    res = state.skill_sidecars.call_tool(&skill_id, name, input) => res,
                     _ = cancel.changed() => {
                         emit(app_handle, session_id, AgentEvent::Interrupted);
                         return Ok(());
@@ -1285,7 +1285,7 @@ You converse with the user in turns. In each turn you can write text and call to
                 let (mut output, is_error) = if !approved {
                     ("Tool call denied by user.".to_string(), true)
                 } else {
-                    let ex = ToolExecutor::with_ledger(wd, &session_id, ledger.clone());
+                    let ex = ToolExecutor::with_ledger(wd, session_id, ledger.clone());
                     // Journal the pre-op file state so a later "return to
                     // this point" can restore the filesystem.
                     if crate::commands::revert::is_mutating_file_tool(name) {
@@ -1305,10 +1305,7 @@ You converse with the user in turns. In each turn you can write text and call to
                         Ok(out) => {
                             // Telemetry: what the tool did to the project tree.
                             let _ = crate::commands::stats::record_tool_touch(
-                                &state.db,
-                                &session_id,
-                                name,
-                                input,
+                                &state.db, session_id, name, input,
                             )
                             .await;
                             (out, false)
@@ -1343,7 +1340,7 @@ You converse with the user in turns. In each turn you can write text and call to
                 let mut futs: futures_util::stream::FuturesUnordered<_> = read_only
                     .iter()
                     .map(|(i, id, name, input, wd)| {
-                        let ex = ToolExecutor::with_ledger(wd, &session_id, ledger.clone());
+                        let ex = ToolExecutor::with_ledger(wd, session_id, ledger.clone());
                         let id = id.clone();
                         let name = name.clone();
                         let input = input.clone();
@@ -1370,7 +1367,7 @@ You converse with the user in turns. In each turn you can write text and call to
                                 Ok(Ok(out)) => {
                                     let _ = crate::commands::stats::record_tool_touch(
                                         &state.db,
-                                        &session_id,
+                                        session_id,
                                         &name,
                                         &read_only[i].3,
                                     )
@@ -1439,14 +1436,14 @@ You converse with the user in turns. In each turn you can write text and call to
 
         // Add tool results as user turn
         let results_content = serde_json::to_string(&tool_results).unwrap();
-        persist_message(&state.db, &session_id, "user", &results_content, "", "").await?;
+        persist_message(&state.db, session_id, "user", &results_content, "", "").await?;
         history.push(serde_json::json!({ "role": "user", "content": tool_results }));
 
         // Push refreshed sidebar stats after every tool round.
         let _ = crate::commands::stats::emit_stats(
             app_handle,
             &state.db,
-            &session_id,
+            session_id,
             Some(&executor.working_dir.to_string_lossy()),
         )
         .await;
@@ -1585,62 +1582,61 @@ fn sanitize_history(raw: Vec<serde_json::Value>) -> Vec<serde_json::Value> {
             if !is_tool_result {
                 out.push(msg.clone());
             }
-        } else if role == "user" && blocks.is_some() {
+        } else if role == "user" {
             // While a tool exchange is open: keep only results for ids we are
             // waiting on; ignore everything else (orphan / foreign results).
-            let matched: Vec<serde_json::Value> = blocks
-                .unwrap()
-                .iter()
-                .filter(|b| {
-                    b["type"] == "tool_result"
-                        && b["tool_use_id"]
-                            .as_str()
-                            .map(|id| pending.iter().any(|p| p == id))
-                            .unwrap_or(false)
-                })
-                .cloned()
-                .collect();
-            if matched.is_empty() {
-                // A non-tool-result user message interleaved mid-exchange →
-                // the buffered call never completed; drop the exchange.
-                held = None;
-                pending.clear();
-                results_buf.clear();
-            }
-            let matched_ids: Vec<String> = matched
-                .iter()
-                .filter_map(|m| m["tool_use_id"].as_str().map(|s| s.to_string()))
-                .collect();
-            pending.retain(|p| !matched_ids.iter().any(|m| m == p));
-            results_buf.extend(matched);
-
-            if pending.is_empty() {
-                // Every call in this exchange has its result — emit the pair.
-                let all_denied = !results_buf.is_empty()
-                    && results_buf
-                        .iter()
-                        .filter(|r| r["type"] == "tool_result")
-                        .all(|r| r["content"].as_str() == Some("Tool call denied by user."));
-                if !all_denied {
-                    // all_denied: don't feed the model a "tried -> denied" trail.
-                    if let Some(h) = held.take() {
-                        out.push(h);
-                        out.push(serde_json::json!({"role": "user", "content": results_buf}));
-                    }
+            if let Some(blocks) = blocks {
+                let matched: Vec<serde_json::Value> = blocks
+                    .iter()
+                    .filter(|b| {
+                        b["type"] == "tool_result"
+                            && b["tool_use_id"]
+                                .as_str()
+                                .map(|id| pending.iter().any(|p| p == id))
+                                .unwrap_or(false)
+                    })
+                    .cloned()
+                    .collect();
+                if matched.is_empty() {
+                    // A non-tool-result user message interleaved mid-exchange →
+                    // the buffered call never completed; drop the exchange.
+                    held = None;
+                    pending.clear();
+                    results_buf.clear();
                 }
+                let matched_ids: Vec<String> = matched
+                    .iter()
+                    .filter_map(|m| m["tool_use_id"].as_str().map(|s| s.to_string()))
+                    .collect();
+                pending.retain(|p| !matched_ids.iter().any(|m| m == p));
+                results_buf.extend(matched);
+
+                if pending.is_empty() {
+                    // Every call in this exchange has its result — emit the pair.
+                    let all_denied = !results_buf.is_empty()
+                        && results_buf
+                            .iter()
+                            .filter(|r| r["type"] == "tool_result")
+                            .all(|r| r["content"].as_str() == Some("Tool call denied by user."));
+                    if !all_denied {
+                        // all_denied: don't feed the model a "tried -> denied" trail.
+                        if let Some(h) = held.take() {
+                            out.push(h);
+                            out.push(serde_json::json!({"role": "user", "content": results_buf}));
+                        }
+                    }
+                    held = None;
+                    pending.clear();
+                    results_buf.clear();
+                }
+            } else {
+                // Plain-text user message while a tool exchange is open — the
+                // buffered call never completed. Drop it, keep the new prompt.
                 held = None;
                 pending.clear();
                 results_buf.clear();
+                out.push(msg.clone());
             }
-        } else {
-            // Plain-text user message while a tool exchange is open — the
-            // buffered call never completed. Drop it, keep the new prompt.
-            if role == "user" {
-                held = None;
-                pending.clear();
-                results_buf.clear();
-            }
-            out.push(msg.clone());
         }
     }
     out
@@ -1871,8 +1867,7 @@ fn extract_name(blocks: &[ContentBlock]) -> Option<String> {
     }
     let cleaned = first_line
         .trim_matches(|c| matches!(c, '"' | '\'' | '\u{201c}' | '\u{201d}' | '-' | '*' | '`'));
-    let cleaned =
-        cleaned.trim_end_matches(|c: char| matches!(c, '.' | ',' | '!' | '?' | ':' | ';'));
+    let cleaned = cleaned.trim_end_matches(['.', ',', '!', '?', ':', ';']);
     let cleaned = cleaned.trim();
     if cleaned.is_empty() {
         return None;

@@ -19,6 +19,10 @@ const THINKING_BUDGET_TOKENS: u32 = 8_192;
 /// max_tokens when thinking is enabled: the API requires max_tokens to exceed
 /// the thinking budget so there is room left for text/tool calls after thinking.
 const THINKING_MAX_TOKENS: u32 = 25_600;
+// Compile-time invariants on the constants above (a runtime assert on a
+// constant would just be constant-folded).
+const _: () = assert!(THINKING_MAX_TOKENS > THINKING_BUDGET_TOKENS);
+const _: () = assert!(THINKING_MAX_TOKENS - THINKING_BUDGET_TOKENS >= 8_000);
 
 /// The thinking budget to use for a model, driven by its declared capability
 /// (provider model list → /v1/models metadata → family catalog fallback)
@@ -144,16 +148,14 @@ impl AnthropicProvider {
             .iter()
             .filter(|m| m["role"].as_str() != Some("system"))
             .map(|m| {
-                if strip_thinking {
-                    if m["role"].as_str() == Some("assistant") {
-                        if let Some(blocks) = m["content"].as_array() {
-                            let clean: Vec<_> = blocks
-                                .iter()
-                                .filter(|b| b["type"].as_str() != Some("thinking"))
-                                .cloned()
-                                .collect();
-                            return serde_json::json!({ "role": "assistant", "content": clean });
-                        }
+                if strip_thinking && m["role"].as_str() == Some("assistant") {
+                    if let Some(blocks) = m["content"].as_array() {
+                        let clean: Vec<_> = blocks
+                            .iter()
+                            .filter(|b| b["type"].as_str() != Some("thinking"))
+                            .cloned()
+                            .collect();
+                        return serde_json::json!({ "role": "assistant", "content": clean });
                     }
                 }
                 m.clone()
@@ -444,12 +446,7 @@ impl AnthropicProvider {
 /// Returns None when there's no key or the request fails;
 /// `Some(Vec::new())` when the response carried no models.
 pub async fn fetch_models(api_key: Option<String>) -> Option<Vec<ModelInfo>> {
-    let Some(key) = api_key else {
-        return None;
-    };
-    if key.trim().is_empty() {
-        return None;
-    }
+    let key = api_key.filter(|k| !k.trim().is_empty())?;
     let Ok(resp) = reqwest::Client::new()
         .get("https://api.anthropic.com/v1/models")
         .header("x-api-key", &key)
@@ -629,12 +626,5 @@ mod tests {
             thinking_level_for(&models, "claude-3-7-sonnet-20250219", &ThinkingPref::Low),
             None
         );
-    }
-
-    #[test]
-    fn thinking_max_tokens_exceeds_budget() {
-        assert!(THINKING_MAX_TOKENS > THINKING_BUDGET_TOKENS);
-        // Leaves room for output after the full budget is spent.
-        assert!(THINKING_MAX_TOKENS - THINKING_BUDGET_TOKENS >= 8_000);
     }
 }

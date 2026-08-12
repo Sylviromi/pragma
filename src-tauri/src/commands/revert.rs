@@ -26,6 +26,10 @@ struct SnapshotRow {
     path: String,
     content_before: String,
     existed_before: i64,
+    /// Reserved for per-tool pre-op state (see migration 003 — move_file
+    /// stores { dest, dest_content, dest_existed }). Part of the
+    /// file_snapshots row contract; not consumed by restore yet.
+    #[allow(dead_code)]
     extra_before: String,
 }
 

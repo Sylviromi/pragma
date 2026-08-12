@@ -376,10 +376,8 @@ fn spelling_candidates(orig: &str) -> Vec<String> {
     let mut out = vec![orig.to_string()];
     let swap_space = |s: &str| s.replace(['\u{202f}', '\u{00a0}'], " ");
     let swap_quotes = |s: &str| {
-        s.replace('\u{2018}', "'")
-            .replace('\u{2019}', "'")
-            .replace('\u{201c}', "\"")
-            .replace('\u{201d}', "\"")
+        s.replace(['\u{2018}', '\u{2019}'], "'")
+            .replace(['\u{201c}', '\u{201d}'], "\"")
     };
     let curlyize = |s: &str| s.replace('\'', "\u{2019}").replace('\"', "\u{201d}");
     // macOS puts a narrow no-break space before AM/PM (".04 PM") while the
@@ -1118,7 +1116,7 @@ mod tests {
         let long = "y".repeat(50_000);
         fs::write(
             dir.path().join("bundle.js"),
-            &format!("let x = \"{long}\";\n"),
+            format!("let x = \"{long}\";\n"),
         )
         .unwrap();
         let r = read_file(dir.path(), &serde_json::json!({"path":"bundle.js"})).unwrap();
@@ -1301,7 +1299,7 @@ mod tests {
         let png = [
             0x89u8, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x01, 0x02, 0x03,
         ];
-        fs::write(dir.path().join("img.png"), &png).unwrap();
+        fs::write(dir.path().join("img.png"), png).unwrap();
         let r = read_file(dir.path(), &serde_json::json!({"path":"img.png"})).unwrap();
         assert!(
             r.contains("image/png") && r.contains("binary file"),

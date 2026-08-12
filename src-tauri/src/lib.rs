@@ -119,7 +119,7 @@ pub fn run() {
                 &registry,
                 &plugin_manager,
                 &settings.api_keys,
-                &app.handle(),
+                app.handle(),
             );
 
             app.manage(AppState {
@@ -143,7 +143,7 @@ pub fn run() {
             // Model discovery for the built-in providers (Anthropic /v1/models,
             // DeepSeek and local /v1/models). Runs detached; results replace the
             // static fallbacks and emit providers:changed so the UI refreshes.
-            providers::spawn_builtin_discovery(&app.handle());
+            providers::spawn_builtin_discovery(app.handle());
 
             // Hot-reload watcher: rebind providers + tell the frontend to re-scan.
             let app_handle = app.handle().clone();
@@ -256,7 +256,7 @@ fn load_settings(path: &std::path::Path) -> Settings {
     let text = std::fs::read_to_string(path).unwrap_or_default();
     serde_json::from_str::<serde_json::Value>(&text)
         .ok()
-        .and_then(|v| {
+        .map(|v| {
             let keys = v["api_keys"]
                 .as_object()
                 .map(|obj| {
@@ -274,11 +274,11 @@ fn load_settings(path: &std::path::Path) -> Settings {
                 })
                 .unwrap_or_default();
             let notifications_enabled = v["notifications_enabled"].as_bool().unwrap_or(true);
-            Some(Settings {
+            Settings {
                 api_keys: keys,
                 disabled_plugins,
                 notifications_enabled,
-            })
+            }
         })
         .unwrap_or_default()
 }

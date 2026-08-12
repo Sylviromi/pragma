@@ -33,10 +33,8 @@ pub fn spawn_plugin_watcher<F>(
         };
         eprintln!("[plugins] watching {}", dir.display());
         for extra in extra_dirs {
-            if extra.exists() {
-                if watcher.watch(&extra, RecursiveMode::Recursive).is_ok() {
-                    eprintln!("[plugins] also watching symlink target {}", extra.display());
-                }
+            if extra.exists() && watcher.watch(&extra, RecursiveMode::Recursive).is_ok() {
+                eprintln!("[plugins] also watching symlink target {}", extra.display());
             }
         }
 

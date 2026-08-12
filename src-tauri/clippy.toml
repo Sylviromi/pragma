@@ -1,0 +1,6 @@
+# Pragma's agentic loop and Tauri commands legitimately take many parameters:
+# Tauri commands must deserialize flat, positional args from JS, and the loop
+# functions wire db/registry/state/handles/cancel channels together. Raising
+# the default (7) avoids sprinkling #[allow]s over these call sites; new code
+# should still prefer grouping params into structs when practical.
+too-many-arguments-threshold = 12

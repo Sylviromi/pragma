@@ -339,6 +339,7 @@ mod tests {
         }
         (PluginManager::new(dir.path().to_path_buf(), vec![]), dir)
     }
+    #[test]
     fn lists_plugins_and_flags() {
         let (m, _dir) = mk_manager(vec![
             (

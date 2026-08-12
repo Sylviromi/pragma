@@ -103,24 +103,20 @@ impl ProviderRegistry {
         };
         match handle {
             ProviderHandle::Anthropic(_) => {
-                let key = app
-                    .try_state::<crate::AppState>()
-                    .map(|s| {
-                        s.settings
-                            .read()
-                            .unwrap()
-                            .api_keys
-                            .get("anthropic")
-                            .cloned()
-                    })
-                    .flatten();
+                let key = app.try_state::<crate::AppState>().and_then(|s| {
+                    s.settings
+                        .read()
+                        .unwrap()
+                        .api_keys
+                        .get("anthropic")
+                        .cloned()
+                });
                 anthropic::spawn_discovery(app.clone(), key);
             }
             ProviderHandle::OpenAICompat(p) => {
                 if let Some(key) = app
                     .try_state::<crate::AppState>()
-                    .map(|s| s.settings.read().unwrap().api_keys.get(&p.id).cloned())
-                    .flatten()
+                    .and_then(|s| s.settings.read().unwrap().api_keys.get(&p.id).cloned())
                 {
                     spawn_model_discovery(&p.id, &p.base_url, key, app.clone());
                 }

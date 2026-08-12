@@ -57,10 +57,10 @@ impl Usage {
 /// silently ignores what the model can't do:
 /// - `off`:    never enable thinking, even on capable models (cost control)
 /// - `auto`:   model default — Anthropic sends no `thinking_level`, OpenAI-compat
-///             sends the configured `reasoning_effort` (provider.json)
+///   sends the configured `reasoning_effort` (provider.json)
 /// - `low` / `medium` / `high`: explicit thinking level — Anthropic
-///             `thinking_level` ({low,medium,high}), OpenAI-compat
-///             `reasoning_effort`, only for models that support levels
+///   `thinking_level` ({low,medium,high}), OpenAI-compat
+///   `reasoning_effort`, only for models that support levels
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ThinkingPref {
