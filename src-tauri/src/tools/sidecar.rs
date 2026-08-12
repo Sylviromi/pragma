@@ -89,9 +89,10 @@ fn parse_tools(v: Option<&serde_json::Value>) -> Vec<ToolDefinition> {
             .and_then(|x| x.as_str())
             .unwrap_or("")
             .to_string();
-        let input_schema = t.get("inputSchema").cloned().unwrap_or_else(|| {
-            serde_json::json!({ "type": "object", "properties": {} })
-        });
+        let input_schema = t
+            .get("inputSchema")
+            .cloned()
+            .unwrap_or_else(|| serde_json::json!({ "type": "object", "properties": {} }));
         out.push(ToolDefinition {
             name: name.to_string(),
             description,
@@ -152,9 +153,9 @@ impl SkillSidecarRegistry {
                 return Ok(());
             }
         }
-        let handler = manager.skill_handler_path(skill_id).ok_or_else(|| {
-            format!("skill '{skill_id}' has no handler.js")
-        })?;
+        let handler = manager
+            .skill_handler_path(skill_id)
+            .ok_or_else(|| format!("skill '{skill_id}' has no handler.js"))?;
         let advertised = manager.skill_tools_json(skill_id).unwrap_or_default();
 
         // Spawn outside the registry lock (node start can block briefly);
@@ -333,7 +334,10 @@ impl SkillSidecarRegistry {
                 if let Some(st) = map.get_mut(skill_id) {
                     st.pending.lock().await.remove(&id);
                 }
-                Err(format!("sidecar tool '{method}' timed out after {}s", timeout.as_secs()))
+                Err(format!(
+                    "sidecar tool '{method}' timed out after {}s",
+                    timeout.as_secs()
+                ))
             }
         }
     }
@@ -368,9 +372,8 @@ impl SkillSidecarRegistry {
                 .and_then(|x| x.as_bool())
                 .unwrap_or(false)
             {
-                return Err(
-                    extract_text(&payload).unwrap_or_else(|| "sidecar reported an error".to_string())
-                );
+                return Err(extract_text(&payload)
+                    .unwrap_or_else(|| "sidecar reported an error".to_string()));
             }
             return Ok(extract_text(&payload)
                 .unwrap_or_else(|| serde_json::to_string(&payload).unwrap_or_default()));
@@ -441,9 +444,9 @@ async fn spawn_handler(
     {
         cmd.process_group(0);
     }
-    let mut child = cmd
-        .spawn()
-        .map_err(|e| format!("failed to start handler for skill '{skill_id}' (Node.js required): {e}"))?;
+    let mut child = cmd.spawn().map_err(|e| {
+        format!("failed to start handler for skill '{skill_id}' (Node.js required): {e}")
+    })?;
     let pid = child.id().ok_or("failed to get handler pid")?;
 
     let mut stdin = child.stdin.take().ok_or("handler stdin unavailable")?;
@@ -511,11 +514,11 @@ mod tests {
     use super::*;
     use std::path::Path;
 
-/// Test-fixture snapshot of the frontend-dev plugin (the live copy
-/// lives OUTSIDE the repo at /mnt/Projects/pragma-plugins; tests must
-/// be self-contained so the plugin content is pinned here).
-#[allow(dead_code)]
-const FRONTEND_DEV_MANIFEST_JSON: &str = r#"
+    /// Test-fixture snapshot of the frontend-dev plugin (the live copy
+    /// lives OUTSIDE the repo at /mnt/Projects/pragma-plugins; tests must
+    /// be self-contained so the plugin content is pinned here).
+    #[allow(dead_code)]
+    const FRONTEND_DEV_MANIFEST_JSON: &str = r#"
 {
   "id": "frontend-dev",
   "name": "Frontend Developer",
@@ -528,9 +531,8 @@ const FRONTEND_DEV_MANIFEST_JSON: &str = r#"
     "skills": []
   }
 }
-"#
-;
-const FRONTEND_DEV_SKILL_MD: &str = r#"
+"#;
+    const FRONTEND_DEV_SKILL_MD: &str = r#"
 # Frontend Developer skill
 
 You work on frontend web code in the session's working directory. This skill
@@ -556,9 +558,8 @@ ships a live localhost static server whose tools let you control it.
   serves the session's working directory.
 - Localhost only, static files only — this is a preview server, not a
   production deployment.
-"#
-;
-const FRONTEND_DEV_TOOLS_JSON: &str = r#"
+"#;
+    const FRONTEND_DEV_TOOLS_JSON: &str = r#"
 [
   {
     "name": "fe_serve_start",
@@ -605,9 +606,8 @@ const FRONTEND_DEV_TOOLS_JSON: &str = r#"
     }
   }
 ]
-"#
-;
-const FRONTEND_DEV_HANDLER_JS: &str = r#"
+"#;
+    const FRONTEND_DEV_HANDLER_JS: &str = r#"
 // Frontend Developer skill sidecar — a tiny static file server that also
 // answers the skill's tool calls over JSON-RPC 2.0 (newline-delimited JSON on
 // stdin/stdout). One process, two roles: the tool API AND the thing the tools
@@ -764,9 +764,7 @@ rl.on('line', (line) => {
 process.on('exit', () => {
   for (const [, s] of servers) s.server.close()
 })
-"#
-;
-
+"#;
 
     const ECHO_HANDLER: &str = r#"
 const readline = require('readline');
@@ -831,7 +829,9 @@ rl.on('line', (line) => {
             ]"#,
         );
         let reg = SkillSidecarRegistry::new();
-        reg.ensure(&mgr, "tp/echo", Some("/tmp/work")).await.unwrap();
+        reg.ensure(&mgr, "tp/echo", Some("/tmp/work"))
+            .await
+            .unwrap();
 
         // routing index built from tools.json
         assert_eq!(reg.owner("echo").as_deref(), Some("tp/echo"));
@@ -839,21 +839,36 @@ rl.on('line', (line) => {
         assert_eq!(reg.owner("read_file"), None);
 
         // happy path
-        let out = reg.call_tool("tp/echo", "echo", &serde_json::json!({"s": "hi"})).await.unwrap();
+        let out = reg
+            .call_tool("tp/echo", "echo", &serde_json::json!({"s": "hi"}))
+            .await
+            .unwrap();
         assert_eq!(out, "echo:hi");
 
         // isError → Err with the message text
-        let err = reg.call_tool("tp/echo", "boom", &serde_json::json!({})).await;
-        assert!(err.as_ref().is_err_and(|e| e.contains("kaboom")), "err: {err:?}");
+        let err = reg
+            .call_tool("tp/echo", "boom", &serde_json::json!({}))
+            .await;
+        assert!(
+            err.as_ref().is_err_and(|e| e.contains("kaboom")),
+            "err: {err:?}"
+        );
 
         // unknown tool → handler error surfaced
-        let err = reg.call_tool("tp/echo", "nope", &serde_json::json!({})).await;
-        assert!(err.as_ref().is_err_and(|e| e.contains("no such tool")), "err: {err:?}");
+        let err = reg
+            .call_tool("tp/echo", "nope", &serde_json::json!({}))
+            .await;
+        assert!(
+            err.as_ref().is_err_and(|e| e.contains("no such tool")),
+            "err: {err:?}"
+        );
 
         // stop → calls fail fast, not "unknown tool"
         reg.stop("tp/echo").await;
         assert_eq!(reg.owner("echo"), None);
-        let err = reg.call_tool("tp/echo", "echo", &serde_json::json!({})).await;
+        let err = reg
+            .call_tool("tp/echo", "echo", &serde_json::json!({}))
+            .await;
         assert!(err.is_err());
     }
 
@@ -902,7 +917,9 @@ rl.on('line', (line) => {
         write_frontend_dev_plugin(dir.path());
         let mgr = PluginManager::new(dir.path().to_path_buf(), vec![]);
 
-        let skill = mgr.skill("frontend-dev/frontend-dev").expect("skill discovered");
+        let skill = mgr
+            .skill("frontend-dev/frontend-dev")
+            .expect("skill discovered");
         assert!(skill.has_handler && skill.has_tools);
 
         // A work dir with one file to serve.
@@ -926,7 +943,11 @@ rl.on('line', (line) => {
 
         // Start the server (sessions dir comes from initialize).
         let out = reg
-            .call_tool("frontend-dev/frontend-dev", "fe_serve_start", &serde_json::json!({}))
+            .call_tool(
+                "frontend-dev/frontend-dev",
+                "fe_serve_start",
+                &serde_json::json!({}),
+            )
             .await
             .unwrap();
         let v: serde_json::Value = serde_json::from_str(&out).expect("json result");
@@ -934,10 +955,17 @@ rl.on('line', (line) => {
 
         // Status reports the session dir + running server.
         let st = reg
-            .call_tool("frontend-dev/frontend-dev", "fe_serve_status", &serde_json::json!({}))
+            .call_tool(
+                "frontend-dev/frontend-dev",
+                "fe_serve_status",
+                &serde_json::json!({}),
+            )
             .await
             .unwrap();
-        assert!(st.contains("sessionDir") && st.contains(&port.to_string()), "status: {st}");
+        assert!(
+            st.contains("sessionDir") && st.contains(&port.to_string()),
+            "status: {st}"
+        );
 
         // Fetch through the LIVE server.
         let body = tokio::task::spawn_blocking(move || {
@@ -955,14 +983,22 @@ rl.on('line', (line) => {
 
         // The GET landed in the handler's log ring.
         let lg = reg
-            .call_tool("frontend-dev/frontend-dev", "fe_serve_logs", &serde_json::json!({ "limit": 5 }))
+            .call_tool(
+                "frontend-dev/frontend-dev",
+                "fe_serve_logs",
+                &serde_json::json!({ "limit": 5 }),
+            )
             .await
             .unwrap();
         assert!(lg.contains("200 GET /"), "logs: {lg}");
 
         // Stop idempotently.
         let stp = reg
-            .call_tool("frontend-dev/frontend-dev", "fe_serve_stop", &serde_json::json!({}))
+            .call_tool(
+                "frontend-dev/frontend-dev",
+                "fe_serve_stop",
+                &serde_json::json!({}),
+            )
             .await
             .unwrap();
         assert!(!stp.contains("error"), "stop: {stp}");
@@ -1000,7 +1036,9 @@ rl.on('line', (line) => {
         let repo = plugins_dir.parent().unwrap();
         let mgr = PluginManager::new(plugins_dir.to_path_buf(), vec![]);
 
-        let skill = mgr.skill("pragma-dev/pragma-dev").expect("skill discovered");
+        let skill = mgr
+            .skill("pragma-dev/pragma-dev")
+            .expect("skill discovered");
         assert!(skill.has_handler && skill.has_tools);
 
         let reg = SkillSidecarRegistry::new();
@@ -1010,7 +1048,9 @@ rl.on('line', (line) => {
 
         // status() snapshot reflects the running sidecar (new bridge surface).
         let st = reg.status().await;
-        assert!(st.iter().any(|s| s.skill_id == "pragma-dev/pragma-dev" && s.running));
+        assert!(st
+            .iter()
+            .any(|s| s.skill_id == "pragma-dev/pragma-dev" && s.running));
 
         // Convention verifier against the real tree: a fully-wired command
         // passes every check.
@@ -1023,7 +1063,10 @@ rl.on('line', (line) => {
             .await
             .unwrap();
         assert!(out.contains("\"ok\": true"), "verify: {out}");
-        assert!(out.contains("tauri.ts wrapper"), "verify should check all wiring: {out}");
+        assert!(
+            out.contains("tauri.ts wrapper"),
+            "verify should check all wiring: {out}"
+        );
 
         // Verify_tool on a real tool (the ledger-aware edit_file, dispatched
         // inline in agentic.rs).
@@ -1046,11 +1089,18 @@ rl.on('line', (line) => {
             )
             .await
             .unwrap();
-        assert!(missing.contains("\"ok\": false"), "missing command should fail: {missing}");
+        assert!(
+            missing.contains("\"ok\": false"),
+            "missing command should fail: {missing}"
+        );
 
         // dev_status works with zero dev server started (sidecar just up).
         let st = reg
-            .call_tool("pragma-dev/pragma-dev", "pd_dev_status", &serde_json::json!({}))
+            .call_tool(
+                "pragma-dev/pragma-dev",
+                "pd_dev_status",
+                &serde_json::json!({}),
+            )
             .await
             .unwrap();
         assert!(st.contains("\"running\": false"), "status: {st}");
@@ -1078,11 +1128,15 @@ rl.on('line', (line) => {
             .await
             .unwrap();
         assert!(rl.contains("\"ok\": false"), "reload fast-fail: {rl}");
-        assert!(rl.contains("\"reloadApp\": false"), "no relaunch marker on failure: {rl}");
+        assert!(
+            rl.contains("\"reloadApp\": false"),
+            "no relaunch marker on failure: {rl}"
+        );
 
         // Unknown tool → handler error.
         let bad = reg
-            .call_tool("pragma-dev/pragma-dev", "nope", &serde_json::json!({})).await;
+            .call_tool("pragma-dev/pragma-dev", "nope", &serde_json::json!({}))
+            .await;
         assert!(bad.is_err() && bad.as_ref().unwrap_err().contains("unknown tool"));
 
         reg.stop("pragma-dev/pragma-dev").await;

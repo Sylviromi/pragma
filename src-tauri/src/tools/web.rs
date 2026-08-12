@@ -89,7 +89,9 @@ fn parse_ddg_lite(html: &str, limit: usize) -> Vec<String> {
         // Title = text between the closing '>' of this tag and </a>
         let title = {
             let inner_start = tag_start + tag[..].find('>').map_or(0, |i| i + 1);
-            let inner_end = html[inner_start..].find("</a>").map_or(inner_start, |i| inner_start + i);
+            let inner_end = html[inner_start..]
+                .find("</a>")
+                .map_or(inner_start, |i| inner_start + i);
             strip_tags(&html[inner_start..inner_end]).trim().to_string()
         };
 
@@ -97,9 +99,13 @@ fn parse_ddg_lite(html: &str, limit: usize) -> Vec<String> {
         let snippet = match html[rel_end..].find("result-snippet") {
             Some(i) => {
                 let s_start = rel_end + i;
-                let td_end = html[s_start..].find('>').map_or(s_start, |j| s_start + j + 1);
+                let td_end = html[s_start..]
+                    .find('>')
+                    .map_or(s_start, |j| s_start + j + 1);
                 let snip_close_start = html[td_end..].find("</td>").map_or(td_end, |j| td_end + j);
-                strip_tags(&html[td_end..snip_close_start]).trim().to_string()
+                strip_tags(&html[td_end..snip_close_start])
+                    .trim()
+                    .to_string()
             }
             None => String::new(),
         };
@@ -266,7 +272,10 @@ mod tests {
 
     #[test]
     fn test_percent_decode() {
-        assert_eq!(percent_decode("https%3A%2F%2Frust-lang.org%2F"), "https://rust-lang.org/");
+        assert_eq!(
+            percent_decode("https%3A%2F%2Frust-lang.org%2F"),
+            "https://rust-lang.org/"
+        );
     }
 }
 #[cfg(test)]
@@ -275,7 +284,8 @@ mod live_tests {
     #[tokio::test]
     #[ignore]
     async fn test_live_web_search() {
-        let r = super::web_search(&serde_json::json!({"query": "tauri v2 rust", "num_results": 3})).unwrap();
+        let r = super::web_search(&serde_json::json!({"query": "tauri v2 rust", "num_results": 3}))
+            .unwrap();
         println!("{r}");
         assert!(r.contains("Tauri"));
     }

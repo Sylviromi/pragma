@@ -20,7 +20,12 @@ pub async fn set_plugin_enabled(
     // Rebinding all plugin providers keeps register/unregister idempotent.
     let api_keys = state.settings.read().unwrap().api_keys.clone();
     crate::plugins::provider::unregister_plugin_providers(&state.registry, &state.plugins);
-    crate::plugins::provider::register_plugin_providers(&state.registry, &state.plugins, &api_keys, &app);
+    crate::plugins::provider::register_plugin_providers(
+        &state.registry,
+        &state.plugins,
+        &api_keys,
+        &app,
+    );
 
     crate::save_settings(&state);
     Ok(())
@@ -52,7 +57,10 @@ pub async fn list_skills(
 }
 
 #[tauri::command]
-pub async fn open_plugin_folder(id: String, state: tauri::State<'_, AppState>) -> Result<(), String> {
+pub async fn open_plugin_folder(
+    id: String,
+    state: tauri::State<'_, AppState>,
+) -> Result<(), String> {
     let dir = state.plugins.plugin_dir(&id);
     if !dir.exists() {
         return Err(format!("plugin folder missing: {}", dir.display()));
@@ -141,11 +149,7 @@ pub async fn request_plugin_confirmation(
         Ok(Ok(accepted)) => Ok(accepted),
         _ => {
             // Timeout or channel dropped — clean up and return false
-            state
-                .plugin_confirmations
-                .lock()
-                .await
-                .remove(&request_id);
+            state.plugin_confirmations.lock().await.remove(&request_id);
             Ok(false)
         }
     }
@@ -158,11 +162,7 @@ pub async fn respond_plugin_confirmation(
     accepted: bool,
     state: tauri::State<'_, AppState>,
 ) -> Result<(), String> {
-    let sender = state
-        .plugin_confirmations
-        .lock()
-        .await
-        .remove(&request_id);
+    let sender = state.plugin_confirmations.lock().await.remove(&request_id);
 
     if let Some(tx) = sender {
         let _ = tx.send(accepted);

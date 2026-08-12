@@ -46,7 +46,10 @@ pub fn parse_provider_def(text: &str) -> Result<ProviderDef, String> {
         return Err(format!("base_url must be http(s), got: {}", def.base_url));
     }
     if def.auth != "api-key" && def.auth != "none" {
-        return Err(format!("auth must be \"api-key\" or \"none\", got: {}", def.auth));
+        return Err(format!(
+            "auth must be \"api-key\" or \"none\", got: {}",
+            def.auth
+        ));
     }
     Ok(def)
 }
@@ -138,7 +141,10 @@ mod tests {
     fn rejects_bad_provider_def() {
         assert!(parse_provider_def(r#"{"id":"x","name":"y"}"#).is_err()); // no base_url
         assert!(parse_provider_def(r#"{"id":"x","name":"y","base_url":"ftp://nope"}"#).is_err());
-        assert!(parse_provider_def(r#"{"id":"x","name":"y","base_url":"http://ok","auth":"magic"}"#).is_err());
+        assert!(parse_provider_def(
+            r#"{"id":"x","name":"y","base_url":"http://ok","auth":"magic"}"#
+        )
+        .is_err());
     }
 
     #[test]

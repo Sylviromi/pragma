@@ -52,7 +52,12 @@ pub async fn record_snapshot(
         "write_file" | "edit_file" | "delete_file" => {
             let rel = input["path"].as_str().unwrap_or("");
             let (c, e) = read_opt(rel);
-            (wd.join(rel).display().to_string(), c, e, serde_json::json!({}))
+            (
+                wd.join(rel).display().to_string(),
+                c,
+                e,
+                serde_json::json!({}),
+            )
         }
         _ => return Ok(()),
     };
@@ -110,7 +115,8 @@ fn kept_count(rows: &[RowMsg], to_message_id: &str) -> Option<usize> {
                 let pc: serde_json::Value = serde_json::from_str(&prev.content)
                     .unwrap_or_else(|_| serde_json::Value::String(prev.content.clone()));
                 prev.role == "assistant"
-                    && pc.as_array()
+                    && pc
+                        .as_array()
                         .map(|b| b.iter().any(|x| x["type"] == "tool_use"))
                         .unwrap_or(false)
             };
@@ -173,11 +179,12 @@ pub async fn revert_session(
     if state.running_sessions.lock().await.contains(&session_id) {
         return Err("Session is still running — press Esc to stop it first.".into());
     }
-    let active: Option<(String,)> = sqlx::query_as("SELECT session_id FROM active_loops WHERE session_id=?")
-        .bind(&session_id)
-        .fetch_optional(&state.db)
-        .await
-        .map_err(|e| e.to_string())?;
+    let active: Option<(String,)> =
+        sqlx::query_as("SELECT session_id FROM active_loops WHERE session_id=?")
+            .bind(&session_id)
+            .fetch_optional(&state.db)
+            .await
+            .map_err(|e| e.to_string())?;
     if active.is_some() {
         // Only a *live* loop blocks a revert — a stale row from a crashed
         // process is cleared so the rollback can proceed.
@@ -288,7 +295,9 @@ pub async fn get_revert_info(
         }
         let content: serde_json::Value = serde_json::from_str(&r.content)
             .unwrap_or_else(|_| serde_json::Value::String(r.content.clone()));
-        let Some(blocks) = content.as_array() else { continue };
+        let Some(blocks) = content.as_array() else {
+            continue;
+        };
         for b in blocks {
             if b["type"] != "tool_use" {
                 continue;
@@ -397,7 +406,11 @@ mod tests {
     fn kept_count_trailing_text_survives() {
         let rows = vec![
             text_msg("u1", "hello"),
-            row("a1", "assistant", &serde_json::to_string("final answer").unwrap()),
+            row(
+                "a1",
+                "assistant",
+                &serde_json::to_string("final answer").unwrap(),
+            ),
         ];
         assert_eq!(kept_count(&rows, "a1").unwrap(), 2);
         assert_eq!(kept_count(&rows, "u1").unwrap(), 1);
@@ -443,5 +456,4 @@ mod tests {
         restore_snapshot(&snap).unwrap();
         assert!(!p2.exists());
     }
-
 }

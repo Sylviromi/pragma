@@ -1,7 +1,7 @@
 use crate::AppState;
+use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
-use chrono::Utc;
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 #[serde(rename_all = "camelCase")]
@@ -27,7 +27,10 @@ pub struct NewMessage {
 }
 
 #[tauri::command]
-pub async fn add_message(msg: NewMessage, state: tauri::State<'_, AppState>) -> Result<Message, String> {
+pub async fn add_message(
+    msg: NewMessage,
+    state: tauri::State<'_, AppState>,
+) -> Result<Message, String> {
     let id = Uuid::new_v4().to_string();
     let now = Utc::now().to_rfc3339();
     sqlx::query("INSERT INTO messages (id,session_id,role,content,model,provider,timestamp,tokens) VALUES (?,?,?,?,?,?,?,?)")
@@ -36,13 +39,22 @@ pub async fn add_message(msg: NewMessage, state: tauri::State<'_, AppState>) -> 
         .bind(&now).bind(msg.tokens)
         .execute(&state.db).await.map_err(|e| e.to_string())?;
     sqlx::query_as::<_, Message>("SELECT * FROM messages WHERE id=?")
-        .bind(&id).fetch_one(&state.db).await.map_err(|e| e.to_string())
+        .bind(&id)
+        .fetch_one(&state.db)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-pub async fn list_messages(session_id: String, state: tauri::State<'_, AppState>) -> Result<Vec<Message>, String> {
+pub async fn list_messages(
+    session_id: String,
+    state: tauri::State<'_, AppState>,
+) -> Result<Vec<Message>, String> {
     sqlx::query_as::<_, Message>("SELECT * FROM messages WHERE session_id=? ORDER BY timestamp ASC")
-        .bind(&session_id).fetch_all(&state.db).await.map_err(|e| e.to_string())
+        .bind(&session_id)
+        .fetch_all(&state.db)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 #[cfg(test)]
@@ -61,7 +73,10 @@ mod tests {
         sqlx::query("INSERT INTO messages (id,session_id,role,content,model,provider,timestamp,tokens) VALUES (?,?,'user','\"hello\"','','',?,0)")
             .bind(&mid).bind(&sid).bind(&now).execute(&pool).await.unwrap();
         let msgs = sqlx::query_as::<_, Message>("SELECT * FROM messages WHERE session_id=?")
-            .bind(&sid).fetch_all(&pool).await.unwrap();
+            .bind(&sid)
+            .fetch_all(&pool)
+            .await
+            .unwrap();
         assert_eq!(msgs.len(), 1);
         assert_eq!(msgs[0].content, "\"hello\"");
     }

@@ -6,8 +6,8 @@
 //! processes: a widget can poll `skill_sidecar_status` for the dev server's
 //! state and call its tools (`dev_start` / `dev_stop`) directly.
 
-use crate::AppState;
 use crate::tools::sidecar::SidecarStatus;
+use crate::AppState;
 
 /// List every registered skill sidecar (skill id, pid, running?, tool names).
 #[tauri::command]

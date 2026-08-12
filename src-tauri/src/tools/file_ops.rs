@@ -14,10 +14,7 @@ pub fn abs(working_dir: &Path, rel: &str) -> PathBuf {
 
 /// Path relative to the working directory (for display in results).
 fn rel_of(wd: &Path, path: &Path) -> String {
-    path.strip_prefix(wd)
-        .unwrap_or(path)
-        .display()
-        .to_string()
+    path.strip_prefix(wd).unwrap_or(path).display().to_string()
 }
 
 fn glob_matches(pattern: &str, rel: &str) -> bool {
@@ -60,7 +57,15 @@ pub fn read_file_detailed(wd: &Path, input: &serde_json::Value) -> Result<ReadDe
 
     // ── Device blocklist, BEFORE any I/O (a read of /dev/zero never EOFs).
     if let Some(reason) = device_blocklist(&full) {
-        return Ok(ReadDetail { text: format!("[{path}]: {reason}"), abs_path: full, window: None, total: None, partial: false, tag: None, canonical: None });
+        return Ok(ReadDetail {
+            text: format!("[{path}]: {reason}"),
+            abs_path: full,
+            window: None,
+            total: None,
+            partial: false,
+            tag: None,
+            canonical: None,
+        });
     }
 
     // ── Adversarial filenames: the path the model typed may be byte-identical
@@ -80,38 +85,83 @@ pub fn read_file_detailed(wd: &Path, input: &serde_json::Value) -> Result<ReadDe
         } else {
             format!("[{path}]: not found — did you mean: {sugg}?")
         };
-        return Ok(ReadDetail { text, abs_path: full, window: None, total: None, partial: false, tag: None, canonical: None });
+        return Ok(ReadDetail {
+            text,
+            abs_path: full,
+            window: None,
+            total: None,
+            partial: false,
+            tag: None,
+            canonical: None,
+        });
     };
 
     let meta = match std::fs::metadata(&full) {
         Ok(m) => m,
-        Err(e) => return Ok(ReadDetail { text: format!("[{path}]: not found — {e}"), abs_path: full, window: None, total: None, partial: false, tag: None, canonical: None }),
+        Err(e) => {
+            return Ok(ReadDetail {
+                text: format!("[{path}]: not found — {e}"),
+                abs_path: full,
+                window: None,
+                total: None,
+                partial: false,
+                tag: None,
+                canonical: None,
+            })
+        }
     };
     if !meta.is_file() {
-        return Ok(ReadDetail { text: format!("[{path}]: not a regular file"), abs_path: full, window: None, total: None, partial: false, tag: None, canonical: None });
+        return Ok(ReadDetail {
+            text: format!("[{path}]: not a regular file"),
+            abs_path: full,
+            window: None,
+            total: None,
+            partial: false,
+            tag: None,
+            canonical: None,
+        });
     }
 
     // ── Boring formats get one-line answers: sniff magic bytes (never the
     // extension) so real text under a misleading extension still reads, and
     // garbage bytes never reach the model.
     {
-        let mut f = File::open(&full)
-            .map_err(|e| format!("[{path}]: cannot open — {e}"))?;
+        let mut f = File::open(&full).map_err(|e| format!("[{path}]: cannot open — {e}"))?;
         let mut head = [0u8; 8192];
-        let n = f.read(&mut head).map_err(|e| format!("[{path}]: read failed — {e}"))?;
+        let n = f
+            .read(&mut head)
+            .map_err(|e| format!("[{path}]: read failed — {e}"))?;
         if let Some((mime, pdf)) = sniff_binary(&head[..n]) {
             let extra = if pdf {
                 " — extract text with: pdftotext <file> - | head -n 200"
             } else {
                 " — not readable as text"
             };
-            return Ok(ReadDetail { text: format!("[{path}]: binary file ({mime}){extra}"), abs_path: full, window: None, total: None, partial: false, tag: None, canonical: None });
+            return Ok(ReadDetail {
+                text: format!("[{path}]: binary file ({mime}){extra}"),
+                abs_path: full,
+                window: None,
+                total: None,
+                partial: false,
+                tag: None,
+                canonical: None,
+            });
         }
         // NUL in the head (without a known signature) → not text. Real text
         // files — even UTF-16 — would be caught here; that's the honest
         // one-liner rather than feeding junk to the model.
         if head[..n].contains(&0) {
-            return Ok(ReadDetail { text: format!("[{path}]: binary file (application/octet-stream) — not readable as text"), abs_path: full, window: None, total: None, partial: false, tag: None, canonical: None });
+            return Ok(ReadDetail {
+                text: format!(
+                    "[{path}]: binary file (application/octet-stream) — not readable as text"
+                ),
+                abs_path: full,
+                window: None,
+                total: None,
+                partial: false,
+                tag: None,
+                canonical: None,
+            });
         }
     }
 
@@ -126,12 +176,10 @@ pub fn read_file_detailed(wd: &Path, input: &serde_json::Value) -> Result<ReadDe
     // The head is streamed through `take()` (never loaded whole) so a 400 MB
     // line before the window never accumulates — bounded memory per read.
     let mut raw = if byte_capped {
-        let mut f = File::open(&full)
-            .map_err(|e| format!("[{path}]: cannot open — {e}"))?;
+        let mut f = File::open(&full).map_err(|e| format!("[{path}]: cannot open — {e}"))?;
         read_prefix(&mut f, MAX_BYTES)?
     } else {
-        std::fs::read_to_string(&full)
-            .map_err(|e| format!("[{path}]: cannot read — {e}"))?
+        std::fs::read_to_string(&full).map_err(|e| format!("[{path}]: cannot read — {e}"))?
     };
 
     // Hygiene: strip a leading UTF-8 BOM; lines() already normalises CRLF.
@@ -139,11 +187,23 @@ pub fn read_file_detailed(wd: &Path, input: &serde_json::Value) -> Result<ReadDe
         raw = rest.to_string();
     }
     if raw.is_empty() {
-        return Ok(ReadDetail { text: format!("[{path}]: is empty"), abs_path: full, window: None, total: None, partial: false, tag: None, canonical: None });
+        return Ok(ReadDetail {
+            text: format!("[{path}]: is empty"),
+            abs_path: full,
+            window: None,
+            total: None,
+            partial: false,
+            tag: None,
+            canonical: None,
+        });
     }
 
     let all_lines: Vec<&str> = raw.lines().collect();
-    let total = if byte_capped { None } else { Some(all_lines.len()) };
+    let total = if byte_capped {
+        None
+    } else {
+        Some(all_lines.len())
+    };
 
     // Byte-budget reads only ever contain the file head (we can't seek by
     // line) — an offset past the loaded chunk gets a named recovery.
@@ -223,7 +283,11 @@ pub fn read_file_detailed(wd: &Path, input: &serde_json::Value) -> Result<ReadDe
         }
         None => format!("[{path}: lines {first}-{last} | hash: {content_hash}]"),
     };
-    let clamp_note = if clamped_any { "\n[single line(s) truncated at 2000 chars — see per-line notes]" } else { "" };
+    let clamp_note = if clamped_any {
+        "\n[single line(s) truncated at 2000 chars — see per-line notes]"
+    } else {
+        ""
+    };
     let repair_note = match &repair_note {
         Some(how) => format!("\n[note: {how} — use the corrected name in future calls (a terminal may render both spellings identically)]"),
         None => String::new(),
@@ -244,7 +308,9 @@ pub fn read_file_detailed(wd: &Path, input: &serde_json::Value) -> Result<ReadDe
 /// — a byte cap must never split a codepoint.
 fn read_prefix(file: &mut File, cap: u64) -> Result<String, String> {
     let mut buf = Vec::with_capacity(cap.min(1 << 20) as usize);
-    file.take(cap).read_to_end(&mut buf).map_err(|e| format!("read failed: {e}"))?;
+    file.take(cap)
+        .read_to_end(&mut buf)
+        .map_err(|e| format!("read failed: {e}"))?;
     match String::from_utf8(buf) {
         Ok(s) => Ok(s),
         Err(e) => {
@@ -260,7 +326,9 @@ fn read_prefix(file: &mut File, cap: u64) -> Result<String, String> {
 pub(crate) fn file_tag(raw: &str) -> String {
     use std::hash::{Hash, Hasher};
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
-    raw.strip_prefix('\u{feff}').unwrap_or(raw).hash(&mut hasher);
+    raw.strip_prefix('\u{feff}')
+        .unwrap_or(raw)
+        .hash(&mut hasher);
     format!("{:08x}", hasher.finish() as u32)
 }
 
@@ -299,8 +367,6 @@ pub(crate) fn changed_line_ranges(old: &str, new: &str) -> Option<(usize, usize)
     }
     Some((ln + 1, hi_n))
 }
-
-
 
 /// Candidate spellings for a path the model saw only in a terminal: narrow
 /// no-break space (U+202F) and non-breaking space (U+00A0) render as regular
@@ -344,7 +410,9 @@ fn spelling_candidates(orig: &str) -> Vec<String> {
             out.push(s);
         }
     };
-    for s in space_variants(orig) { add(s, &mut out); }
+    for s in space_variants(orig) {
+        add(s, &mut out);
+    }
     add(swap_space(orig), &mut out);
     add(swap_quotes(orig), &mut out);
     add(curlyize(orig), &mut out);
@@ -352,7 +420,9 @@ fn spelling_candidates(orig: &str) -> Vec<String> {
     add(nfc, &mut out);
     add(swap_quotes(&nfd), &mut out);
     add(swap_space(&nfd), &mut out);
-    for s in space_variants(&nfd) { add(s, &mut out); }
+    for s in space_variants(&nfd) {
+        add(s, &mut out);
+    }
     out
 }
 
@@ -374,7 +444,10 @@ fn repair_path(wd: &Path, rel: &str) -> Option<(PathBuf, String)> {
         if !inside {
             continue;
         }
-        return Some((p, format!("filename corrected from \"{rel}\" to \"{cand}\"")));
+        return Some((
+            p,
+            format!("filename corrected from \"{rel}\" to \"{cand}\""),
+        ));
     }
     None
 }
@@ -410,7 +483,9 @@ fn did_you_mean(wd: &Path, rel: &str) -> String {
         Some(b) => b.to_string_lossy().to_string(),
         None => return String::new(),
     };
-    let parent = Path::new(rel).parent().filter(|p| !p.as_os_str().is_empty());
+    let parent = Path::new(rel)
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty());
     let dir = wd.join(parent.unwrap_or_else(|| Path::new(".")));
     if !dir.is_dir() {
         return String::new();
@@ -431,7 +506,11 @@ fn did_you_mean(wd: &Path, rel: &str) -> String {
     }
     scored.sort_by_key(|(d, n)| (*d, n.to_lowercase()));
     scored.truncate(3);
-    scored.into_iter().map(|(_, n)| n).collect::<Vec<_>>().join(", ")
+    scored
+        .into_iter()
+        .map(|(_, n)| n)
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 /// Sniff magic bytes (never the extension — a text file renamed .png, or a
@@ -470,7 +549,6 @@ fn sniff_binary(head: &[u8]) -> Option<(&'static str, bool)> {
     None
 }
 
-
 /// Clamp a single line to `MAX_LINE_CHARS` with a named note (a minified
 /// bundle must never hand back one unusable mega-string).
 fn clamp_line(line: &str, lineno: usize) -> (String, bool) {
@@ -478,7 +556,10 @@ fn clamp_line(line: &str, lineno: usize) -> (String, bool) {
         return (line.to_string(), false);
     }
     let cut: String = line.chars().take(MAX_LINE_CHARS).collect();
-    let note = format!("[line {lineno} truncated at {MAX_LINE_CHARS} chars — total {})]", line.chars().count());
+    let note = format!(
+        "[line {lineno} truncated at {MAX_LINE_CHARS} chars — total {})]",
+        line.chars().count()
+    );
     (format!("{cut}{note}"), true)
 }
 
@@ -494,8 +575,13 @@ fn device_blocklist(full: &Path) -> Option<String> {
     let name = parts.get(1).copied().unwrap_or("");
     match parts[0] {
         "dev" => {
-            if matches!(name, "zero" | "random" | "urandom" | "stdin" | "stdout" | "stderr") {
-                Some(format!("refused — /dev/{name} is a special device that never reads like a file"))
+            if matches!(
+                name,
+                "zero" | "random" | "urandom" | "stdin" | "stdout" | "stderr"
+            ) {
+                Some(format!(
+                    "refused — /dev/{name} is a special device that never reads like a file"
+                ))
             } else if name == "fd" {
                 Some("refused — /dev/fd/* are process fds, not readable files".into())
             } else if name == "mem" {
@@ -507,7 +593,10 @@ fn device_blocklist(full: &Path) -> Option<String> {
         "proc" => {
             let pid_ok = parts.len() > 2 && parts[1].chars().all(|c| c.is_ascii_digit());
             if pid_ok && (parts.get(2) == Some(&"fd") || parts.get(2) == Some(&"mem")) {
-                Some(format!("refused — /proc/{}/{} is process internals, not a workspace file", parts[1], parts[2]))
+                Some(format!(
+                    "refused — /proc/{}/{} is process internals, not a workspace file",
+                    parts[1], parts[2]
+                ))
             } else if parts.get(1) == Some(&"kcore") {
                 Some("refused — /proc/kcore is a kernel core dump".into())
             } else {
@@ -521,20 +610,32 @@ fn device_blocklist(full: &Path) -> Option<String> {
 /// Resolve the path argument, repairing common aliases instead of bouncing
 /// the call (repair inputs, don't reject them).
 fn parse_read_path(input: &serde_json::Value) -> Result<String, String> {
-    for key in ["path", "filePath", "file_path", "absolutePath", "target", "filename"] {
+    for key in [
+        "path",
+        "filePath",
+        "file_path",
+        "absolutePath",
+        "target",
+        "filename",
+    ] {
         if let Some(s) = input.get(key).and_then(|v| v.as_str()) {
             if !s.trim().is_empty() {
                 return Ok(s.to_string());
             }
         }
     }
-    Err("missing path (accepted keys: path, filePath, file_path, absolutePath, target, filename)".into())
+    Err(
+        "missing path (accepted keys: path, filePath, file_path, absolutePath, target, filename)"
+            .into(),
+    )
 }
 
 /// Strict numeric coercion for offset/limit: integers or "2000"-style strings;
-/// "2abc" and fractions are rejected, never silently read. 
+/// "2abc" and fractions are rejected, never silently read.
 fn parse_index(input: &serde_json::Value, key: &str, default: usize) -> Result<usize, String> {
-    let Some(v) = input.get(key) else { return Ok(default) };
+    let Some(v) = input.get(key) else {
+        return Ok(default);
+    };
     match v {
         serde_json::Value::Number(n) => n
             .as_u64()
@@ -546,7 +647,9 @@ fn parse_index(input: &serde_json::Value, key: &str, default: usize) -> Result<u
                 return Ok(default);
             }
             if !t.chars().all(|c| c.is_ascii_digit()) {
-                return Err(format!("invalid {key}: \"{s}\" (must be an integer like 2000)"));
+                return Err(format!(
+                    "invalid {key}: \"{s}\" (must be an integer like 2000)"
+                ));
             }
             t.parse::<usize>()
                 .map_err(|_| format!("invalid {key}: \"{s}\" (too large)"))
@@ -686,7 +789,11 @@ pub fn list_files(wd: &Path, input: &serde_json::Value) -> Result<String, String
         let entry = entry.map_err(|e| e.to_string())?;
         let is_dir = entry.file_type().is_dir();
         let rel = rel_of(wd, entry.path());
-        let display = if is_dir { format!("{rel}/") } else { rel.clone() };
+        let display = if is_dir {
+            format!("{rel}/")
+        } else {
+            rel.clone()
+        };
         if let Some(pat) = pattern {
             if !glob_matches(pat, &rel) {
                 continue;
@@ -762,16 +869,23 @@ pub fn search_files(wd: &Path, input: &serde_json::Value) -> Result<String, Stri
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::tempdir;
     use std::fs;
+    use tempfile::tempdir;
 
     #[test]
     fn test_write_then_read() {
         let dir = tempdir().unwrap();
-        write_file(dir.path(), &serde_json::json!({"path":"hello.txt","content":"hello world"})).unwrap();
+        write_file(
+            dir.path(),
+            &serde_json::json!({"path":"hello.txt","content":"hello world"}),
+        )
+        .unwrap();
         let r = read_file(dir.path(), &serde_json::json!({"path":"hello.txt"})).unwrap();
         assert!(r.contains("hello world"), "expected content in: {r}");
-        assert!(r.contains("[hello.txt: 1 lines | hash:"), "expected header in: {r}");
+        assert!(
+            r.contains("[hello.txt: 1 lines | hash:"),
+            "expected header in: {r}"
+        );
     }
 
     // Whole-file hash of a literal file body (what read_file's header would
@@ -807,9 +921,14 @@ mod tests {
     fn test_edit_file_delete() {
         let dir = tempdir().unwrap();
         fs::write(dir.path().join("f.txt"), "a\nb\nc\n").unwrap();
-        edit_file(dir.path(), &serde_json::json!({
-            "path": "f.txt", "hash": tag("a\nb\nc\n"), "start_line": 2, "content": ""
-        }), None).unwrap();
+        edit_file(
+            dir.path(),
+            &serde_json::json!({
+                "path": "f.txt", "hash": tag("a\nb\nc\n"), "start_line": 2, "content": ""
+            }),
+            None,
+        )
+        .unwrap();
         let content = fs::read_to_string(dir.path().join("f.txt")).unwrap();
         assert_eq!(content, "a\nc\n");
     }
@@ -821,9 +940,14 @@ mod tests {
         // The hash from read_file's header covers the WHOLE file, so a
         // sub-window edit (line 2 of 3) passes just like a full-window one.
         let hash = { file_tag(&fs::read_to_string(dir.path().join("f.txt")).unwrap()) };
-        edit_file(dir.path(), &serde_json::json!({
-            "path": "f.txt", "hash": hash, "start_line": 2, "content": "LINE2"
-        }), None).unwrap();
+        edit_file(
+            dir.path(),
+            &serde_json::json!({
+                "path": "f.txt", "hash": hash, "start_line": 2, "content": "LINE2"
+            }),
+            None,
+        )
+        .unwrap();
         let content = fs::read_to_string(dir.path().join("f.txt")).unwrap();
         assert_eq!(content, "line1\nLINE2\nline3\n");
     }
@@ -832,9 +956,13 @@ mod tests {
     fn test_edit_file_hash_mismatch() {
         let dir = tempdir().unwrap();
         fs::write(dir.path().join("f.txt"), "line1\nline2\nline3\n").unwrap();
-        let r = edit_file(dir.path(), &serde_json::json!({
-            "path": "f.txt", "hash": "deadbeef", "start_line": 2, "content": "LINE2"
-        }), None);
+        let r = edit_file(
+            dir.path(),
+            &serde_json::json!({
+                "path": "f.txt", "hash": "deadbeef", "start_line": 2, "content": "LINE2"
+            }),
+            None,
+        );
         assert!(r.is_err(), "should fail on hash mismatch");
         let e = r.unwrap_err();
         assert!(e.contains("hash mismatch"), "error: {e}");
@@ -847,16 +975,24 @@ mod tests {
     fn test_edit_file_out_of_range() {
         let dir = tempdir().unwrap();
         fs::write(dir.path().join("f.txt"), "a\nb\n").unwrap();
-        let r = edit_file(dir.path(), &serde_json::json!({
-            "path": "f.txt", "hash": tag("a\nb\n"), "start_line": 5, "content": "x"
-        }), None);
+        let r = edit_file(
+            dir.path(),
+            &serde_json::json!({
+                "path": "f.txt", "hash": tag("a\nb\n"), "start_line": 5, "content": "x"
+            }),
+            None,
+        );
         assert!(r.is_err(), "should fail for out of range");
     }
 
     #[test]
     fn test_create_dir_and_delete() {
         let dir = tempdir().unwrap();
-        write_file(dir.path(), &serde_json::json!({"path":"sub/nested/x.txt","content":"x"})).unwrap();
+        write_file(
+            dir.path(),
+            &serde_json::json!({"path":"sub/nested/x.txt","content":"x"}),
+        )
+        .unwrap();
         assert!(dir.path().join("sub/nested/x.txt").exists());
         delete_file(dir.path(), &serde_json::json!({"path":"sub/nested/x.txt"})).unwrap();
         assert!(!dir.path().join("sub/nested/x.txt").exists());
@@ -875,7 +1011,11 @@ mod tests {
     #[test]
     fn test_search_files() {
         let dir = tempdir().unwrap();
-        fs::write(dir.path().join("main.rs"), "fn main() { println!(\"hello\"); }").unwrap();
+        fs::write(
+            dir.path().join("main.rs"),
+            "fn main() { println!(\"hello\"); }",
+        )
+        .unwrap();
         let r = search_files(dir.path(), &serde_json::json!({"pattern":"println"})).unwrap();
         assert!(r.contains("main.rs"));
     }
@@ -886,7 +1026,11 @@ mod tests {
         fs::write(dir.path().join("a.txt"), "hello\nworld\n").unwrap();
         for bad in [".*", "^", "a?", ".*.*"] {
             let r = search_files(dir.path(), &serde_json::json!({"pattern": bad})).unwrap();
-            assert!(r.contains("[search rejected]"), "pattern {:?} must be rejected, got: {r}", bad);
+            assert!(
+                r.contains("[search rejected]"),
+                "pattern {:?} must be rejected, got: {r}",
+                bad
+            );
         }
     }
 
@@ -900,10 +1044,18 @@ mod tests {
         fs::write(dir.path().join("many.txt"), content).unwrap();
         // Default cap of 50 with a total-count note.
         let r = search_files(dir.path(), &serde_json::json!({"pattern": "needle"})).unwrap();
-        assert!(r.contains("…showing 50 of 100 matches"), "got: {}", &r[r.len().saturating_sub(80)..]);
+        assert!(
+            r.contains("…showing 50 of 100 matches"),
+            "got: {}",
+            &r[r.len().saturating_sub(80)..]
+        );
         assert_eq!(r.matches("needle ").count(), 50);
         // max_results raises the emitted count.
-        let r = search_files(dir.path(), &serde_json::json!({"pattern": "needle", "max_results": 75})).unwrap();
+        let r = search_files(
+            dir.path(),
+            &serde_json::json!({"pattern": "needle", "max_results": 75}),
+        )
+        .unwrap();
         assert_eq!(r.matches("needle ").count(), 75);
         // Under the cap: no note.
         let r = search_files(dir.path(), &serde_json::json!({"pattern": "needle 1"})).unwrap();
@@ -915,15 +1067,28 @@ mod tests {
     #[test]
     fn test_read_line_window_hint() {
         let dir = tempdir().unwrap();
-        let content = (1..=4000).map(|i| format!("line {i}")).collect::<Vec<_>>().join("\n");
+        let content = (1..=4000)
+            .map(|i| format!("line {i}"))
+            .collect::<Vec<_>>()
+            .join("\n");
         fs::write(dir.path().join("big.txt"), &content).unwrap();
         let r = read_file(dir.path(), &serde_json::json!({"path":"big.txt"})).unwrap();
-        assert!(r.contains("big.txt: lines 1-2000 of 4000 | hash:"), "header in: {r}");
+        assert!(
+            r.contains("big.txt: lines 1-2000 of 4000 | hash:"),
+            "header in: {r}"
+        );
         assert!(r.contains("1 | line 1"), "numbered start: {r}");
         assert!(r.contains("2000 | line 2000"), "numbered end: {r}");
-        assert!(!r.contains("line 2001"), "must not include beyond the window: {r}");
+        assert!(
+            !r.contains("line 2001"),
+            "must not include beyond the window: {r}"
+        );
         // Paginate with the hint.
-        let r2 = read_file(dir.path(), &serde_json::json!({"path":"big.txt","offset":2001,"limit":3})).unwrap();
+        let r2 = read_file(
+            dir.path(),
+            &serde_json::json!({"path":"big.txt","offset":2001,"limit":3}),
+        )
+        .unwrap();
         assert!(r2.contains("2001 | line 2001"));
         assert!(r2.contains("2003 | line 2003"));
         assert!(r2.contains("lines 2001-2003 of 4000"));
@@ -934,7 +1099,11 @@ mod tests {
         let dir = tempdir().unwrap();
         // 256 KB of "x" lines → byte-capped at 128 KB.
         let mut content = String::new();
-        for i in 1..=9000 { content.push_str(&format!("{i} xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\n")); }
+        for i in 1..=9000 {
+            content.push_str(&format!(
+                "{i} xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\n"
+            ));
+        }
         fs::write(dir.path().join("huge.log"), &content).unwrap();
         let r = read_file(dir.path(), &serde_json::json!({"path":"huge.log"})).unwrap();
         assert!(r.contains("128 KB"), "byte-budget note in: {r}");
@@ -947,10 +1116,16 @@ mod tests {
     fn test_read_line_clamp() {
         let dir = tempdir().unwrap();
         let long = "y".repeat(50_000);
-        fs::write(dir.path().join("bundle.js"), &format!("let x = \"{long}\";\n"))
-            .unwrap();
+        fs::write(
+            dir.path().join("bundle.js"),
+            &format!("let x = \"{long}\";\n"),
+        )
+        .unwrap();
         let r = read_file(dir.path(), &serde_json::json!({"path":"bundle.js"})).unwrap();
-        assert!(r.contains("[line 1 truncated at 2000 chars"), "clamp note in: {r}");
+        assert!(
+            r.contains("[line 1 truncated at 2000 chars"),
+            "clamp note in: {r}"
+        );
         assert!(r.contains("total 500"), "clamp total in: {r}");
     }
 
@@ -961,8 +1136,15 @@ mod tests {
         fs::write(dir.path().join("few.txt"), "a\nb\nc\n").unwrap();
         let e = read_file(dir.path(), &serde_json::json!({"path":"empty.txt"})).unwrap();
         assert!(e.contains("is empty"), "empty fact: {e}");
-        let p = read_file(dir.path(), &serde_json::json!({"path":"few.txt","offset":9})).unwrap();
-        assert!(p.contains("past the end") && p.contains("retry smaller"), "eof fact: {p}");
+        let p = read_file(
+            dir.path(),
+            &serde_json::json!({"path":"few.txt","offset":9}),
+        )
+        .unwrap();
+        assert!(
+            p.contains("past the end") && p.contains("retry smaller"),
+            "eof fact: {p}"
+        );
     }
 
     #[test]
@@ -971,7 +1153,10 @@ mod tests {
         fs::write(dir.path().join("bom.txt"), "\u{feff}hello\r\nworld\r\n").unwrap();
         let r = read_file(dir.path(), &serde_json::json!({"path":"bom.txt"})).unwrap();
         assert!(!r.contains("\u{feff}"), "BOM stripped: {r}");
-        assert!(r.contains("1 | hello") && r.contains("2 | world"), "CRLF normalised: {r}");
+        assert!(
+            r.contains("1 | hello") && r.contains("2 | world"),
+            "CRLF normalised: {r}"
+        );
     }
 
     #[test]
@@ -991,10 +1176,28 @@ mod tests {
         let r = read_file(dir.path(), &serde_json::json!({"filePath":"f.txt"})).unwrap();
         assert!(r.contains("f.txt"), "alias accepted: {r}");
         // Strict numeric coercion.
-        let ok = read_file(dir.path(), &serde_json::json!({"path":"f.txt","offset":"2"})).unwrap();
+        let ok = read_file(
+            dir.path(),
+            &serde_json::json!({"path":"f.txt","offset":"2"}),
+        )
+        .unwrap();
         assert!(ok.contains("2 | b"), "numeric string accepted: {ok}");
-        assert!(read_file(dir.path(), &serde_json::json!({"path":"f.txt","offset":"2abc"})).is_err(), "garbage string rejected");
-        assert!(read_file(dir.path(), &serde_json::json!({"path":"f.txt","offset":1.5})).is_err(), "fraction rejected");
+        assert!(
+            read_file(
+                dir.path(),
+                &serde_json::json!({"path":"f.txt","offset":"2abc"})
+            )
+            .is_err(),
+            "garbage string rejected"
+        );
+        assert!(
+            read_file(
+                dir.path(),
+                &serde_json::json!({"path":"f.txt","offset":1.5})
+            )
+            .is_err(),
+            "fraction rejected"
+        );
     }
 
     #[test]
@@ -1017,8 +1220,16 @@ mod tests {
         let dir = tempdir().unwrap();
         // macOS screenshots use U+202F NARROW NO-BREAK SPACE — a terminal
         // renders it as a regular space, so the model asks with U+0020.
-        fs::write(dir.path().join("Screenshot 3.04\u{202f}PM.txt"), "the bytes\n").unwrap();
-        let r = read_file(dir.path(), &serde_json::json!({"path":"Screenshot 3.04 PM.txt"})).unwrap();
+        fs::write(
+            dir.path().join("Screenshot 3.04\u{202f}PM.txt"),
+            "the bytes\n",
+        )
+        .unwrap();
+        let r = read_file(
+            dir.path(),
+            &serde_json::json!({"path":"Screenshot 3.04 PM.txt"}),
+        )
+        .unwrap();
         assert!(r.contains("filename corrected"), "repair note in: {r}");
         assert!(r.contains("the bytes"), "content of repaired file: {r}");
     }
@@ -1040,7 +1251,10 @@ mod tests {
         fs::write(dir.path().join("AGENTS.md"), "agents\n").unwrap();
         fs::write(dir.path().join("README.md"), "readme\n").unwrap();
         let r = read_file(dir.path(), &serde_json::json!({"path":"AGENT.md"})).unwrap();
-        assert!(r.contains("not found") && r.contains("did you mean"), "fact in: {r}");
+        assert!(
+            r.contains("not found") && r.contains("did you mean"),
+            "fact in: {r}"
+        );
         assert!(r.contains("AGENTS.md"), "suggests AGENTS.md: {r}");
         assert!(!r.contains("README.md"), "README is not a close match: {r}");
     }
@@ -1051,7 +1265,11 @@ mod tests {
         fs::create_dir_all(dir.path().join("src")).unwrap();
         fs::write(dir.path().join("src/ma\u{ef}n.rs"), "fn x() {}\n").unwrap();
         // The decomposed spelling of the "ï" must repair to the NFC file.
-        let r = read_file(dir.path(), &serde_json::json!({"path":"src/ma\u{69}\u{308}n.rs"})).unwrap();
+        let r = read_file(
+            dir.path(),
+            &serde_json::json!({"path":"src/ma\u{69}\u{308}n.rs"}),
+        )
+        .unwrap();
         assert!(r.contains("filename corrected"), "repair note in: {r}");
         assert!(r.contains("fn x() {}"), "content of repaired file: {r}");
     }
@@ -1062,7 +1280,11 @@ mod tests {
     fn test_byte_cap_no_looping_offset() {
         let dir = tempdir().unwrap();
         let mut content = String::new();
-        for i in 1..=9000 { content.push_str(&format!("{i} xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\n")); }
+        for i in 1..=9000 {
+            content.push_str(&format!(
+                "{i} xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\n"
+            ));
+        }
         fs::write(dir.path().join("huge.log"), &content).unwrap();
         let r = read_file(dir.path(), &serde_json::json!({"path":"huge.log"})).unwrap();
         // The head is all we load, so an "offset=N to resume" hint would loop
@@ -1076,17 +1298,26 @@ mod tests {
     #[test]
     fn test_binary_png_fact() {
         let dir = tempdir().unwrap();
-        let png = [0x89u8, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x01, 0x02, 0x03];
+        let png = [
+            0x89u8, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x01, 0x02, 0x03,
+        ];
         fs::write(dir.path().join("img.png"), &png).unwrap();
         let r = read_file(dir.path(), &serde_json::json!({"path":"img.png"})).unwrap();
-        assert!(r.contains("image/png") && r.contains("binary file"), "png fact: {r}");
+        assert!(
+            r.contains("image/png") && r.contains("binary file"),
+            "png fact: {r}"
+        );
         assert!(!r.contains("\u{fffd}"), "no junk bytes: {r}");
     }
 
     #[test]
     fn test_pdf_hint() {
         let dir = tempdir().unwrap();
-        fs::write(dir.path().join("doc.pdf"), b"%PDF-1.7\n%\xe2\xe3\xcf\xd3\n\xff\xff\xff").unwrap();
+        fs::write(
+            dir.path().join("doc.pdf"),
+            b"%PDF-1.7\n%\xe2\xe3\xcf\xd3\n\xff\xff\xff",
+        )
+        .unwrap();
         let r = read_file(dir.path(), &serde_json::json!({"path":"doc.pdf"})).unwrap();
         assert!(r.contains("application/pdf"), "pdf fact: {r}");
         assert!(r.contains("pdftotext"), "pdftotext hint: {r}");
@@ -1095,7 +1326,11 @@ mod tests {
     #[test]
     fn test_svg_text_ok() {
         let dir = tempdir().unwrap();
-        fs::write(dir.path().join("icon.svg"), "<svg xmlns=\"http://www.w3.org/2000/svg\"><rect width=\"10\"/></svg>\n").unwrap();
+        fs::write(
+            dir.path().join("icon.svg"),
+            "<svg xmlns=\"http://www.w3.org/2000/svg\"><rect width=\"10\"/></svg>\n",
+        )
+        .unwrap();
         let r = read_file(dir.path(), &serde_json::json!({"path":"icon.svg"})).unwrap();
         assert!(r.contains("1 | <svg"), "svg is text, numbered: {r}");
         assert!(!r.contains("binary"), "no binary fact for text svg: {r}");

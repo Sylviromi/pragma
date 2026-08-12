@@ -7,8 +7,11 @@ use std::time::Duration;
 /// `on_changed` (debounced by ~350ms) whenever any file inside changes.
 /// `extra_dirs` are watched too (shipped-plugin symlink targets — notify
 /// does not follow symlinked directories by default).
-pub fn spawn_plugin_watcher<F>(plugins_dir: impl AsRef<Path>, extra_dirs: Vec<std::path::PathBuf>, on_changed: F)
-where
+pub fn spawn_plugin_watcher<F>(
+    plugins_dir: impl AsRef<Path>,
+    extra_dirs: Vec<std::path::PathBuf>,
+    on_changed: F,
+) where
     F: Fn() + Send + 'static,
 {
     let dir = plugins_dir.as_ref().to_path_buf();

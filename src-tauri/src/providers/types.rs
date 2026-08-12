@@ -3,8 +3,14 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ContentBlock {
-    Text { text: String },
-    ToolUse { id: String, name: String, input: serde_json::Value },
+    Text {
+        text: String,
+    },
+    ToolUse {
+        id: String,
+        name: String,
+        input: serde_json::Value,
+    },
     ToolResult {
         tool_use_id: String,
         content: String,
@@ -12,10 +18,15 @@ pub enum ContentBlock {
         is_error: bool,
     },
     /// Extended-thinking block (Anthropic). Must be passed back verbatim in subsequent requests.
-    Thinking { thinking: String, signature: String },
+    Thinking {
+        thinking: String,
+        signature: String,
+    },
     /// Reasoning block (DeepSeek / OpenAI-compat). Stored separately and reconstructed as
     /// `reasoning_content` top-level field when replaying history.
-    Reasoning { content: String },
+    Reasoning {
+        content: String,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -133,7 +144,9 @@ pub struct ModelInfo {
 pub enum ProviderSource {
     Builtin,
     #[serde(rename_all = "camelCase")]
-    Plugin { plugin_id: String },
+    Plugin {
+        plugin_id: String,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -150,11 +163,15 @@ pub struct ProviderInfo {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "event", rename_all = "snake_case")]
 pub enum AgentEvent {
-    Token { content: String },
+    Token {
+        content: String,
+    },
     /// Streaming reasoning/thinking tokens (DeepSeek `reasoning_content`,
     /// Anthropic `thinking_delta`) — surfaced live in the UI so the user can
     /// see the model thinking, like other harnesses.
-    Reasoning { content: String },
+    Reasoning {
+        content: String,
+    },
     /// A thinking block finished streaming (Anthropic `content_block_stop`,
     /// or the end of a DeepSeek reasoning-only segment). Lets the frontend
     /// seal the current live thought so the next reasoning chunk opens a new
@@ -183,9 +200,13 @@ pub enum AgentEvent {
         options: Vec<String>,
     },
     Done,
-    Error { message: String },
+    Error {
+        message: String,
+    },
     /// User pressed Esc / Stop — the loop ended before the turn completed.
     Interrupted,
     #[serde(rename_all = "camelCase")]
-    WorkingDirChanged { new_path: String },
+    WorkingDirChanged {
+        new_path: String,
+    },
 }

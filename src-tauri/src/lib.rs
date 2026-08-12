@@ -1,14 +1,14 @@
 use sqlx::SqlitePool;
-use tauri::{Emitter, Manager};
-use std::sync::{Arc, RwLock};
 use std::collections::HashMap;
+use std::sync::{Arc, RwLock};
+use tauri::{Emitter, Manager};
 
-mod db;
 mod commands;
+mod db;
+mod notify;
 mod plugins;
 mod providers;
 mod tools;
-mod notify;
 
 pub struct Settings {
     pub api_keys: HashMap<String, String>,
@@ -33,11 +33,13 @@ pub struct AppState {
     pub settings_path: std::path::PathBuf,
     pub plugins: plugins::PluginManager,
     // pending tool approvals: tool_use_id → oneshot sender
-    pub pending_approvals: Arc<tokio::sync::Mutex<HashMap<String, tokio::sync::oneshot::Sender<bool>>>>,
+    pub pending_approvals:
+        Arc<tokio::sync::Mutex<HashMap<String, tokio::sync::oneshot::Sender<bool>>>>,
     // pending ask_question answers: question_id → oneshot sender (Option = answer,
     // None = timeout/no answer). Mirrors pending_approvals so the loop can pause
     // on a question and resume from answer_question.
-    pub question_channels: Arc<tokio::sync::Mutex<HashMap<String, tokio::sync::oneshot::Sender<Option<String>>>>>,
+    pub question_channels:
+        Arc<tokio::sync::Mutex<HashMap<String, tokio::sync::oneshot::Sender<Option<String>>>>>,
     // session IDs with an active agentic loop — used by frontend to reconnect after HMR
     pub running_sessions: Arc<tokio::sync::Mutex<std::collections::HashSet<String>>>,
     // per-session "what the model has SEEN" of each file: write gate + dedup
@@ -50,7 +52,8 @@ pub struct AppState {
     // skill sidecars (skill_id → JSON-RPC handler process) for plugin tool execution
     pub skill_sidecars: tools::sidecar::SkillSidecarRegistry,
     // pending plugin confirmation dialogs: request_id → oneshot sender
-    pub plugin_confirmations: Arc<tokio::sync::Mutex<HashMap<String, tokio::sync::oneshot::Sender<bool>>>>,
+    pub plugin_confirmations:
+        Arc<tokio::sync::Mutex<HashMap<String, tokio::sync::oneshot::Sender<bool>>>>,
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -86,7 +89,10 @@ pub fn run() {
                     .await
                     .unwrap_or_default();
                 for sid in stale {
-                    if commands::agentic::loop_row_is_stale(&pool, &sid).await.unwrap_or(false) {
+                    if commands::agentic::loop_row_is_stale(&pool, &sid)
+                        .await
+                        .unwrap_or(false)
+                    {
                         let _ = sqlx::query("DELETE FROM active_loops WHERE session_id=?")
                             .bind(&sid)
                             .execute(&pool)
@@ -109,7 +115,12 @@ pub fn run() {
             // untracked folder, linked in with `ln -s`) — watch their real
             // targets explicitly since notify doesn't follow symlinks.
             let symlink_targets = plugin_manager.symlink_targets();
-            plugins::provider::register_plugin_providers(&registry, &plugin_manager, &settings.api_keys, &app.handle());
+            plugins::provider::register_plugin_providers(
+                &registry,
+                &plugin_manager,
+                &settings.api_keys,
+                &app.handle(),
+            );
 
             app.manage(AppState {
                 db: pool,
@@ -118,7 +129,9 @@ pub fn run() {
                 settings_path,
                 pending_approvals: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
                 question_channels: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
-                running_sessions: Arc::new(tokio::sync::Mutex::new(std::collections::HashSet::new())),
+                running_sessions: Arc::new(tokio::sync::Mutex::new(
+                    std::collections::HashSet::new(),
+                )),
                 seen_ledger: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
                 loop_cancels: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
                 plugin_processes: commands::process::new_process_map(),
@@ -142,16 +155,20 @@ pub fn run() {
                     // Kill skill sidecars — a plugin/skill change may have
                     // replaced handler.js; they respawn at the next run start.
                     let sidecars = state.skill_sidecars.clone();
-                    let _ = tokio::runtime::Runtime::new()
-                        .map(|rt| rt.block_on(sidecars.stop_all()));
+                    let _ =
+                        tokio::runtime::Runtime::new().map(|rt| rt.block_on(sidecars.stop_all()));
                     let api_keys = state.settings.read().unwrap().api_keys.clone();
                     plugins::provider::unregister_plugin_providers(&state.registry, &state.plugins);
-                    plugins::provider::register_plugin_providers(&state.registry, &state.plugins, &api_keys, &handle);
+                    plugins::provider::register_plugin_providers(
+                        &state.registry,
+                        &state.plugins,
+                        &api_keys,
+                        &handle,
+                    );
                     let _ = handle.emit(
                         "plugin:reload",
                         serde_json::json!({ "version": chrono::Utc::now().timestamp_millis() }),
                     );
-
                 });
             });
 
@@ -256,9 +273,7 @@ fn load_settings(path: &std::path::Path) -> Settings {
                         .collect()
                 })
                 .unwrap_or_default();
-            let notifications_enabled = v["notifications_enabled"]
-                .as_bool()
-                .unwrap_or(true);
+            let notifications_enabled = v["notifications_enabled"].as_bool().unwrap_or(true);
             Some(Settings {
                 api_keys: keys,
                 disabled_plugins,
@@ -318,7 +333,10 @@ mod tests {
     fn wayland_detection() {
         // XDG_SESSION_TYPE=wayland (Hyprland/Sway) → no decorations
         assert!(detects_wayland(Some("wayland".into()), None));
-        assert!(detects_wayland(Some("WAYLAND".into()), Some("wayland-0".into())));
+        assert!(detects_wayland(
+            Some("WAYLAND".into()),
+            Some("wayland-0".into())
+        ));
         // WAYLAND_DISPLAY set (some sessions only set the socket)
         assert!(detects_wayland(None, Some("wayland-1".into())));
         // X11 / GNOME on Xorg → keep decorations

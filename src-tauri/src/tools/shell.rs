@@ -33,8 +33,7 @@ pub fn run_command(wd: &Path, input: &serde_json::Value) -> Result<String, Strin
         .spawn()
         .map_err(|e| e.to_string())?;
 
-    let output = run_with_timeout(child, timeout)
-        .map_err(|e| format!("command failed: {e}"))?;
+    let output = run_with_timeout(child, timeout).map_err(|e| format!("command failed: {e}"))?;
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
@@ -81,7 +80,9 @@ fn run_with_timeout(
     loop {
         match child.try_wait() {
             Ok(Some(status)) => {
-                let (out, err) = reader.join().map_err(|_| "output reader failed".to_string())?;
+                let (out, err) = reader
+                    .join()
+                    .map_err(|_| "output reader failed".to_string())?;
                 return Ok(std::process::Output {
                     status,
                     stdout: out,
@@ -153,7 +154,11 @@ mod tests {
     #[test]
     fn test_output_capped() {
         let dir = tempdir().unwrap();
-        let r = run_command(dir.path(), &serde_json::json!({"command":"yes x | head -c 200000"})).unwrap();
+        let r = run_command(
+            dir.path(),
+            &serde_json::json!({"command":"yes x | head -c 200000"}),
+        )
+        .unwrap();
         assert!(r.chars().count() <= MAX_OUTPUT_CHARS + 100);
         assert!(r.contains("truncated"));
     }

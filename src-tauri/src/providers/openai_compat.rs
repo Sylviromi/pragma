@@ -1,7 +1,7 @@
 use super::sse;
 use super::types::{
-    AgentEvent, ContentBlock, ModelInfo, ProviderInfo, ProviderSource, ThinkingPref, ToolDefinition,
-    Usage, estimate_usage,
+    estimate_usage, AgentEvent, ContentBlock, ModelInfo, ProviderInfo, ProviderSource,
+    ThinkingPref, ToolDefinition, Usage,
 };
 use tauri::Emitter;
 
@@ -77,15 +77,21 @@ impl OpenAICompatProvider {
 
         if !tools.is_empty() {
             body["tools"] = serde_json::to_value(
-                tools.iter().map(|t| serde_json::json!({
-                    "type": "function",
-                    "function": {
-                        "name": t.name,
-                        "description": t.description,
-                        "parameters": t.input_schema,
-                    }
-                })).collect::<Vec<_>>(),
-            ).unwrap();
+                tools
+                    .iter()
+                    .map(|t| {
+                        serde_json::json!({
+                            "type": "function",
+                            "function": {
+                                "name": t.name,
+                                "description": t.description,
+                                "parameters": t.input_schema,
+                            }
+                        })
+                    })
+                    .collect::<Vec<_>>(),
+            )
+            .unwrap();
         }
 
         let url = format!("{}/chat/completions", self.base_url.trim_end_matches('/'));
@@ -104,7 +110,14 @@ impl OpenAICompatProvider {
             .await
             .map_err(|e| {
                 let msg = format!("Failed to reach {} at {}: {e}", self.id, self.base_url);
-                app_handle.emit(&event_name, AgentEvent::Error { message: msg.clone() }).ok();
+                app_handle
+                    .emit(
+                        &event_name,
+                        AgentEvent::Error {
+                            message: msg.clone(),
+                        },
+                    )
+                    .ok();
                 msg
             })?;
         if !resp.status().is_success() {
@@ -116,7 +129,14 @@ impl OpenAICompatProvider {
                     self.id
                 ),
             };
-            app_handle.emit(&event_name, AgentEvent::Error { message: msg.clone() }).ok();
+            app_handle
+                .emit(
+                    &event_name,
+                    AgentEvent::Error {
+                        message: msg.clone(),
+                    },
+                )
+                .ok();
             return Err(msg);
         }
 
@@ -167,7 +187,12 @@ impl OpenAICompatProvider {
                 if !r.is_empty() {
                     reasoning_buf.push_str(r);
                     app_handle
-                        .emit(&event_name, AgentEvent::Reasoning { content: r.to_string() })
+                        .emit(
+                            &event_name,
+                            AgentEvent::Reasoning {
+                                content: r.to_string(),
+                            },
+                        )
                         .ok();
                 }
             }
@@ -179,12 +204,17 @@ impl OpenAICompatProvider {
                     // reasoning block is done the moment content begins.
                     if !reasoning_buf.is_empty() && !reasoning_end_emitted {
                         reasoning_end_emitted = true;
-                        app_handle
-                            .emit(&event_name, AgentEvent::ThinkingEnd)
-                            .ok();
+                        app_handle.emit(&event_name, AgentEvent::ThinkingEnd).ok();
                     }
                     full_text.push_str(t);
-                    app_handle.emit(&event_name, AgentEvent::Token { content: t.to_string() }).ok();
+                    app_handle
+                        .emit(
+                            &event_name,
+                            AgentEvent::Token {
+                                content: t.to_string(),
+                            },
+                        )
+                        .ok();
                 }
             }
 
@@ -192,9 +222,9 @@ impl OpenAICompatProvider {
             if let Some(tcs) = delta["tool_calls"].as_array() {
                 for tc in tcs {
                     let idx = tc["index"].as_u64().unwrap_or(0) as usize;
-                    let entry = tool_calls.entry(idx).or_insert_with(|| {
-                        (String::new(), String::new(), String::new())
-                    });
+                    let entry = tool_calls
+                        .entry(idx)
+                        .or_insert_with(|| (String::new(), String::new(), String::new()));
                     if let Some(id) = tc["id"].as_str() {
                         entry.0 = id.to_string();
                     }
@@ -210,20 +240,21 @@ impl OpenAICompatProvider {
 
         // Reasoning-only turn (no text followed it): seal the thought block.
         if !reasoning_buf.is_empty() && !reasoning_end_emitted {
-            app_handle
-                .emit(&event_name, AgentEvent::ThinkingEnd)
-                .ok();
+            app_handle.emit(&event_name, AgentEvent::ThinkingEnd).ok();
         }
 
         let mut blocks: Vec<ContentBlock> = Vec::new();
         if !reasoning_buf.is_empty() {
-            blocks.push(ContentBlock::Reasoning { content: reasoning_buf });
+            blocks.push(ContentBlock::Reasoning {
+                content: reasoning_buf,
+            });
         }
         if !full_text.trim().is_empty() {
             blocks.push(ContentBlock::Text { text: full_text });
         }
         for (_, (id, name, args)) in tool_calls {
-            let input = serde_json::from_str(&args).unwrap_or(serde_json::Value::Object(Default::default()));
+            let input = serde_json::from_str(&args)
+                .unwrap_or(serde_json::Value::Object(Default::default()));
             blocks.push(ContentBlock::ToolUse { id, name, input });
         }
 
@@ -232,25 +263,36 @@ impl OpenAICompatProvider {
             // An empty body that wasn't cut off is still a dead turn — never
             // end the loop with zero content (that looks like the model dying).
             return Err(if cut_off {
-                "Connection interrupted before any content arrived — the model service may be down.".into()
+                "Connection interrupted before any content arrived — the model service may be down."
+                    .into()
             } else {
-                "The model returned an empty response — the service may be overloaded; try again.".into()
+                "The model returned an empty response — the service may be overloaded; try again."
+                    .into()
             });
         }
-        if cut_off && !blocks.iter().any(|b| matches!(b, ContentBlock::ToolUse { .. })) {
+        if cut_off
+            && !blocks
+                .iter()
+                .any(|b| matches!(b, ContentBlock::ToolUse { .. }))
+        {
             // Partial answer arrived but the stream broke: surface it. (When
             // tool calls are pending we stay quiet so approvals keep flowing.)
             app_handle
-                .emit(&event_name, AgentEvent::Error {
-                    message: "Connection interrupted — the response may be incomplete.".into(),
-                })
+                .emit(
+                    &event_name,
+                    AgentEvent::Error {
+                        message: "Connection interrupted — the response may be incomplete.".into(),
+                    },
+                )
                 .ok();
         }
 
         // Fallback estimate when usage events were absent.
         if usage.total() == 0 {
-            usage.input_tokens = estimate_usage(&serde_json::to_string(&oai_messages).unwrap_or_default());
-            usage.output_tokens = estimate_usage(&serde_json::to_string(&blocks).unwrap_or_default());
+            usage.input_tokens =
+                estimate_usage(&serde_json::to_string(&oai_messages).unwrap_or_default());
+            usage.output_tokens =
+                estimate_usage(&serde_json::to_string(&blocks).unwrap_or_default());
         }
 
         Ok((blocks, usage))
@@ -288,12 +330,14 @@ fn to_openai_messages(messages: &[serde_json::Value]) -> Vec<serde_json::Value> 
             "assistant" => {
                 if let Some(blocks) = content.as_array() {
                     // Content-block array — split into reasoning + text + tool_calls
-                    let reasoning: String = blocks.iter()
+                    let reasoning: String = blocks
+                        .iter()
                         .filter(|b| b["type"] == "reasoning")
                         .filter_map(|b| b["content"].as_str())
                         .collect::<Vec<_>>()
                         .join("");
-                    let text: String = blocks.iter()
+                    let text: String = blocks
+                        .iter()
                         .filter(|b| b["type"] == "text")
                         .filter_map(|b| b["text"].as_str())
                         .collect::<Vec<_>>()
@@ -406,8 +450,24 @@ pub fn deepseek() -> OpenAICompatProvider {
         base_url: "https://api.deepseek.com/v1".into(),
         source: ProviderSource::Builtin,
         models: vec![
-            super::catalog::enrich("deepseek-chat", "DeepSeek Chat".into(), None, None, None, None, None),
-            super::catalog::enrich("deepseek-reasoner", "DeepSeek Reasoner".into(), None, None, None, None, None),
+            super::catalog::enrich(
+                "deepseek-chat",
+                "DeepSeek Chat".into(),
+                None,
+                None,
+                None,
+                None,
+                None,
+            ),
+            super::catalog::enrich(
+                "deepseek-reasoner",
+                "DeepSeek Reasoner".into(),
+                None,
+                None,
+                None,
+                None,
+                None,
+            ),
         ],
         reasoning_effort: None,
     }
@@ -446,7 +506,10 @@ mod tests {
             .filter(|m| m["role"].as_str() == Some("user"))
             .filter_map(|m| m["content"].as_str())
             .collect();
-        assert!(texts.contains(&"unrelated follow-up"), "newest prompt must survive: {out:?}");
+        assert!(
+            texts.contains(&"unrelated follow-up"),
+            "newest prompt must survive: {out:?}"
+        );
     }
 
     fn assistant_with_blocks(blocks: Vec<serde_json::Value>) -> serde_json::Value {
@@ -473,7 +536,15 @@ mod tests {
     #[test]
     fn request_options_resolution() {
         let models = vec![
-            crate::providers::catalog::enrich("plain", "Plain".into(), None, None, None, None, None),
+            crate::providers::catalog::enrich(
+                "plain",
+                "Plain".into(),
+                None,
+                None,
+                None,
+                None,
+                None,
+            ),
             crate::providers::types::ModelInfo {
                 id: "reasoner".into(),
                 name: "Reasoner".into(),

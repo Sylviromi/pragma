@@ -51,7 +51,9 @@ pub async fn spawn_plugin_process(
     if let Some(existing) = procs.get(&plugin_id) {
         // Check if still running
         if existing.child.id().is_some() {
-            return Err(format!("plugin '{plugin_id}' already has a running process"));
+            return Err(format!(
+                "plugin '{plugin_id}' already has a running process"
+            ));
         }
     }
 
@@ -135,14 +137,7 @@ pub async fn spawn_plugin_process(
         });
     }
 
-    procs.insert(
-        plugin_id,
-        PluginProcess {
-            child,
-            stdin,
-            pid,
-        },
-    );
+    procs.insert(plugin_id, PluginProcess { child, stdin, pid });
 
     Ok(pid)
 }
@@ -213,10 +208,7 @@ pub async fn write_plugin_stdin(
         .get_mut(&plugin_id)
         .ok_or(format!("no running process for plugin '{plugin_id}'"))?;
 
-    let stdin = proc
-        .stdin
-        .as_mut()
-        .ok_or("process stdin not available")?;
+    let stdin = proc.stdin.as_mut().ok_or("process stdin not available")?;
 
     let line = if data.ends_with('\n') {
         data

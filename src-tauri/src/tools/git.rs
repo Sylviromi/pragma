@@ -86,8 +86,8 @@ pub fn git_commit(wd: &Path, input: &serde_json::Value) -> Result<String, String
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::tempdir;
     use std::fs;
+    use tempfile::tempdir;
 
     fn init_repo(dir: &Path) {
         Command::new("git")

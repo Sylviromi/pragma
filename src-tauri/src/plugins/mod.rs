@@ -142,7 +142,11 @@ impl PluginManager {
         if let Ok(entries) = std::fs::read_dir(&skills_dir) {
             let mut ids: Vec<String> = entries
                 .filter_map(|e| e.ok())
-                .filter(|e| std::fs::metadata(e.path()).map(|m| m.is_dir()).unwrap_or(false))
+                .filter(|e| {
+                    std::fs::metadata(e.path())
+                        .map(|m| m.is_dir())
+                        .unwrap_or(false)
+                })
                 .filter_map(|e| e.file_name().into_string().ok())
                 .collect();
             ids.sort();
@@ -233,14 +237,19 @@ impl PluginManager {
 
     /// Parse a plugin skill's tools.json into tool definitions. Empty when the
     /// skill declares none.
-    pub fn skill_tools_json(&self, skill_id: &str) -> Result<Vec<crate::providers::types::ToolDefinition>, String> {
+    pub fn skill_tools_json(
+        &self,
+        skill_id: &str,
+    ) -> Result<Vec<crate::providers::types::ToolDefinition>, String> {
         let Some(skill) = self.skill(skill_id) else {
             return Ok(Vec::new());
         };
         if !skill.has_tools {
             return Ok(Vec::new());
         }
-        let (plugin_id, sid) = skill_id.split_once('/').ok_or("native skills have no tools.json")?;
+        let (plugin_id, sid) = skill_id
+            .split_once('/')
+            .ok_or("native skills have no tools.json")?;
         let p = self
             .plugin_dir(plugin_id)
             .join("skills")
@@ -258,7 +267,11 @@ impl PluginManager {
         };
         let mut ids: Vec<String> = entries
             .filter_map(|e| e.ok())
-            .filter(|e| std::fs::metadata(e.path()).map(|m| m.is_dir()).unwrap_or(false))
+            .filter(|e| {
+                std::fs::metadata(e.path())
+                    .map(|m| m.is_dir())
+                    .unwrap_or(false)
+            })
             .filter_map(|e| e.file_name().into_string().ok())
             .collect();
         ids.sort();
@@ -302,7 +315,11 @@ impl PluginManager {
         };
         entries
             .filter_map(|e| e.ok())
-            .filter(|e| std::fs::symlink_metadata(e.path()).map(|m| m.file_type().is_symlink()).unwrap_or(false))
+            .filter(|e| {
+                std::fs::symlink_metadata(e.path())
+                    .map(|m| m.file_type().is_symlink())
+                    .unwrap_or(false)
+            })
             .filter_map(|e| std::fs::read_link(e.path()).ok())
             .collect()
     }
@@ -340,7 +357,10 @@ mod tests {
         assert!(demo.has_component);
         assert!(!demo.has_skill);
         assert!(demo.enabled);
-        assert!(demo.contributes.slots.contains(&"chat-toolbar-extra".to_string()));
+        assert!(demo
+            .contributes
+            .slots
+            .contains(&"chat-toolbar-extra".to_string()));
         let hidden = list.iter().find(|p| p.id == ".hidden").unwrap();
         assert!(!hidden.has_component);
     }
@@ -349,7 +369,10 @@ mod tests {
     fn lists_only_valid_manifests() {
         let (m, _dir) = mk_manager(vec![
             ("broken/manifest.json", "not json"),
-            ("demo/manifest.json", r#"{"id":"demo","name":"Demo","version":"0.1"}"#),
+            (
+                "demo/manifest.json",
+                r#"{"id":"demo","name":"Demo","version":"0.1"}"#,
+            ),
         ]);
         let list = m.list();
         assert_eq!(list.len(), 1);
@@ -374,7 +397,10 @@ mod tests {
     #[test]
     fn skill_index() {
         let (m, _dir) = mk_manager(vec![
-            ("demo/manifest.json", r#"{"id":"demo","name":"Demo","version":"0.1","description":"A demo skill"}"#),
+            (
+                "demo/manifest.json",
+                r#"{"id":"demo","name":"Demo","version":"0.1","description":"A demo skill"}"#,
+            ),
             ("demo/skill.md", "always be concise"),
         ]);
         let index = m.skill_index();
@@ -389,15 +415,28 @@ mod tests {
     #[test]
     fn discovers_subfolder_skills_with_tools_and_handler() {
         let (m, _dir) = mk_manager(vec![
-            ("fe/manifest.json", r#"{"id":"fe","name":"Frontend","version":"1","description":"Frontend stack"}"#),
+            (
+                "fe/manifest.json",
+                r#"{"id":"fe","name":"Frontend","version":"1","description":"Frontend stack"}"#,
+            ),
             ("fe/skills/frontend-dev/skill.md", "frontend skill doc"),
-            ("fe/skills/frontend-dev/tools.json", r#"[{"name":"fe_status","description":"status","inputSchema":{"type":"object","properties":{}}}]"#),
+            (
+                "fe/skills/frontend-dev/tools.json",
+                r#"[{"name":"fe_status","description":"status","inputSchema":{"type":"object","properties":{}}}]"#,
+            ),
             ("fe/skills/frontend-dev/handler.js", "console.log(1)"),
             ("fe/skills/a11y/skill.md", "a11y doc"),
         ]);
-        let fe_skills = m.skills().into_iter().filter(|s| s.plugin_id.as_deref() == Some("fe")).collect::<Vec<_>>();
+        let fe_skills = m
+            .skills()
+            .into_iter()
+            .filter(|s| s.plugin_id.as_deref() == Some("fe"))
+            .collect::<Vec<_>>();
         assert_eq!(fe_skills.len(), 2);
-        let dev = fe_skills.iter().find(|s| s.id == "fe/frontend-dev").unwrap();
+        let dev = fe_skills
+            .iter()
+            .find(|s| s.id == "fe/frontend-dev")
+            .unwrap();
         assert_eq!(dev.source, "plugin-skill");
         assert!(dev.has_tools);
         assert!(dev.has_handler);
@@ -405,8 +444,14 @@ mod tests {
         assert!(!a11y.has_tools);
         assert!(!a11y.has_handler);
         // doc + handler path + tools resolve
-        assert_eq!(m.skill_doc("fe/frontend-dev").unwrap(), "frontend skill doc");
-        assert!(m.skill_handler_path("fe/frontend-dev").unwrap().ends_with("handler.js"));
+        assert_eq!(
+            m.skill_doc("fe/frontend-dev").unwrap(),
+            "frontend skill doc"
+        );
+        assert!(m
+            .skill_handler_path("fe/frontend-dev")
+            .unwrap()
+            .ends_with("handler.js"));
         assert_eq!(m.skill_tools_json("fe/frontend-dev").unwrap().len(), 1);
         assert_eq!(m.skill_tools_json("fe/a11y").unwrap().len(), 0);
         // unknown id → error

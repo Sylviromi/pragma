@@ -292,9 +292,10 @@ pub fn parse_plugin_tools(text: &str) -> Result<Vec<ToolDefinition>, String> {
             .and_then(|x| x.as_str())
             .ok_or_else(|| format!("tool '{name}' missing string \"description\""))?
             .to_string();
-        let input_schema = t.get("inputSchema").cloned().unwrap_or_else(|| {
-            serde_json::json!({ "type": "object", "properties": {} })
-        });
+        let input_schema = t
+            .get("inputSchema")
+            .cloned()
+            .unwrap_or_else(|| serde_json::json!({ "type": "object", "properties": {} }));
         if input_schema.get("type").is_none() {
             return Err(format!("tool '{name}' inputSchema must have a \"type\""));
         }
@@ -315,15 +316,27 @@ mod tests {
     fn test_all_tools_have_required_fields() {
         for tool in standard_tools() {
             assert!(!tool.name.is_empty(), "tool has no name");
-            assert!(!tool.description.is_empty(), "tool {} has no description", tool.name);
-            assert!(tool.input_schema.get("type").is_some(), "tool {} schema missing type", tool.name);
+            assert!(
+                !tool.description.is_empty(),
+                "tool {} has no description",
+                tool.name
+            );
+            assert!(
+                tool.input_schema.get("type").is_some(),
+                "tool {} schema missing type",
+                tool.name
+            );
         }
     }
 
     #[test]
     fn test_expected_tool_count() {
         // Ensures no tools are accidentally dropped when editing
-        assert_eq!(core_tools().len(), 10, "core: file ops + shell + load_skill + change_directory + ask_question");
+        assert_eq!(
+            core_tools().len(),
+            10,
+            "core: file ops + shell + load_skill + change_directory + ask_question"
+        );
         let skill_sets = skill_tools();
         assert_eq!(skill_sets.len(), 2, "git + web");
         let total: usize = skill_sets.iter().map(|(_, t)| t.len()).sum();
@@ -353,7 +366,10 @@ mod tests {
         let tools = parse_plugin_tools(text).unwrap();
         assert_eq!(tools.len(), 2);
         assert_eq!(tools[0].name, "frontend_serve_start");
-        assert_eq!(tools[0].input_schema["properties"]["port"]["type"], "integer");
+        assert_eq!(
+            tools[0].input_schema["properties"]["port"]["type"],
+            "integer"
+        );
         // missing schema defaults to an empty object schema
         assert_eq!(tools[1].input_schema["type"], "object");
         // errors: not an array / missing name / missing description

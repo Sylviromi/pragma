@@ -15,7 +15,12 @@ pub async fn save_api_key(
     state: tauri::State<'_, AppState>,
 ) -> Result<(), String> {
     {
-        state.settings.write().unwrap().api_keys.insert(provider.clone(), key);
+        state
+            .settings
+            .write()
+            .unwrap()
+            .api_keys
+            .insert(provider.clone(), key);
     }
     crate::save_settings(&state);
     // Fetch fresh model lists for this provider now that the key changed.

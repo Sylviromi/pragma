@@ -1,9 +1,9 @@
 pub mod definitions;
 pub mod file_ops;
-pub mod shell;
 pub mod git;
-pub mod web;
+pub mod shell;
 pub mod sidecar;
+pub mod web;
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -117,7 +117,8 @@ impl ToolExecutor {
                 if let Some(s) = seen {
                     if let Some((s_size, s_win)) = s.dedup {
                         if mtime == Some(s.mtime) && s_size == size && s_win == d.window {
-                            let name = d.abs_path
+                            let name = d
+                                .abs_path
                                 .strip_prefix(&self.working_dir)
                                 .unwrap_or(&d.abs_path)
                                 .display()
@@ -146,7 +147,11 @@ impl ToolExecutor {
                     window: d.window,
                     total: d.total,
                     partial: d.partial,
-                    dedup: if d.window.is_some() { Some((size, d.window)) } else { None },
+                    dedup: if d.window.is_some() {
+                        Some((size, d.window))
+                    } else {
+                        None
+                    },
                     tag,
                     content,
                     seq: next_seq,
@@ -214,7 +219,11 @@ impl ToolExecutor {
     /// the model's feet.
     fn clear_seen(&self, full: &PathBuf) {
         if let (Some(session_id), Some(ledger)) = (&self.session_id, &self.ledger) {
-            ledger.lock().unwrap().get_mut(session_id).map(|m| m.remove(full));
+            ledger
+                .lock()
+                .unwrap()
+                .get_mut(session_id)
+                .map(|m| m.remove(full));
         }
     }
 
@@ -287,7 +296,12 @@ impl ToolExecutor {
         if r.is_ok() {
             // The model's window/snapshot is now stale: mark the file edited so
             // the next edit forces a re-read (line numbers moved under it).
-            if let Some(seen) = ledger.lock().unwrap().get_mut(session_id).and_then(|m| m.get_mut(&full)) {
+            if let Some(seen) = ledger
+                .lock()
+                .unwrap()
+                .get_mut(session_id)
+                .and_then(|m| m.get_mut(&full))
+            {
                 seen.edited = true;
                 seen.content = None; // pre-edit snapshot no longer matches
             }
@@ -298,37 +312,65 @@ impl ToolExecutor {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::tempdir;
     use std::fs;
+    use tempfile::tempdir;
 
     fn ledger_executor(wd: &std::path::Path, session: &str) -> (ToolExecutor, SeenLedger) {
         let ledger: SeenLedger = Arc::new(std::sync::Mutex::new(HashMap::new()));
-        (ToolExecutor::with_ledger(wd, session, ledger.clone()), ledger)
+        (
+            ToolExecutor::with_ledger(wd, session, ledger.clone()),
+            ledger,
+        )
     }
 
     #[test]
     fn test_write_gate_refuses_partial_overwrite_with_recovery() {
         let dir = tempdir().unwrap();
-        let content = (1..=4000).map(|i| format!("line {i}")).collect::<Vec<_>>().join("\n");
+        let content = (1..=4000)
+            .map(|i| format!("line {i}"))
+            .collect::<Vec<_>>()
+            .join("\n");
         fs::write(dir.path().join("big.txt"), &content).unwrap();
         let (ex, _) = ledger_executor(dir.path(), "s1");
 
         // Read only the head (line window caps at 2000).
-        let r1 = ex.execute("read_file", &serde_json::json!({"path": "big.txt"})).unwrap();
+        let r1 = ex
+            .execute("read_file", &serde_json::json!({"path": "big.txt"}))
+            .unwrap();
         assert!(r1.contains("offset=2001"));
 
         // Overwriting now must be denied with a named recovery.
-        let deny = ex.execute("write_file", &serde_json::json!({"path":"big.txt","content":"clobbered"})).unwrap();
+        let deny = ex
+            .execute(
+                "write_file",
+                &serde_json::json!({"path":"big.txt","content":"clobbered"}),
+            )
+            .unwrap();
         assert!(deny.contains("write denied"), "gate fired: {deny}");
         assert!(deny.contains("offset=2001"), "recovery hint: {deny}");
         // The file must NOT have been modified.
-        assert_eq!(fs::read_to_string(dir.path().join("big.txt")).unwrap(), content);
+        assert_eq!(
+            fs::read_to_string(dir.path().join("big.txt")).unwrap(),
+            content
+        );
 
         // Read the rest, then write succeeds.
-        ex.execute("read_file", &serde_json::json!({"path":"big.txt","offset":2001,"limit":3000})).unwrap();
-        let ok = ex.execute("write_file", &serde_json::json!({"path":"big.txt","content":"ok now"})).unwrap();
+        ex.execute(
+            "read_file",
+            &serde_json::json!({"path":"big.txt","offset":2001,"limit":3000}),
+        )
+        .unwrap();
+        let ok = ex
+            .execute(
+                "write_file",
+                &serde_json::json!({"path":"big.txt","content":"ok now"}),
+            )
+            .unwrap();
         assert!(ok.contains("wrote"), "write after full read: {ok}");
-        assert_eq!(fs::read_to_string(dir.path().join("big.txt")).unwrap(), "ok now");
+        assert_eq!(
+            fs::read_to_string(dir.path().join("big.txt")).unwrap(),
+            "ok now"
+        );
     }
 
     #[test]
@@ -336,12 +378,23 @@ mod tests {
         let dir = tempdir().unwrap();
         fs::write(dir.path().join("small.txt"), "a\nb\n").unwrap();
         let (ex, _) = ledger_executor(dir.path(), "s2");
-        ex.execute("read_file", &serde_json::json!({"path":"small.txt"})).unwrap();
+        ex.execute("read_file", &serde_json::json!({"path":"small.txt"}))
+            .unwrap();
         // full window == whole file → gate passes
-        let ok = ex.execute("write_file", &serde_json::json!({"path":"small.txt","content":"z"})).unwrap();
+        let ok = ex
+            .execute(
+                "write_file",
+                &serde_json::json!({"path":"small.txt","content":"z"}),
+            )
+            .unwrap();
         assert!(ok.contains("wrote"));
         // brand-new files are never gated
-        let n = ex.execute("write_file", &serde_json::json!({"path":"new.txt","content":"hi"})).unwrap();
+        let n = ex
+            .execute(
+                "write_file",
+                &serde_json::json!({"path":"new.txt","content":"hi"}),
+            )
+            .unwrap();
         assert!(n.contains("wrote"));
     }
 
@@ -351,13 +404,22 @@ mod tests {
         fs::write(dir.path().join("f.txt"), "one\ntwo\n").unwrap();
         let (ex, _) = ledger_executor(dir.path(), "s3");
 
-        let first = ex.execute("read_file", &serde_json::json!({"path":"f.txt","limit":1})).unwrap();
+        let first = ex
+            .execute("read_file", &serde_json::json!({"path":"f.txt","limit":1}))
+            .unwrap();
         assert!(first.contains("one"));
-        let stub = ex.execute("read_file", &serde_json::json!({"path":"f.txt","limit":1})).unwrap();
+        let stub = ex
+            .execute("read_file", &serde_json::json!({"path":"f.txt","limit":1}))
+            .unwrap();
         assert!(stub.contains("unchanged"), "dedup stub: {stub}");
         // Self-expiring: the next identical read returns real content again.
-        let again = ex.execute("read_file", &serde_json::json!({"path":"f.txt","limit":1})).unwrap();
-        assert!(again.contains("one") && !again.contains("unchanged"), "expired: {again}");
+        let again = ex
+            .execute("read_file", &serde_json::json!({"path":"f.txt","limit":1}))
+            .unwrap();
+        assert!(
+            again.contains("one") && !again.contains("unchanged"),
+            "expired: {again}"
+        );
     }
 
     #[test]
@@ -365,8 +427,14 @@ mod tests {
         let dir = tempdir().unwrap();
         fs::write(dir.path().join("f.txt"), "a\nb\nc\nd\n").unwrap();
         let (ex, _) = ledger_executor(dir.path(), "s4");
-        ex.execute("read_file", &serde_json::json!({"path":"f.txt","limit":2})).unwrap();
-        let r = ex.execute("read_file", &serde_json::json!({"path":"f.txt","offset":1,"limit":3})).unwrap();
+        ex.execute("read_file", &serde_json::json!({"path":"f.txt","limit":2}))
+            .unwrap();
+        let r = ex
+            .execute(
+                "read_file",
+                &serde_json::json!({"path":"f.txt","offset":1,"limit":3}),
+            )
+            .unwrap();
         assert!(r.contains("3 | c"), "different window → real content: {r}");
     }
 
@@ -375,11 +443,21 @@ mod tests {
         let dir = tempdir().unwrap();
         fs::write(dir.path().join("f.txt"), "hello\n").unwrap();
         let (ex, _) = ledger_executor(dir.path(), "s5");
-        ex.execute("read_file", &serde_json::json!({"path":"f.txt"})).unwrap();
-        ex.execute("write_file", &serde_json::json!({"path":"f.txt","content":"changed\n"})).unwrap();
+        ex.execute("read_file", &serde_json::json!({"path":"f.txt"}))
+            .unwrap();
+        ex.execute(
+            "write_file",
+            &serde_json::json!({"path":"f.txt","content":"changed\n"}),
+        )
+        .unwrap();
         // Post-write read must NOT dedup against the pre-write content.
-        let r = ex.execute("read_file", &serde_json::json!({"path":"f.txt"})).unwrap();
-        assert!(r.contains("changed") && !r.contains("unchanged"), "fresh read after write: {r}");
+        let r = ex
+            .execute("read_file", &serde_json::json!({"path":"f.txt"}))
+            .unwrap();
+        assert!(
+            r.contains("changed") && !r.contains("unchanged"),
+            "fresh read after write: {r}"
+        );
     }
 
     #[test]
@@ -388,11 +466,18 @@ mod tests {
         fs::write(dir.path().join("f.txt"), "x\ny\n").unwrap();
         let (ex, _) = ledger_executor(dir.path(), "s6");
         std::env::set_var("PRAGMA_NO_DEDUP", "1");
-        let first = ex.execute("read_file", &serde_json::json!({"path":"f.txt"})).unwrap();
-        let second = ex.execute("read_file", &serde_json::json!({"path":"f.txt"})).unwrap();
+        let first = ex
+            .execute("read_file", &serde_json::json!({"path":"f.txt"}))
+            .unwrap();
+        let second = ex
+            .execute("read_file", &serde_json::json!({"path":"f.txt"}))
+            .unwrap();
         std::env::remove_var("PRAGMA_NO_DEDUP");
         assert!(first.contains("x"));
-        assert!(second.contains("x") && !second.contains("unchanged"), "dedup off: {second}");
+        assert!(
+            second.contains("x") && !second.contains("unchanged"),
+            "dedup off: {second}"
+        );
     }
 
     #[test]
@@ -401,15 +486,33 @@ mod tests {
         let (ex, _) = ledger_executor(dir.path(), "s7");
         // A missing file's fact must re-read as "not found" every time — a
         // dedup stub claiming "identical content" about nothing is a lie.
-        let first = ex.execute("read_file", &serde_json::json!({"path":"missing.txt"})).unwrap();
-        let second = ex.execute("read_file", &serde_json::json!({"path":"missing.txt"})).unwrap();
+        let first = ex
+            .execute("read_file", &serde_json::json!({"path":"missing.txt"}))
+            .unwrap();
+        let second = ex
+            .execute("read_file", &serde_json::json!({"path":"missing.txt"}))
+            .unwrap();
         assert!(first.contains("not found"), "fact: {first}");
-        assert!(second.contains("not found") && !second.contains("unchanged"), "no stub for facts: {second}");
+        assert!(
+            second.contains("not found") && !second.contains("unchanged"),
+            "no stub for facts: {second}"
+        );
         // Binary facts likewise never stub.
-        fs::write(dir.path().join("img.png"), [0x89u8, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]).unwrap();
-        let b1 = ex.execute("read_file", &serde_json::json!({"path":"img.png"})).unwrap();
-        let b2 = ex.execute("read_file", &serde_json::json!({"path":"img.png"})).unwrap();
-        assert!(b1.contains("image/png") && b2.contains("image/png") && !b2.contains("unchanged"), "binary facts fresh: {b2}");
+        fs::write(
+            dir.path().join("img.png"),
+            [0x89u8, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a],
+        )
+        .unwrap();
+        let b1 = ex
+            .execute("read_file", &serde_json::json!({"path":"img.png"}))
+            .unwrap();
+        let b2 = ex
+            .execute("read_file", &serde_json::json!({"path":"img.png"}))
+            .unwrap();
+        assert!(
+            b1.contains("image/png") && b2.contains("image/png") && !b2.contains("unchanged"),
+            "binary facts fresh: {b2}"
+        );
     }
 
     #[test]
@@ -417,29 +520,53 @@ mod tests {
         let dir = tempdir().unwrap();
         fs::write(dir.path().join("f.txt"), "same size\n").unwrap();
         let (ex, _) = ledger_executor(dir.path(), "s8");
-        let first = ex.execute("read_file", &serde_json::json!({"path":"f.txt"})).unwrap();
+        let first = ex
+            .execute("read_file", &serde_json::json!({"path":"f.txt"}))
+            .unwrap();
         assert!(first.contains("same size"));
         // Rewrite with identical byte length — a size-only dedup would stall.
         fs::write(dir.path().join("f.txt"), "CHANGED!!1\n").unwrap();
-        let second = ex.execute("read_file", &serde_json::json!({"path":"f.txt"})).unwrap();
-        assert!(second.contains("CHANGED") && !second.contains("unchanged"), "mtime guard: {second}");
+        let second = ex
+            .execute("read_file", &serde_json::json!({"path":"f.txt"}))
+            .unwrap();
+        assert!(
+            second.contains("CHANGED") && !second.contains("unchanged"),
+            "mtime guard: {second}"
+        );
     }
 
     #[test]
     fn test_edit_gate_denies_partial_overwrite() {
         let dir = tempdir().unwrap();
-        let content = (1..=4000).map(|i| format!("line {i}")).collect::<Vec<_>>().join("\n");
+        let content = (1..=4000)
+            .map(|i| format!("line {i}"))
+            .collect::<Vec<_>>()
+            .join("\n");
         fs::write(dir.path().join("big.rs"), &content).unwrap();
         let (ex, _) = ledger_executor(dir.path(), "s9");
-        ex.execute("read_file", &serde_json::json!({"path":"big.rs"})).unwrap(); // head only
+        ex.execute("read_file", &serde_json::json!({"path":"big.rs"}))
+            .unwrap(); // head only
         let deny = ex.execute("edit_file", &serde_json::json!({"path":"big.rs","hash":file_ops::file_tag(&content),"start_line":3000,"content":"CHANGED"})).unwrap();
-        assert!(deny.contains("denied") && deny.contains("offset=2001"), "edit gated: {deny}");
-        assert_eq!(fs::read_to_string(dir.path().join("big.rs")).unwrap(), content, "file untouched");
+        assert!(
+            deny.contains("denied") && deny.contains("offset=2001"),
+            "edit gated: {deny}"
+        );
+        assert_eq!(
+            fs::read_to_string(dir.path().join("big.rs")).unwrap(),
+            content,
+            "file untouched"
+        );
         // Read the rest → the same edit applies.
-        ex.execute("read_file", &serde_json::json!({"path":"big.rs","offset":2001,"limit":3000})).unwrap();
+        ex.execute(
+            "read_file",
+            &serde_json::json!({"path":"big.rs","offset":2001,"limit":3000}),
+        )
+        .unwrap();
         let ok = ex.execute("edit_file", &serde_json::json!({"path":"big.rs","hash":file_ops::file_tag(&content),"start_line":3000,"content":"CHANGED"})).unwrap();
         assert!(ok.contains("edited"), "edit after full read: {ok}");
-        assert!(fs::read_to_string(dir.path().join("big.rs")).unwrap().contains("CHANGED"));
+        assert!(fs::read_to_string(dir.path().join("big.rs"))
+            .unwrap()
+            .contains("CHANGED"));
     }
 
     // Pull the hex after "hash: " out of a read header — tolerant of the
@@ -459,16 +586,27 @@ mod tests {
         let dir = tempdir().unwrap();
         fs::write(dir.path().join("f.txt"), "a\nb\nc\nd\ne\n").unwrap();
         let (ex, _) = ledger_executor(dir.path(), "s-drift");
-        let read = ex.execute("read_file", &serde_json::json!({"path":"f.txt"})).unwrap();
+        let read = ex
+            .execute("read_file", &serde_json::json!({"path":"f.txt"}))
+            .unwrap();
         let hash = hash_of(&read);
         // External edit elsewhere in the file (line 1) — the anchor goes stale.
         fs::write(dir.path().join("f.txt"), "A\nb\nc\nd\ne\n").unwrap();
-        let r = ex.execute("edit_file", &serde_json::json!({
-            "path":"f.txt", "hash": hash, "start_line": 3, "content": "CC"
-        })).unwrap_err();
+        let r = ex
+            .execute(
+                "edit_file",
+                &serde_json::json!({
+                    "path":"f.txt", "hash": hash, "start_line": 3, "content": "CC"
+                }),
+            )
+            .unwrap_err();
         assert!(r.contains("hash mismatch"), "error: {r}");
         assert!(r.contains("lines 1-1"), "should name the drifted line: {r}");
-        assert_eq!(fs::read_to_string(dir.path().join("f.txt")).unwrap(), "A\nb\nc\nd\ne\n", "file untouched");
+        assert_eq!(
+            fs::read_to_string(dir.path().join("f.txt")).unwrap(),
+            "A\nb\nc\nd\ne\n",
+            "file untouched"
+        );
     }
 
     #[test]
@@ -476,14 +614,24 @@ mod tests {
         let dir = tempdir().unwrap();
         fs::write(dir.path().join("f.txt"), "a\nb\nc\nd\ne\nf\n").unwrap();
         let (ex, _) = ledger_executor(dir.path(), "s-sub");
-        let read = ex.execute("read_file", &serde_json::json!({"path":"f.txt","limit":2})).unwrap();
+        let read = ex
+            .execute("read_file", &serde_json::json!({"path":"f.txt","limit":2}))
+            .unwrap();
         let hash = hash_of(&read);
         // Edit a line INSIDE the read window with the header's whole-file hash.
-        let ok = ex.execute("edit_file", &serde_json::json!({
-            "path":"f.txt", "hash": hash, "start_line": 2, "content": "BB"
-        })).unwrap();
+        let ok = ex
+            .execute(
+                "edit_file",
+                &serde_json::json!({
+                    "path":"f.txt", "hash": hash, "start_line": 2, "content": "BB"
+                }),
+            )
+            .unwrap();
         assert!(ok.contains("edited"), "sub-window edit must succeed: {ok}");
-        assert_eq!(fs::read_to_string(dir.path().join("f.txt")).unwrap(), "a\nBB\nc\nd\ne\nf\n");
+        assert_eq!(
+            fs::read_to_string(dir.path().join("f.txt")).unwrap(),
+            "a\nBB\nc\nd\ne\nf\n"
+        );
     }
 
     #[test]
@@ -492,29 +640,62 @@ mod tests {
         fs::write(dir.path().join("f.txt"), "a\nb\nc\n").unwrap();
         let (ex, _) = ledger_executor(dir.path(), "s-req");
         // Missing hash → hard error telling the model to re-read.
-        let miss = ex.execute("edit_file", &serde_json::json!({"path":"f.txt","start_line":1,"content":"x"})).unwrap_err();
+        let miss = ex
+            .execute(
+                "edit_file",
+                &serde_json::json!({"path":"f.txt","start_line":1,"content":"x"}),
+            )
+            .unwrap_err();
         assert!(miss.contains("missing hash"), "error: {miss}");
         // Omitted end_line → single-line replace; drift text via ledger snapshot.
-        let read = ex.execute("read_file", &serde_json::json!({"path":"f.txt"})).unwrap();
+        let read = ex
+            .execute("read_file", &serde_json::json!({"path":"f.txt"}))
+            .unwrap();
         let hash = hash_of(&read);
-        let ok = ex.execute("edit_file", &serde_json::json!({
-            "path":"f.txt", "hash": hash, "start_line": 2, "content": "B2"
-        })).unwrap();
-        assert!(ok.contains("replaced lines 2-2"), "single-line default: {ok}");
+        let ok = ex
+            .execute(
+                "edit_file",
+                &serde_json::json!({
+                    "path":"f.txt", "hash": hash, "start_line": 2, "content": "B2"
+                }),
+            )
+            .unwrap();
+        assert!(
+            ok.contains("replaced lines 2-2"),
+            "single-line default: {ok}"
+        );
         // Insertion still works via explicit end_line = start - 1.
-        let read2 = ex.execute("read_file", &serde_json::json!({"path":"f.txt"})).unwrap();
-        let hash2 = read2.split("hash: ").nth(1).unwrap().split(']').next().unwrap().to_string();
-        let ok2 = ex.execute("edit_file", &serde_json::json!({
-            "path":"f.txt", "hash": hash2, "start_line": 3, "end_line": 2, "content": "INS"
-        })).unwrap();
-        assert!(ok2.contains("inserted") || ok2.contains("replaced lines 3-2"), "insertion: {ok2}");
+        let read2 = ex
+            .execute("read_file", &serde_json::json!({"path":"f.txt"}))
+            .unwrap();
+        let hash2 = read2
+            .split("hash: ")
+            .nth(1)
+            .unwrap()
+            .split(']')
+            .next()
+            .unwrap()
+            .to_string();
+        let ok2 = ex
+            .execute(
+                "edit_file",
+                &serde_json::json!({
+                    "path":"f.txt", "hash": hash2, "start_line": 3, "end_line": 2, "content": "INS"
+                }),
+            )
+            .unwrap();
+        assert!(
+            ok2.contains("inserted") || ok2.contains("replaced lines 3-2"),
+            "insertion: {ok2}"
+        );
     }
 
     #[test]
     fn test_read_limit_zero_repaired() {
         let dir = tempdir().unwrap();
         fs::write(dir.path().join("f.txt"), "a\nb\nc\n").unwrap();
-        let r = file_ops::read_file(dir.path(), &serde_json::json!({"path":"f.txt","limit":0})).unwrap();
+        let r = file_ops::read_file(dir.path(), &serde_json::json!({"path":"f.txt","limit":0}))
+            .unwrap();
         assert!(r.contains("1 | a"), "limit 0 repaired to 1 line: {r}");
         assert!(!r.contains("1-0"), "no inverted window: {r}");
     }

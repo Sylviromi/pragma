@@ -1,10 +1,10 @@
 pub mod agentic;
-pub mod sessions;
 pub mod messages;
-pub mod providers;
-pub mod tools;
 pub mod plugins;
 pub mod process;
+pub mod providers;
 pub mod revert;
-pub mod stats;
+pub mod sessions;
 pub mod skills;
+pub mod stats;
+pub mod tools;

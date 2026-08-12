@@ -2,8 +2,8 @@ use super::catalog;
 use super::run_detached;
 use super::sse;
 use super::types::{
-    AgentEvent, ContentBlock, ModelInfo, ProviderInfo, ProviderSource, ThinkingPref, ToolDefinition,
-    Usage, estimate_usage,
+    estimate_usage, AgentEvent, ContentBlock, ModelInfo, ProviderInfo, ProviderSource,
+    ThinkingPref, ToolDefinition, Usage,
 };
 use tauri::Emitter;
 use tauri::Manager;
@@ -244,7 +244,14 @@ impl AnthropicProvider {
             .await
             .map_err(|e| {
                 let msg = format!("Failed to reach Anthropic API: {e}");
-                app_handle.emit(&event_name, AgentEvent::Error { message: msg.clone() }).ok();
+                app_handle
+                    .emit(
+                        &event_name,
+                        AgentEvent::Error {
+                            message: msg.clone(),
+                        },
+                    )
+                    .ok();
                 msg
             })?;
 
@@ -256,7 +263,14 @@ impl AnthropicProvider {
                     "Anthropic API returned HTTP {status} with no error details — the service may be down or the key invalid."
                 ),
             };
-            app_handle.emit(&event_name, AgentEvent::Error { message: msg.clone() }).ok();
+            app_handle
+                .emit(
+                    &event_name,
+                    AgentEvent::Error {
+                        message: msg.clone(),
+                    },
+                )
+                .ok();
             return Err(msg);
         }
 
@@ -313,7 +327,10 @@ impl AnthropicProvider {
                     let bt = ev["content_block"]["type"].as_str().unwrap_or("");
                     if bt == "tool_use" {
                         let id = ev["content_block"]["id"].as_str().unwrap_or("").to_string();
-                        let name = ev["content_block"]["name"].as_str().unwrap_or("").to_string();
+                        let name = ev["content_block"]["name"]
+                            .as_str()
+                            .unwrap_or("")
+                            .to_string();
                         current_tool = Some((id, name, String::new()));
                     } else if bt == "thinking" {
                         current_thinking = Some((String::new(), String::new()));
@@ -324,7 +341,14 @@ impl AnthropicProvider {
                     if dt == "text_delta" {
                         let t = ev["delta"]["text"].as_str().unwrap_or("");
                         current_text.push_str(t);
-                        app_handle.emit(&event_name, AgentEvent::Token { content: t.to_string() }).ok();
+                        app_handle
+                            .emit(
+                                &event_name,
+                                AgentEvent::Token {
+                                    content: t.to_string(),
+                                },
+                            )
+                            .ok();
                     } else if dt == "input_json_delta" {
                         if let Some((_, _, ref mut json_buf)) = current_tool {
                             json_buf.push_str(ev["delta"]["partial_json"].as_str().unwrap_or(""));
@@ -335,7 +359,12 @@ impl AnthropicProvider {
                             thinking.push_str(t);
                             if !t.is_empty() {
                                 app_handle
-                                    .emit(&event_name, AgentEvent::Reasoning { content: t.to_string() })
+                                    .emit(
+                                        &event_name,
+                                        AgentEvent::Reasoning {
+                                            content: t.to_string(),
+                                        },
+                                    )
                                     .ok();
                             }
                         }
@@ -351,12 +380,13 @@ impl AnthropicProvider {
                             serde_json::from_str(&json_buf).unwrap_or(serde_json::Value::Null);
                         blocks.push(ContentBlock::ToolUse { id, name, input });
                     } else if let Some((thinking, signature)) = current_thinking.take() {
-                        blocks.push(ContentBlock::Thinking { thinking, signature });
+                        blocks.push(ContentBlock::Thinking {
+                            thinking,
+                            signature,
+                        });
                         // Seal the live thought block so the frontend separates
                         // it from the next one (streamed UI == persisted UI).
-                        app_handle
-                            .emit(&event_name, AgentEvent::ThinkingEnd)
-                            .ok();
+                        app_handle.emit(&event_name, AgentEvent::ThinkingEnd).ok();
                     } else if !current_text.is_empty() {
                         blocks.push(ContentBlock::Text {
                             text: std::mem::take(&mut current_text),
@@ -375,9 +405,14 @@ impl AnthropicProvider {
         let cut_off = stream.broken() || !saw_stop;
         // Fallback estimate when usage events were absent (older API / proxy).
         if usage.total() == 0 {
-            let input_est: String = [system_text.as_str(), &serde_json::to_string(messages).unwrap_or_default()].concat();
+            let input_est: String = [
+                system_text.as_str(),
+                &serde_json::to_string(messages).unwrap_or_default(),
+            ]
+            .concat();
             usage.input_tokens = estimate_usage(&input_est);
-            usage.output_tokens = estimate_usage(&serde_json::to_string(&blocks).unwrap_or_default());
+            usage.output_tokens =
+                estimate_usage(&serde_json::to_string(&blocks).unwrap_or_default());
         }
         if blocks.is_empty() {
             return Err(if cut_off {
@@ -386,11 +421,18 @@ impl AnthropicProvider {
                 "The model returned an empty response — try again.".into()
             });
         }
-        if cut_off && !blocks.iter().any(|b| matches!(b, ContentBlock::ToolUse { .. })) {
+        if cut_off
+            && !blocks
+                .iter()
+                .any(|b| matches!(b, ContentBlock::ToolUse { .. }))
+        {
             app_handle
-                .emit(&event_name, AgentEvent::Error {
-                    message: "Connection interrupted — the response may be incomplete.".into(),
-                })
+                .emit(
+                    &event_name,
+                    AgentEvent::Error {
+                        message: "Connection interrupted — the response may be incomplete.".into(),
+                    },
+                )
                 .ok();
         }
 
@@ -433,7 +475,15 @@ pub async fn fetch_models(api_key: Option<String>) -> Option<Vec<ModelInfo>> {
             let id = m["id"].as_str()?;
             let name = m["display_name"].as_str().unwrap_or(id).to_string();
             let ctx = m["context_window"].as_u64().map(|n| n as u32);
-            Some(catalog::enrich(id, name, ctx, Some(true), Some(false), None, None))
+            Some(catalog::enrich(
+                id,
+                name,
+                ctx,
+                Some(true),
+                Some(false),
+                None,
+                None,
+            ))
         })
         .collect();
     Some(models)
@@ -469,15 +519,15 @@ mod tests {
             "claude-sonnet-4-6-20251022",
             "claude-3-7-sonnet-20250219",
         ] {
-            assert!(thinking_cfg(&[], m).is_some(), "{m} should support thinking");
+            assert!(
+                thinking_cfg(&[], m).is_some(),
+                "{m} should support thinking"
+            );
         }
         // Base Sonnet 4 (pre-4.5) does not support extended thinking.
         assert_eq!(thinking_cfg(&[], "claude-sonnet-4-20250514"), None);
         // Haiku family never: no thinking support, small output cap.
-        for m in [
-            "claude-haiku-4-5-20251001",
-            "claude-3-5-haiku-20241022",
-        ] {
+        for m in ["claude-haiku-4-5-20251001", "claude-3-5-haiku-20241022"] {
             assert!(thinking_cfg(&[], m).is_none(), "{m} must not get thinking");
         }
         // Unknown ids: conservative — no thinking.
@@ -502,7 +552,15 @@ mod tests {
                 supports_thinking_levels: true,
                 thinking_budget: Some(20_000),
             },
-            crate::providers::catalog::enrich("plain-model", "Plain".into(), None, None, None, None, None),
+            crate::providers::catalog::enrich(
+                "plain-model",
+                "Plain".into(),
+                None,
+                None,
+                None,
+                None,
+                None,
+            ),
         ];
         // Declared budget wins.
         assert_eq!(thinking_cfg(&models, "my-custom-reasoner"), Some(20_000));
@@ -547,8 +605,14 @@ mod tests {
             Some("high")
         );
         // Off / auto → no level field.
-        assert_eq!(thinking_level_for(&models, "custom-levels", &ThinkingPref::Off), None);
-        assert_eq!(thinking_level_for(&models, "custom-levels", &ThinkingPref::Auto), None);
+        assert_eq!(
+            thinking_level_for(&models, "custom-levels", &ThinkingPref::Off),
+            None
+        );
+        assert_eq!(
+            thinking_level_for(&models, "custom-levels", &ThinkingPref::Auto),
+            None
+        );
         // A model that thinks but has no graduated levels (Claude 3.7) ignores
         // the explicit level instead of sending it to a rejecting API.
         assert_eq!(

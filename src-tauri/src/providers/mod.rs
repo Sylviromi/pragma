@@ -1,16 +1,16 @@
-pub mod types;
 pub mod anthropic;
 pub mod catalog;
 pub mod openai_compat;
 pub mod sse;
+pub mod types;
 
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 use tauri::Manager;
 
-use types::{ContentBlock, ModelInfo, ProviderInfo, ThinkingPref, ToolDefinition, Usage};
 use anthropic::AnthropicProvider;
 use openai_compat::OpenAICompatProvider;
+use types::{ContentBlock, ModelInfo, ProviderInfo, ThinkingPref, ToolDefinition, Usage};
 
 /// A callable provider handle. Kept as an enum (rather than `dyn Provider` with an
 /// async method) so the agentic loop can await a concrete `call()` per provider —
@@ -41,10 +41,16 @@ impl ProviderHandle {
     ) -> Result<(Vec<ContentBlock>, Usage), String> {
         match self {
             ProviderHandle::Anthropic(p) => {
-                p.call(messages, model, api_key, tools, thinking, app_handle, session_id).await
+                p.call(
+                    messages, model, api_key, tools, thinking, app_handle, session_id,
+                )
+                .await
             }
             ProviderHandle::OpenAICompat(p) => {
-                p.call(messages, model, api_key, tools, thinking, app_handle, session_id).await
+                p.call(
+                    messages, model, api_key, tools, thinking, app_handle, session_id,
+                )
+                .await
             }
         }
     }
@@ -59,10 +65,7 @@ impl ProviderRegistry {
     pub fn register<P: Into<ProviderHandle> + 'static>(&self, p: P) {
         let handle: ProviderHandle = p.into();
         let info = handle.info();
-        self.inner
-            .write()
-            .unwrap()
-            .insert(info.id.clone(), handle);
+        self.inner.write().unwrap().insert(info.id.clone(), handle);
     }
     pub fn get(&self, id: &str) -> Option<ProviderHandle> {
         self.inner.read().unwrap().get(id).cloned()
@@ -102,7 +105,14 @@ impl ProviderRegistry {
             ProviderHandle::Anthropic(_) => {
                 let key = app
                     .try_state::<crate::AppState>()
-                    .map(|s| s.settings.read().unwrap().api_keys.get("anthropic").cloned())
+                    .map(|s| {
+                        s.settings
+                            .read()
+                            .unwrap()
+                            .api_keys
+                            .get("anthropic")
+                            .cloned()
+                    })
                     .flatten();
                 anthropic::spawn_discovery(app.clone(), key);
             }
@@ -151,9 +161,15 @@ pub async fn fetch_openai_models(base_url: &str, api_key: &str) -> Vec<ModelInfo
         // Context window: providers disagree on the field name. OpenRouter
         // sends context_length; vLLM/SGLang and various local runtimes send
         // max_model_len / max_context_length / ctx_len.
-        let ctx = ["context_length", "context_window", "max_model_len", "max_context_length", "ctx_len"]
-            .iter()
-            .find_map(|k| m.get(*k).and_then(|v| v.as_u64()).map(|n| n as u32));
+        let ctx = [
+            "context_length",
+            "context_window",
+            "max_model_len",
+            "max_context_length",
+            "ctx_len",
+        ]
+        .iter()
+        .find_map(|k| m.get(*k).and_then(|v| v.as_u64()).map(|n| n as u32));
         // Humanized name when the server provides one (OpenRouter), else id.
         let name = m["metadata"]["humanized_name"]
             .as_str()
@@ -168,21 +184,31 @@ pub async fn fetch_openai_models(base_url: &str, api_key: &str) -> Vec<ModelInfo
         // Thinking capability: servers disagree on the field. Accept booleans
         // and "true"/"false" strings, top-level or nested; falls back to the
         // family catalog when the server says nothing.
-        let thinking = ["supports_thinking", "supportsThinking", "thinking", "reasoning"]
-            .iter()
-            .find_map(|k| m.get(*k).and_then(boolish))
-            .or_else(|| {
-                m.get("metadata").and_then(|md| {
-                    ["supports_thinking", "supportsThinking", "thinking", "reasoning"]
-                        .iter()
-                        .find_map(|k| md.get(*k).and_then(boolish))
-                })
+        let thinking = [
+            "supports_thinking",
+            "supportsThinking",
+            "thinking",
+            "reasoning",
+        ]
+        .iter()
+        .find_map(|k| m.get(*k).and_then(boolish))
+        .or_else(|| {
+            m.get("metadata").and_then(|md| {
+                [
+                    "supports_thinking",
+                    "supportsThinking",
+                    "thinking",
+                    "reasoning",
+                ]
+                .iter()
+                .find_map(|k| md.get(*k).and_then(boolish))
             })
-            .or_else(|| {
-                m.get("capabilities")
-                    .and_then(|c| c.get("thinking"))
-                    .and_then(boolish)
-            });
+        })
+        .or_else(|| {
+            m.get("capabilities")
+                .and_then(|c| c.get("thinking"))
+                .and_then(boolish)
+        });
         // Optional thinking budget + output ceiling from the same sources.
         let thinking_budget = m["thinking_budget"]
             .as_u64()
@@ -193,16 +219,24 @@ pub async fn fetch_openai_models(base_url: &str, api_key: &str) -> Vec<ModelInfo
             .or_else(|| m["maxTokens"].as_u64())
             .map(|n| n as u32);
         // Graduated thinking levels (thinking_level / reasoning_effort).
-        let levels = ["supports_thinking_levels", "supportsThinkingLevels", "thinking_levels"]
-            .iter()
-            .find_map(|k| m.get(*k).and_then(boolish))
-            .or_else(|| {
-                m.get("metadata").and_then(|md| {
-                    ["supports_thinking_levels", "supportsThinkingLevels", "thinking_levels"]
-                        .iter()
-                        .find_map(|k| md.get(*k).and_then(boolish))
-                })
-            });
+        let levels = [
+            "supports_thinking_levels",
+            "supportsThinkingLevels",
+            "thinking_levels",
+        ]
+        .iter()
+        .find_map(|k| m.get(*k).and_then(boolish))
+        .or_else(|| {
+            m.get("metadata").and_then(|md| {
+                [
+                    "supports_thinking_levels",
+                    "supportsThinkingLevels",
+                    "thinking_levels",
+                ]
+                .iter()
+                .find_map(|k| md.get(*k).and_then(boolish))
+            })
+        });
         let mut info = catalog::enrich(id, name, ctx, None, free, thinking, levels);
         info.thinking_budget = thinking_budget;
         info.max_tokens = max_tokens;
@@ -222,7 +256,8 @@ pub async fn fetch_openai_models(base_url: &str, api_key: &str) -> Vec<ModelInfo
 /// Best-effort boolean parse for capability fields that may arrive as JSON
 /// booleans or "true"/"false" strings.
 fn boolish(v: &serde_json::Value) -> Option<bool> {
-    v.as_bool().or_else(|| v.as_str().and_then(|s| s.parse().ok()))
+    v.as_bool()
+        .or_else(|| v.as_str().and_then(|s| s.parse().ok()))
 }
 
 /// Run an async closure on a detached thread with its own current-thread
@@ -272,7 +307,14 @@ pub fn spawn_model_discovery(
 /// API key changes). Fetches real model lists where possible and replaces the
 /// static fallbacks.
 pub fn spawn_builtin_discovery(app: &tauri::AppHandle) {
-    let keys = { app.state::<crate::AppState>().settings.read().unwrap().api_keys.clone() };
+    let keys = {
+        app.state::<crate::AppState>()
+            .settings
+            .read()
+            .unwrap()
+            .api_keys
+            .clone()
+    };
 
     // Anthropic: real /v1/models with the API key.
     anthropic::spawn_discovery(app.clone(), keys.get("anthropic").cloned());

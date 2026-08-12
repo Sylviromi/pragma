@@ -125,19 +125,31 @@ impl Default for ContextUsage {
 
 impl Default for SessionCost {
     fn default() -> Self {
-        Self { rows: Vec::new(), total: "$0.00".into() }
+        Self {
+            rows: Vec::new(),
+            total: "$0.00".into(),
+        }
     }
 }
 
 impl Default for SessionPlan {
     fn default() -> Self {
-        Self { items: Vec::new(), progress: String::new() }
+        Self {
+            items: Vec::new(),
+            progress: String::new(),
+        }
     }
 }
 
 impl Default for GitWorkingTree {
     fn default() -> Self {
-        Self { branch: String::new(), added: 0, removed: 0, files: 0, rows: Vec::new() }
+        Self {
+            branch: String::new(),
+            added: 0,
+            removed: 0,
+            files: 0,
+            rows: Vec::new(),
+        }
     }
 }
 
@@ -226,8 +238,18 @@ pub async fn record_tool_touch(
             Some(0),
             Some(0),
         ),
-        "read_file" => ("read", input["path"].as_str().unwrap_or("").to_string(), None, None),
-        "search_files" => ("read", input["pattern"].as_str().unwrap_or("").to_string(), None, None),
+        "read_file" => (
+            "read",
+            input["path"].as_str().unwrap_or("").to_string(),
+            None,
+            None,
+        ),
+        "search_files" => (
+            "read",
+            input["pattern"].as_str().unwrap_or("").to_string(),
+            None,
+            None,
+        ),
         _ => return Ok(()), // run_command / git / web tools don't touch the project tree
     };
     if path.is_empty() {
@@ -278,11 +300,12 @@ async fn last_call_tokens(db: &SqlitePool, session_id: &str) -> Option<(i64, i64
 /// Pure split of persisted message rows into (conversation, files) token
 /// estimates — extracted from context_breakdown so it's unit-testable.
 async fn context_breakdown(db: &SqlitePool, session_id: &str) -> (i64, i64) {
-    let rows: Vec<(String, String)> = sqlx::query_as("SELECT role, content FROM messages WHERE session_id=?")
-        .bind(session_id)
-        .fetch_all(db)
-        .await
-        .unwrap_or_default();
+    let rows: Vec<(String, String)> =
+        sqlx::query_as("SELECT role, content FROM messages WHERE session_id=?")
+            .bind(session_id)
+            .fetch_all(db)
+            .await
+            .unwrap_or_default();
     breakdown_from_rows(&rows)
 }
 
@@ -375,7 +398,9 @@ fn format_tokens(n: i64) -> String {
 /// Default source for the Plan panel; plugins/harness can replace it later
 /// via a set_plan_items command (see TODO.md).
 async fn plan_from_file(working_dir: Option<&str>) -> SessionPlan {
-    let Some(wd) = working_dir else { return SessionPlan::default() };
+    let Some(wd) = working_dir else {
+        return SessionPlan::default();
+    };
     let plan_path = Path::new(wd).join(".handsfree").join("plan.md");
     let text = match std::fs::read_to_string(&plan_path) {
         Ok(t) => t,
@@ -394,9 +419,7 @@ async fn plan_from_file(working_dir: Option<&str>) -> SessionPlan {
             });
             next_state = String::from("todo");
         } else if trimmed.starts_with("Status:") {
-            let st = trimmed.trim_start_matches("Status:")
-                .trim()
-                .to_lowercase();
+            let st = trimmed.trim_start_matches("Status:").trim().to_lowercase();
             next_state = match st.as_str() {
                 "done" => "done".to_string(),
                 "active" => "active".to_string(),
@@ -418,7 +441,9 @@ async fn plan_from_file(working_dir: Option<&str>) -> SessionPlan {
 
 /// Best-effort git working-tree snapshot for a working dir.
 fn git_working_tree(working_dir: Option<&str>) -> GitWorkingTree {
-    let Some(wd) = working_dir else { return GitWorkingTree::default() };
+    let Some(wd) = working_dir else {
+        return GitWorkingTree::default();
+    };
     if !Path::new(wd).join(".git").exists() {
         return GitWorkingTree::default();
     }
@@ -545,9 +570,21 @@ pub async fn build_session_stats(
         session_id: session_id.to_string(),
         context: ContextUsage {
             segments: vec![
-                ContextSegment { label: "System + skills".into(), tokens: segments[0], color: "var(--text-muted)".into() },
-                ContextSegment { label: "Files in context".into(), tokens: segments[1], color: "var(--warning)".into() },
-                ContextSegment { label: "Conversation".into(), tokens: segments[2], color: "var(--accent)".into() },
+                ContextSegment {
+                    label: "System + skills".into(),
+                    tokens: segments[0],
+                    color: "var(--text-muted)".into(),
+                },
+                ContextSegment {
+                    label: "Files in context".into(),
+                    tokens: segments[1],
+                    color: "var(--warning)".into(),
+                },
+                ContextSegment {
+                    label: "Conversation".into(),
+                    tokens: segments[2],
+                    color: "var(--accent)".into(),
+                },
             ],
             used,
             limit,
@@ -569,7 +606,10 @@ fn scale_to_used(est_total: i64, used: i64, tokens: &[i64]) -> Vec<i64> {
         return tokens.iter().map(|_| 0).collect();
     }
     let s = used as f64 / est_total as f64;
-    tokens.iter().map(|t| ((*t as f64) * s).round() as i64).collect()
+    tokens
+        .iter()
+        .map(|t| ((*t as f64) * s).round() as i64)
+        .collect()
 }
 
 /// Resolve a session's provider context window from the registry (fallback
@@ -619,14 +659,13 @@ async fn session_basics(
     db: &SqlitePool,
     session_id: &str,
 ) -> (Option<String>, Option<String>, Option<String>) {
-    let row: Option<(Option<String>, String, String)> = sqlx::query_as(
-        "SELECT working_dir, model, provider FROM sessions WHERE id=?",
-    )
-    .bind(session_id)
-    .fetch_optional(db)
-    .await
-    .ok()
-    .flatten();
+    let row: Option<(Option<String>, String, String)> =
+        sqlx::query_as("SELECT working_dir, model, provider FROM sessions WHERE id=?")
+            .bind(session_id)
+            .fetch_optional(db)
+            .await
+            .ok()
+            .flatten();
     match row {
         Some((wd, model, provider)) => (wd, Some(model), Some(provider)),
         None => (None, None, None),
@@ -641,7 +680,8 @@ pub async fn get_session_stats(
     let (working_dir, _, _) = session_basics(&state.db, &session_id).await;
     let limit = context_limit_for(&state.db, &state.registry, &session_id).await;
     Ok(build_session_stats(&state.db, &session_id, working_dir.as_deref(), Some(limit)).await)
-}#[cfg(test)]
+}
+#[cfg(test)]
 mod tests {
     use super::{breakdown_from_rows, build_session_stats, scale_to_used, usage_breakdown};
 
@@ -693,14 +733,23 @@ mod tests {
         assert!(files > 0, "tool_result payload must land in files: {files}");
         // The tool_result payload is the longest single block — make sure the
         // bulk lands in files, not conversation.
-        assert!(files > conv, "files payload should dominate: files={files} conv={conv}");
+        assert!(
+            files > conv,
+            "files payload should dominate: files={files} conv={conv}"
+        );
     }
 
     #[test]
     fn breakdown_plain_string_messages_are_conversation() {
         let rows = vec![
-            ("user".to_string(), "hello world this is a plain user message".to_string()),
-            ("assistant".to_string(), serde_json::json!([{ "type": "text", "text": "hi back" }]).to_string()),
+            (
+                "user".to_string(),
+                "hello world this is a plain user message".to_string(),
+            ),
+            (
+                "assistant".to_string(),
+                serde_json::json!([{ "type": "text", "text": "hi back" }]).to_string(),
+            ),
         ];
         let (conv, files) = breakdown_from_rows(&rows);
         assert!(conv > 0 && files == 0, "conv={conv} files={files}");
@@ -799,6 +848,9 @@ mod tests {
             .unwrap();
         let stats = build_session_stats(&pool, "s2", None, Some(100_000)).await;
         assert_eq!(stats.context.segments[0].tokens, 3_800); // estimate fallback
-        assert_eq!(stats.context.used, 3_800 + stats.context.segments[1].tokens + stats.context.segments[2].tokens);
+        assert_eq!(
+            stats.context.used,
+            3_800 + stats.context.segments[1].tokens + stats.context.segments[2].tokens
+        );
     }
 }

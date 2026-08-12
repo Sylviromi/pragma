@@ -6,8 +6,8 @@
 //! clean-vs-broken stream end — are identical, so they live here instead of
 //! being copied into every provider.
 
-use std::time::Duration;
 use futures_util::StreamExt;
+use std::time::Duration;
 
 /// Default wait for the next chunk before declaring the connection dead.
 pub const IDLE_TIMEOUT: Duration = Duration::from_secs(60);

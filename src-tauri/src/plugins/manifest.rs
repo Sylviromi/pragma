@@ -88,7 +88,8 @@ mod tests {
     fn rejects_bad_id() {
         assert!(parse_manifest(r#"{"id":"Has Space","name":"x","version":"1"}"#).is_err());
         assert!(parse_manifest(r#"{"id":"a/b","name":"x","version":"1"}"#).is_err());
-        assert!(parse_manifest(r#"{"id":"OKID","name":"x","version":"1"}"#).is_err()); // uppercase
+        assert!(parse_manifest(r#"{"id":"OKID","name":"x","version":"1"}"#).is_err());
+        // uppercase
     }
 
     #[test]

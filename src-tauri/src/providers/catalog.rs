@@ -46,7 +46,10 @@ pub fn context_for(id: &str) -> Option<u32> {
         return Some(131_072);
     }
     // Mistral / Mixtral
-    if id.starts_with("mixtral") || id.starts_with("mistral-nemo") || id.starts_with("mistral-large") {
+    if id.starts_with("mixtral")
+        || id.starts_with("mistral-nemo")
+        || id.starts_with("mistral-large")
+    {
         return Some(131_072);
     }
     if id.starts_with("mistral-7b") || id.starts_with("mistral-small") {
@@ -100,7 +103,11 @@ pub fn thinking_for(id: &str) -> bool {
             || id.contains("sonnet-4-6")
             || id.contains("claude-3-7");
     }
-    if id.starts_with("gpt-5") || id.starts_with("o1") || id.starts_with("o3") || id.starts_with("o4") {
+    if id.starts_with("gpt-5")
+        || id.starts_with("o1")
+        || id.starts_with("o3")
+        || id.starts_with("o4")
+    {
         return true;
     }
     if id.contains("deepseek-reasoner") || id.contains("deepseek-r1") {
@@ -124,7 +131,11 @@ pub fn thinking_levels_for(id: &str) -> bool {
     if id.starts_with("claude-") {
         return id.contains("opus-4") || id.contains("sonnet-4-5") || id.contains("sonnet-4-6");
     }
-    if id.starts_with("gpt-5") || id.starts_with("o1") || id.starts_with("o3") || id.starts_with("o4") {
+    if id.starts_with("gpt-5")
+        || id.starts_with("o1")
+        || id.starts_with("o3")
+        || id.starts_with("o4")
+    {
         return true;
     }
     if id.contains("deepseek-reasoner") || id.contains("deepseek-r1") {
@@ -202,7 +213,7 @@ mod tests {
         assert!(!thinking_for("claude-haiku-4-5-20251001"));
         assert!(!thinking_for("claude-3-5-haiku-20241022"));
         assert!(!thinking_for("claude-sonnet-4-20250514")); // base Sonnet 4
-        // OpenAI-compat reasoning models.
+                                                            // OpenAI-compat reasoning models.
         assert!(thinking_for("gpt-5"));
         assert!(thinking_for("o3-mini"));
         assert!(thinking_for("deepseek-reasoner"));
@@ -217,7 +228,11 @@ mod tests {
     #[test]
     fn thinking_level_flags() {
         // Anthropic families that accept thinking_level (Sonnet 4.5/4.6, Opus 4.x).
-        for m in ["claude-sonnet-4-5-20250929", "claude-opus-4-1-20250805", "claude-sonnet-4-6-20251022"] {
+        for m in [
+            "claude-sonnet-4-5-20250929",
+            "claude-opus-4-1-20250805",
+            "claude-sonnet-4-6-20251022",
+        ] {
             assert!(thinking_levels_for(m), "{m} should support thinking levels");
         }
         // Thinking yes, but levels no: Claude 3.7 (budget only).
@@ -249,7 +264,15 @@ mod tests {
 
     #[test]
     fn catalog_fills_gaps() {
-        let m = enrich("deepseek-chat", "deepseek-chat".into(), None, None, None, None, None);
+        let m = enrich(
+            "deepseek-chat",
+            "deepseek-chat".into(),
+            None,
+            None,
+            None,
+            None,
+            None,
+        );
         assert_eq!(m.context_window, Some(128_000));
         assert!(!m.is_vision);
         assert!(!m.supports_thinking);

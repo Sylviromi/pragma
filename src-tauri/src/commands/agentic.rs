@@ -57,9 +57,18 @@ fn prompt_breakdown(history: &[serde_json::Value]) -> (i64, i64) {
 /// plugin sidecar tools (incl. reload-style tools), ask_question (control
 /// flow), and change_directory (the fix).
 const PATH_GATED_TOOLS: &[&str] = &[
-    "read_file", "write_file", "edit_file", "delete_file",
-    "list_files", "search_files", "run_command",
-    "git_status", "git_diff", "git_log", "git_add", "git_commit",
+    "read_file",
+    "write_file",
+    "edit_file",
+    "delete_file",
+    "list_files",
+    "search_files",
+    "run_command",
+    "git_status",
+    "git_diff",
+    "git_log",
+    "git_add",
+    "git_commit",
 ];
 
 /// True when a tool needs a working directory and the session doesn't have
@@ -94,7 +103,10 @@ fn guess_dir_from_text(text: &str) -> Option<String> {
     let mut best: Option<String> = None;
     for raw in text.split_ascii_whitespace() {
         let tok = raw.trim_matches(|c: char| {
-            matches!(c, '"' | '\'' | '`' | '(' | ')' | ',' | '.' | ';' | ':' | '!' | '?' | '*',)
+            matches!(
+                c,
+                '"' | '\'' | '`' | '(' | ')' | ',' | '.' | ';' | ':' | '!' | '?' | '*',
+            )
         });
         if tok.is_empty() {
             continue;
@@ -149,7 +161,9 @@ async fn set_working_dir(
     emit(
         app_handle,
         session_id,
-        AgentEvent::WorkingDirChanged { new_path: path_str.clone() },
+        AgentEvent::WorkingDirChanged {
+            new_path: path_str.clone(),
+        },
     );
     Ok(path_str)
 }
@@ -242,22 +256,32 @@ impl Drop for RunningLoopGuard {
 /// Returns the IDs of sessions that currently have an active agentic loop running.
 /// Used by the frontend to reconnect after HMR restarts.
 #[tauri::command]
-pub async fn get_running_sessions(state: tauri::State<'_, AppState>) -> Result<Vec<String>, String> {
-    Ok(state.running_sessions.lock().await.iter().cloned().collect())
+pub async fn get_running_sessions(
+    state: tauri::State<'_, AppState>,
+) -> Result<Vec<String>, String> {
+    Ok(state
+        .running_sessions
+        .lock()
+        .await
+        .iter()
+        .cloned()
+        .collect())
 }
 
 /// Is an `active_loops` row for this session stale? A live loop refreshes its
 /// heartbeat every ~10s, so anything with a heartbeat older than two minutes
 /// (or — for rows written before the heartbeat column existed — a start older
 /// than ten minutes) belongs to a dead process and can be reclaimed.
-pub(crate) async fn loop_row_is_stale(pool: &sqlx::SqlitePool, session_id: &str) -> Result<bool, String> {
-    let row: Option<(String, String)> = sqlx::query_as(
-        "SELECT started_at, heartbeat_at FROM active_loops WHERE session_id=?",
-    )
-    .bind(session_id)
-    .fetch_optional(pool)
-    .await
-    .map_err(|e| e.to_string())?;
+pub(crate) async fn loop_row_is_stale(
+    pool: &sqlx::SqlitePool,
+    session_id: &str,
+) -> Result<bool, String> {
+    let row: Option<(String, String)> =
+        sqlx::query_as("SELECT started_at, heartbeat_at FROM active_loops WHERE session_id=?")
+            .bind(session_id)
+            .fetch_optional(pool)
+            .await
+            .map_err(|e| e.to_string())?;
     let Some((started_at, heartbeat_at)) = row else {
         return Ok(true); // no row at all — nothing to keep
     };
@@ -322,7 +346,11 @@ async fn ask_user(
     );
     crate::notify::notify(app_handle, "Pragma needs your answer", text);
     let (tx, rx) = tokio::sync::oneshot::channel::<Option<String>>();
-    state.question_channels.lock().await.insert(question_id.clone(), tx);
+    state
+        .question_channels
+        .lock()
+        .await
+        .insert(question_id.clone(), tx);
     let answer = tokio::select! {
         v = rx => v.unwrap_or(None),
         _ = tokio::time::sleep(Duration::from_secs(timeout_secs)) => None,
@@ -355,7 +383,9 @@ pub async fn run_agentic_loop(
     {
         let mut lock = running.lock().await;
         if lock.contains(&session_id) {
-            return Err(format!("Session {session_id} already has an active agentic loop"));
+            return Err(format!(
+                "Session {session_id} already has an active agentic loop"
+            ));
         }
         lock.insert(session_id.clone());
     }
@@ -384,7 +414,10 @@ pub async fn run_agentic_loop(
         // The in-memory lock is empty, so this DB row belongs to a dead/crashed
         // process (or a concurrent one). Reclaim it only if its heartbeat is
         // stale — a fresh heartbeat means another instance is genuinely running.
-        if loop_row_is_stale(&state.db, &session_id).await.unwrap_or(false) {
+        if loop_row_is_stale(&state.db, &session_id)
+            .await
+            .unwrap_or(false)
+        {
             let _ = sqlx::query("DELETE FROM active_loops WHERE session_id=?")
                 .bind(&session_id)
                 .execute(&state.db)
@@ -405,7 +438,9 @@ pub async fn run_agentic_loop(
     }
     if !acquired {
         running.lock().await.remove(&session_id);
-        return Err(format!("Session {session_id} already has an active agentic loop"));
+        return Err(format!(
+            "Session {session_id} already has an active agentic loop"
+        ));
     }
 
     // Keep the lock row's heartbeat fresh while the loop runs, so a crash is
@@ -426,11 +461,16 @@ pub async fn run_agentic_loop(
         }
     });
 
-    let mut guard = RunningLoopGuard::new(session_id.clone(), running, state.db.clone(), started_at);
+    let mut guard =
+        RunningLoopGuard::new(session_id.clone(), running, state.db.clone(), started_at);
 
     // Interrupt channel for this session (consumed by interrupt_session/Esc).
     let (cancel_tx, cancel_rx) = tokio::sync::watch::channel(false);
-    state.loop_cancels.lock().await.insert(session_id.clone(), cancel_tx);
+    state
+        .loop_cancels
+        .lock()
+        .await
+        .insert(session_id.clone(), cancel_tx);
 
     // Set by a sidecar tool's `reloadApp` marker (pragma-dev's pd_reload_app);
     // when true, exit(23) right after this run so the dev launcher rebuilds
@@ -507,8 +547,7 @@ async fn run_loop(
         .unwrap_or_default();
     if provider == "anthropic" && api_key.is_empty() {
         return Err(
-            "No Anthropic API key configured. Add it in Settings → Claude (Providers page)."
-                .into(),
+            "No Anthropic API key configured. Add it in Settings → Claude (Providers page).".into(),
         );
     }
     // Tool set = core tools + the tools of every skill already loaded for this
@@ -533,11 +572,7 @@ async fn run_loop(
                 } else {
                     Some(working_dir.as_str())
                 };
-                if let Err(e) = state
-                    .skill_sidecars
-                    .ensure(&state.plugins, sid, wd)
-                    .await
-                {
+                if let Err(e) = state.skill_sidecars.ensure(&state.plugins, sid, wd).await {
                     eprintln!("[sidecar] failed to start for '{sid}': {e}");
                 }
             }
@@ -552,7 +587,11 @@ async fn run_loop(
     // every subsequent blocked-tool fact, so it can't get lost).
     let mut path_question_asked = false;
     let mut executor = ToolExecutor::with_ledger(
-        if working_dir.is_empty() { ".".into() } else { working_dir },
+        if working_dir.is_empty() {
+            ".".into()
+        } else {
+            working_dir
+        },
         &session_id,
         ledger.clone(),
     );
@@ -657,8 +696,8 @@ You converse with the user in turns. In each turn you can write text and call to
     let raw_history: Vec<serde_json::Value> = db_messages
         .iter()
         .map(|m| {
-            let content: serde_json::Value =
-                serde_json::from_str(&m.content).unwrap_or(serde_json::Value::String(m.content.clone()));
+            let content: serde_json::Value = serde_json::from_str(&m.content)
+                .unwrap_or(serde_json::Value::String(m.content.clone()));
             serde_json::json!({ "role": m.role, "content": content })
         })
         .collect();
@@ -667,7 +706,10 @@ You converse with the user in turns. In each turn you can write text and call to
     // Append the new user message
     history.push(serde_json::json!({ "role": "user", "content": user_message }));
 
-    history.insert(0, serde_json::json!({ "role": "system", "content": system_content }));
+    history.insert(
+        0,
+        serde_json::json!({ "role": "system", "content": system_content }),
+    );
 
     // Keep the request inside the context budget before the first call. The
     // loop re-trims every iteration since history keeps growing.
@@ -678,7 +720,15 @@ You converse with the user in turns. In each turn you can write text and call to
     // tab bar / sidebar shortly after the first prompt. Runs before the user
     // message persists so the COUNT(*) detector below sees a fresh session,
     // and never blocks the loop.
-    spawn_session_naming(&state, &app_handle, &session_id, &model, &provider, &user_message).await;
+    spawn_session_naming(
+        &state,
+        &app_handle,
+        &session_id,
+        &model,
+        &provider,
+        &user_message,
+    )
+    .await;
 
     // Persist user message
     persist_message(
@@ -733,7 +783,11 @@ You converse with the user in turns. In each turn you can write text and call to
                             || e.contains("tool_call_ids")
                             || e.contains("Invalid tool");
                         if !retryable {
-                            crate::notify::notify(app_handle, "Pragma hit an error", &format!("Model request failed: {e}"));
+                            crate::notify::notify(
+                                app_handle,
+                                "Pragma hit an error",
+                                &format!("Model request failed: {e}"),
+                            );
                             return Err(e);
                         }
                         eprintln!(
@@ -747,7 +801,9 @@ You converse with the user in turns. In each turn you can write text and call to
                             if m["role"].as_str() != Some("assistant") {
                                 continue;
                             }
-                            let Some(blocks) = m["content"].as_array_mut() else { continue };
+                            let Some(blocks) = m["content"].as_array_mut() else {
+                                continue;
+                            };
                             blocks.retain(|b| {
                                 b["type"].as_str() != Some("reasoning")
                                     && b["type"].as_str() != Some("thinking")
@@ -792,16 +848,21 @@ You converse with the user in turns. In each turn you can write text and call to
         // stop, or a mid-stream cut) must not end the loop silently like the
         // model "died" — nudge the model to continue instead of erroring out
         // immediately (the relay often recovers on the next attempt).
-        let has_usable = blocks.iter().any(|b| matches!(
-            b,
-            ContentBlock::Text { .. } | ContentBlock::ToolUse { .. }
-        ));
+        let has_usable = blocks
+            .iter()
+            .any(|b| matches!(b, ContentBlock::Text { .. } | ContentBlock::ToolUse { .. }));
         if !has_usable {
             empty_replies += 1;
             if empty_replies >= 3 {
                 let msg = "The model returned no content three times in a row (empty or interrupted response) — check the provider/relay and try again.".to_string();
                 crate::notify::notify(app_handle, "Pragma hit an error", &msg);
-                emit(app_handle, session_id, AgentEvent::Error { message: msg.clone() });
+                emit(
+                    app_handle,
+                    session_id,
+                    AgentEvent::Error {
+                        message: msg.clone(),
+                    },
+                );
                 return Err(msg);
             }
             eprintln!(
@@ -869,7 +930,8 @@ You converse with the user in turns. In each turn you can write text and call to
         // and flushed as a parallel batch afterwards: read-only calls run
         // concurrently, so a multi-file exploration turn takes one round trip
         // instead of N. (tool_use_id, name, input, approved, working_dir)
-        let mut plain_queue: Vec<(String, String, serde_json::Value, bool, std::path::PathBuf)> = Vec::new();
+        let mut plain_queue: Vec<(String, String, serde_json::Value, bool, std::path::PathBuf)> =
+            Vec::new();
 
         for (tool_use_id, name, input) in &tool_calls {
             // ask_question is a control-flow tool: no tool card in the UI and
@@ -893,9 +955,15 @@ You converse with the user in turns. In each turn you can write text and call to
                 if !has_wd {
                     if let Some(guess) = guess_dir_from_text(&user_message) {
                         let _ = set_working_dir(
-                            &mut executor, &mut has_wd, &guess,
-                            &state.db, &session_id, app_handle, ledger.clone(),
-                        ).await;
+                            &mut executor,
+                            &mut has_wd,
+                            &guess,
+                            &state.db,
+                            &session_id,
+                            app_handle,
+                            ledger.clone(),
+                        )
+                        .await;
                     }
                 }
                 let mut user_said: Option<String> = None;
@@ -922,20 +990,30 @@ You converse with the user in turns. In each turn you can write text and call to
                             user_said = a.clone();
                             if let Some(p) = a.as_deref().and_then(guess_dir_from_text) {
                                 let _ = set_working_dir(
-                                    &mut executor, &mut has_wd, &p,
-                                    &state.db, &session_id, app_handle, ledger.clone(),
-                                ).await;
+                                    &mut executor,
+                                    &mut has_wd,
+                                    &p,
+                                    &state.db,
+                                    &session_id,
+                                    app_handle,
+                                    ledger.clone(),
+                                )
+                                .await;
                             }
                         }
                     }
                 }
                 if !has_wd {
                     let fact = no_working_dir_fact(&name, user_said.as_deref());
-                    emit(app_handle, session_id, AgentEvent::ToolResult {
-                        tool_use_id: tool_use_id.clone(),
-                        output: fact.clone(),
-                        is_error: false,
-                    });
+                    emit(
+                        app_handle,
+                        session_id,
+                        AgentEvent::ToolResult {
+                            tool_use_id: tool_use_id.clone(),
+                            output: fact.clone(),
+                            is_error: false,
+                        },
+                    );
                     tool_results.push(serde_json::json!({
                         "type": "tool_result",
                         "tool_use_id": tool_use_id,
@@ -951,12 +1029,16 @@ You converse with the user in turns. In each turn you can write text and call to
             // Emit tool call event to frontend (questions render from the
             // `question` event instead — no ToolCall, no approval buttons).
             if !is_question {
-                emit(app_handle, session_id, AgentEvent::ToolCall {
-                    run_id: run_id.clone(),
-                    tool_use_id: tool_use_id.clone(),
-                    name: name.clone(),
-                    input: input.clone(),
-                });
+                emit(
+                    app_handle,
+                    session_id,
+                    AgentEvent::ToolCall {
+                        run_id: run_id.clone(),
+                        tool_use_id: tool_use_id.clone(),
+                        name: name.clone(),
+                        input: input.clone(),
+                    },
+                );
             }
 
             // OS notification when a *state-changing* tool is about to block on
@@ -966,7 +1048,11 @@ You converse with the user in turns. In each turn you can write text and call to
                 let mutating = crate::commands::revert::is_mutating_file_tool(name)
                     || matches!(name.as_str(), "run_command" | "git_add" | "git_commit");
                 if mutating {
-                    crate::notify::notify(app_handle, "Pragma needs approval", &format!("Do you want to allow the tool: {name}?"));
+                    crate::notify::notify(
+                        app_handle,
+                        "Pragma needs approval",
+                        &format!("Do you want to allow the tool: {name}?"),
+                    );
                 }
             }
 
@@ -995,7 +1081,11 @@ You converse with the user in turns. In each turn you can write text and call to
             let (mut output, is_error) = if !approved {
                 ("Tool call denied by user.".to_string(), true)
             } else if name == "load_skill" {
-                let skill_id = input.get("skill_id").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                let skill_id = input
+                    .get("skill_id")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
                 match state.plugins.skill(&skill_id) {
                     None => (
                         format!("No enabled skill found with id: {skill_id} — see the skill index in the system prompt for valid skill ids"),
@@ -1036,10 +1126,16 @@ You converse with the user in turns. In each turn you can write text and call to
                     executor.working_dir.join(new_dir)
                 };
                 match set_working_dir(
-                    &mut executor, &mut has_wd,
+                    &mut executor,
+                    &mut has_wd,
                     &abs.to_string_lossy(),
-                    &state.db, &session_id, app_handle, ledger.clone(),
-                ).await {
+                    &state.db,
+                    &session_id,
+                    app_handle,
+                    ledger.clone(),
+                )
+                .await
+                {
                     Ok(path_str) => (format!("Working directory changed to: {path_str}"), false),
                     Err(e) => (e, true),
                 }
@@ -1047,21 +1143,42 @@ You converse with the user in turns. In each turn you can write text and call to
                 // Ask the user a question and pause until they answer (or the
                 // timeout elapses / Esc is pressed). The frontend renders the
                 // "Needs your answer" block and resumes via answer_question.
-                let text = input.get("text").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                let text = input
+                    .get("text")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
                 let options: Vec<String> = input
                     .get("options")
                     .and_then(|v| v.as_array())
-                    .map(|a| a.iter().filter_map(|x| x.as_str().map(String::from)).collect())
+                    .map(|a| {
+                        a.iter()
+                            .filter_map(|x| x.as_str().map(String::from))
+                            .collect()
+                    })
                     .unwrap_or_default();
                 if text.trim().is_empty() {
-                    ("ask_question requires a non-empty \"text\" argument.".to_string(), true)
+                    (
+                        "ask_question requires a non-empty \"text\" argument.".to_string(),
+                        true,
+                    )
                 } else {
                     let timeout_secs = input
                         .get("timeout_secs")
                         .and_then(|v| v.as_u64())
                         .unwrap_or(600)
                         .max(10);
-                    match ask_user(app_handle, &state, &session_id, &text, options, timeout_secs, &mut cancel).await {
+                    match ask_user(
+                        app_handle,
+                        &state,
+                        &session_id,
+                        &text,
+                        options,
+                        timeout_secs,
+                        &mut cancel,
+                    )
+                    .await
+                    {
                         Ok(Some(ans)) if !ans.trim().is_empty() => {
                             (format!("User answered: {ans}"), false)
                         }
@@ -1095,9 +1212,7 @@ You converse with the user in turns. In each turn you can write text and call to
                         // exit(23) relaunch is handled by the caller.
                         let wants_reload = serde_json::from_str::<serde_json::Value>(&s)
                             .ok()
-                            .and_then(|v| {
-                                v.get("reloadApp").and_then(|b| b.as_bool())
-                            })
+                            .and_then(|v| v.get("reloadApp").and_then(|b| b.as_bool()))
                             .unwrap_or(false);
                         if wants_reload {
                             *exit_app = true;
@@ -1123,11 +1238,15 @@ You converse with the user in turns. In each turn you can write text and call to
             // window (and the persisted history) for the whole conversation.
             output = truncate_output(&output, tool_result_budget);
 
-            emit(app_handle, session_id, AgentEvent::ToolResult {
-                tool_use_id: tool_use_id.clone(),
-                output: output.clone(),
-                is_error,
-            });
+            emit(
+                app_handle,
+                session_id,
+                AgentEvent::ToolResult {
+                    tool_use_id: tool_use_id.clone(),
+                    output: output.clone(),
+                    is_error,
+                },
+            );
 
             tool_results.push(serde_json::json!({
                 "type": "tool_result",
@@ -1154,7 +1273,13 @@ You converse with the user in turns. In each turn you can write text and call to
                 let is_mutating = crate::commands::revert::is_mutating_file_tool(name)
                     || matches!(name.as_str(), "run_command" | "git_add" | "git_commit");
                 if *approved && !is_mutating {
-                    read_only.push((i, tool_use_id.clone(), name.clone(), input.clone(), wd.clone()));
+                    read_only.push((
+                        i,
+                        tool_use_id.clone(),
+                        name.clone(),
+                        input.clone(),
+                        wd.clone(),
+                    ));
                     continue;
                 }
                 let (mut output, is_error) = if !approved {
@@ -1192,17 +1317,24 @@ You converse with the user in turns. In each turn you can write text and call to
                     }
                 };
                 output = truncate_output(&output, tool_result_budget);
-                emit(app_handle, session_id, AgentEvent::ToolResult {
-                    tool_use_id: tool_use_id.clone(),
-                    output: output.clone(),
-                    is_error,
-                });
-                flush_results.insert(i, serde_json::json!({
-                    "type": "tool_result",
-                    "tool_use_id": tool_use_id,
-                    "content": output,
-                    "is_error": is_error,
-                }));
+                emit(
+                    app_handle,
+                    session_id,
+                    AgentEvent::ToolResult {
+                        tool_use_id: tool_use_id.clone(),
+                        output: output.clone(),
+                        is_error,
+                    },
+                );
+                flush_results.insert(
+                    i,
+                    serde_json::json!({
+                        "type": "tool_result",
+                        "tool_use_id": tool_use_id,
+                        "content": output,
+                        "is_error": is_error,
+                    }),
+                );
             }
 
             // 2. Parallel pass for read-only calls, streamed as each finishes,
@@ -1218,9 +1350,10 @@ You converse with the user in turns. In each turn you can write text and call to
                         async move {
                             let name_arg = name.clone();
                             let input_arg = input.clone();
-                            let res =
-                                tokio::task::spawn_blocking(move || ex.execute(&name_arg, &input_arg))
-                                    .await;
+                            let res = tokio::task::spawn_blocking(move || {
+                                ex.execute(&name_arg, &input_arg)
+                            })
+                            .await;
                             (*i, id, name, res)
                         }
                     })
@@ -1279,17 +1412,24 @@ You converse with the user in turns. In each turn you can write text and call to
                     let msg = format!(
                         "Tool {name} did not finish within the {BATCH_EXEC_BUDGET_SECS}s batch budget and was cancelled. Retry it, or narrow the request."
                     );
-                    emit(app_handle, session_id, AgentEvent::ToolResult {
-                        tool_use_id: id.clone(),
-                        output: msg.clone(),
-                        is_error: true,
-                    });
-                    flush_results.insert(*i, serde_json::json!({
-                        "type": "tool_result",
-                        "tool_use_id": id,
-                        "content": msg,
-                        "is_error": true,
-                    }));
+                    emit(
+                        app_handle,
+                        session_id,
+                        AgentEvent::ToolResult {
+                            tool_use_id: id.clone(),
+                            output: msg.clone(),
+                            is_error: true,
+                        },
+                    );
+                    flush_results.insert(
+                        *i,
+                        serde_json::json!({
+                            "type": "tool_result",
+                            "tool_use_id": id,
+                            "content": msg,
+                            "is_error": true,
+                        }),
+                    );
                 }
             }
 
@@ -1520,7 +1660,11 @@ fn history_budget_for(model: Option<&crate::providers::types::ModelInfo>, thinki
     // Never let history crowd out the model's own output. With thinking on the
     // API forces max_tokens > thinking budget, so reserve that ceiling too.
     let reserve = m.max_tokens.unwrap_or(DEFAULT_MAX_TOKENS as u32) as usize;
-    let reserve = if thinking { reserve.max(THINKING_MAX_TOKENS) } else { reserve };
+    let reserve = if thinking {
+        reserve.max(THINKING_MAX_TOKENS)
+    } else {
+        reserve
+    };
     ctx.saturating_sub(reserve) * 2
 }
 
@@ -1573,7 +1717,6 @@ fn trim_history_to_budget(history: &mut Vec<serde_json::Value>, budget: usize) {
         history.remove(1);
     }
 }
-
 
 async fn persist_message(
     pool: &sqlx::SqlitePool,
@@ -1635,7 +1778,10 @@ async fn spawn_session_naming(
     let provider = provider.to_string();
     let prompt = user_message.to_string();
     tokio::spawn(async move {
-        auto_name_session(&db, &registry, &api_key, &app, &sid, &model, &provider, &prompt).await;
+        auto_name_session(
+            &db, &registry, &api_key, &app, &sid, &model, &provider, &prompt,
+        )
+        .await;
     });
 }
 
@@ -1651,7 +1797,9 @@ async fn auto_name_session(
     provider: &str,
     prompt: &str,
 ) {
-    let Some(handle) = registry.get(provider) else { return };
+    let Some(handle) = registry.get(provider) else {
+        return;
+    };
     let clean: String = prompt
         .chars()
         .take(240)
@@ -1676,12 +1824,22 @@ async fn auto_name_session(
     // listens on so nothing leaks into the live chat render.
     let fake_sid = format!("{session_id}:naming");
     let Ok((blocks, _)) = handle
-        .call(&messages, model, api_key, &[], ThinkingPref::Off, app_handle, &fake_sid)
+        .call(
+            &messages,
+            model,
+            api_key,
+            &[],
+            ThinkingPref::Off,
+            app_handle,
+            &fake_sid,
+        )
         .await
     else {
         return;
     };
-    let Some(name) = extract_name(&blocks) else { return };
+    let Some(name) = extract_name(&blocks) else {
+        return;
+    };
     let now = chrono::Utc::now().to_rfc3339();
     let _ = sqlx::query("UPDATE sessions SET name=?, updated_at=? WHERE id=?")
         .bind(&name)
@@ -1711,8 +1869,10 @@ fn extract_name(blocks: &[ContentBlock]) -> Option<String> {
     if first_line.is_empty() {
         return None;
     }
-    let cleaned = first_line.trim_matches(|c| matches!(c, '"' | '\'' | '\u{201c}' | '\u{201d}' | '-' | '*' | '`'));
-    let cleaned = cleaned.trim_end_matches(|c: char| matches!(c, '.' | ',' | '!' | '?' | ':' | ';'));
+    let cleaned = first_line
+        .trim_matches(|c| matches!(c, '"' | '\'' | '\u{201c}' | '\u{201d}' | '-' | '*' | '`'));
+    let cleaned =
+        cleaned.trim_end_matches(|c: char| matches!(c, '.' | ',' | '!' | '?' | ':' | ';'));
     let cleaned = cleaned.trim();
     if cleaned.is_empty() {
         return None;
@@ -1756,20 +1916,38 @@ mod tests {
         assert!(loop_row_is_stale(&pool, sid).await.unwrap());
 
         // Fresh heartbeat → live
-        sqlx::query("INSERT INTO active_loops (session_id, started_at, heartbeat_at) VALUES (?,?,?)")
-            .bind(sid).bind(&old).bind(&fresh).execute(&pool).await.unwrap();
+        sqlx::query(
+            "INSERT INTO active_loops (session_id, started_at, heartbeat_at) VALUES (?,?,?)",
+        )
+        .bind(sid)
+        .bind(&old)
+        .bind(&fresh)
+        .execute(&pool)
+        .await
+        .unwrap();
         assert!(!loop_row_is_stale(&pool, sid).await.unwrap());
 
         // Old heartbeat → stale (crashed process)
         sqlx::query("UPDATE active_loops SET heartbeat_at=? WHERE session_id=?")
-            .bind(&old).bind(sid).execute(&pool).await.unwrap();
+            .bind(&old)
+            .bind(sid)
+            .execute(&pool)
+            .await
+            .unwrap();
         assert!(loop_row_is_stale(&pool, sid).await.unwrap());
 
         // No heartbeat column value (pre-004 rows): fall back to started_at
         sqlx::query("UPDATE active_loops SET heartbeat_at='' WHERE session_id=?")
-            .bind(sid).execute(&pool).await.unwrap();
+            .bind(sid)
+            .execute(&pool)
+            .await
+            .unwrap();
         sqlx::query("UPDATE active_loops SET started_at=? WHERE session_id=?")
-            .bind(&now).bind(sid).execute(&pool).await.unwrap();
+            .bind(&now)
+            .bind(sid)
+            .execute(&pool)
+            .await
+            .unwrap();
         assert!(!loop_row_is_stale(&pool, sid).await.unwrap());
     }
 
@@ -1966,19 +2144,46 @@ mod tests {
     fn history_budget_scales_with_context_window() {
         // 200K model, thinking off: (200_000 − 16_384) × 2 ≈ 367K chars —
         // comparable to the old 320K constant, not clipped by it.
-        let b200 = history_budget_for(Some(&crate::providers::catalog::enrich(
-            "m", "M".into(), Some(200_000), None, None, None, None,
-        )), false);
+        let b200 = history_budget_for(
+            Some(&crate::providers::catalog::enrich(
+                "m",
+                "M".into(),
+                Some(200_000),
+                None,
+                None,
+                None,
+                None,
+            )),
+            false,
+        );
         assert_eq!(b200, (200_000 - 16_384) * 2);
         // Thinking reserves the higher output ceiling.
-        let bt = history_budget_for(Some(&crate::providers::catalog::enrich(
-            "m", "M".into(), Some(200_000), None, None, None, None,
-        )), true);
+        let bt = history_budget_for(
+            Some(&crate::providers::catalog::enrich(
+                "m",
+                "M".into(),
+                Some(200_000),
+                None,
+                None,
+                None,
+                None,
+            )),
+            true,
+        );
         assert_eq!(bt, (200_000 - 25_600) * 2);
         // Long-context models scale up proportionally.
-        let b1m = history_budget_for(Some(&crate::providers::catalog::enrich(
-            "m", "M".into(), Some(1_000_000), None, None, None, None,
-        )), false);
+        let b1m = history_budget_for(
+            Some(&crate::providers::catalog::enrich(
+                "m",
+                "M".into(),
+                Some(1_000_000),
+                None,
+                None,
+                None,
+                None,
+            )),
+            false,
+        );
         assert_eq!(b1m, (1_000_000 - 16_384) * 2);
         // Unknown model → old constant.
         assert_eq!(history_budget_for(None, false), MAX_HISTORY_CHARS);
@@ -1999,7 +2204,9 @@ mod tests {
         trim_history_to_budget(&mut history, 600);
         // system kept, oldest exchange (user "aaa…") dropped, newest user kept
         assert_eq!(history[0]["role"], "system");
-        assert!(history.iter().any(|m| m["role"] == "user" && m["content"].as_str().unwrap_or("").starts_with('c')));
+        assert!(history
+            .iter()
+            .any(|m| m["role"] == "user" && m["content"].as_str().unwrap_or("").starts_with('c')));
         assert!(history.len() <= 4);
     }
 
@@ -2018,17 +2225,37 @@ mod tests {
     }
     #[test]
     fn path_tools_are_gated_without_wd() {
-        for t in ["read_file", "write_file", "edit_file", "delete_file",
-                  "list_files", "search_files", "run_command",
-                  "git_status", "git_diff", "git_log", "git_add", "git_commit"] {
-            assert!(path_gated(t, false), "{t} must be gated without a working dir");
+        for t in [
+            "read_file",
+            "write_file",
+            "edit_file",
+            "delete_file",
+            "list_files",
+            "search_files",
+            "run_command",
+            "git_status",
+            "git_diff",
+            "git_log",
+            "git_add",
+            "git_commit",
+        ] {
+            assert!(
+                path_gated(t, false),
+                "{t} must be gated without a working dir"
+            );
         }
     }
 
     #[test]
     fn control_tools_are_never_gated() {
         // change_directory IS the fix — blocking it would deadlock the flow.
-        for t in ["change_directory", "ask_question", "web_search", "fetch_url", "load_skill"] {
+        for t in [
+            "change_directory",
+            "ask_question",
+            "web_search",
+            "fetch_url",
+            "load_skill",
+        ] {
             assert!(!path_gated(t, false), "{t} must never be gated");
         }
         // Unknown tools fall through to the normal unknown-tool error.
@@ -2086,15 +2313,27 @@ mod tests {
 
     #[test]
     fn nothing_is_gated_with_a_wd() {
-        for t in ["read_file", "run_command", "git_commit", "search_files", "write_file"] {
-            assert!(!path_gated(t, true), "{t} runs normally once a working dir is set");
+        for t in [
+            "read_file",
+            "run_command",
+            "git_commit",
+            "search_files",
+            "write_file",
+        ] {
+            assert!(
+                !path_gated(t, true),
+                "{t} runs normally once a working dir is set"
+            );
         }
     }
 
     #[test]
     fn no_wd_fact_carries_the_user_answer() {
         let with = no_working_dir_fact("read_file", Some("/mnt/Projects/app  "));
-        assert!(with.contains("change_directory \"/mnt/Projects/app\""), "fact: {with}");
+        assert!(
+            with.contains("change_directory \"/mnt/Projects/app\""),
+            "fact: {with}"
+        );
         assert!(with.contains("retry read_file"), "fact: {with}");
         let none = no_working_dir_fact("write_file", None);
         assert!(none.contains("ask_question"), "fact: {none}");
@@ -2112,9 +2351,15 @@ mod tests {
         );
         // Longest existing path wins when several are mentioned.
         let parent = cwd.parent().unwrap().to_string_lossy().to_string();
-        assert_eq!(guess_dir_from_text(&format!("{parent} and {cwd_s}")), Some(cwd_s));
+        assert_eq!(
+            guess_dir_from_text(&format!("{parent} and {cwd_s}")),
+            Some(cwd_s)
+        );
         // Nonexistent paths and relative fragments are ignored.
-        assert_eq!(guess_dir_from_text("use /nonexistent/xyz or the local folder"), None);
+        assert_eq!(
+            guess_dir_from_text("use /nonexistent/xyz or the local folder"),
+            None
+        );
         assert_eq!(guess_dir_from_text("no paths here at all"), None);
         assert_eq!(guess_dir_from_text(""), None);
     }
@@ -2123,20 +2368,29 @@ mod tests {
     fn extract_name_cleans_first_line() {
         // Strips quotes, keeps capitalization, removes trailing punctuation.
         assert_eq!(
-            extract_name(&[ContentBlock::Text { text: "\"Fix the websocket leak\"".into() }]),
+            extract_name(&[ContentBlock::Text {
+                text: "\"Fix the websocket leak\"".into()
+            }]),
             Some("Fix the websocket leak".into())
         );
         // Leading dashes/markdown get trimmed; only the first line counts.
         assert_eq!(
-            extract_name(&[ContentBlock::Text { text: "- Short title\n\nExtra chatter here".into() }]),
+            extract_name(&[ContentBlock::Text {
+                text: "- Short title\n\nExtra chatter here".into()
+            }]),
             Some("Short title".into())
         );
         // Long output is capped at 48 chars.
         let long = "a".repeat(80);
-        assert_eq!(extract_name(&[ContentBlock::Text { text: long }]), Some("a".repeat(48)));
+        assert_eq!(
+            extract_name(&[ContentBlock::Text { text: long }]),
+            Some("a".repeat(48))
+        );
         // Nothing usable → None (no rename happens).
-        assert_eq!(extract_name(&[ContentBlock::Text { text: "   ".into() }]), None);
+        assert_eq!(
+            extract_name(&[ContentBlock::Text { text: "   ".into() }]),
+            None
+        );
         assert_eq!(extract_name(&[]), None);
     }
-
 }
