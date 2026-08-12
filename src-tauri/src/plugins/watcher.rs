@@ -42,8 +42,17 @@ pub fn spawn_plugin_watcher<F>(
         loop {
             let mut got_event = false;
             while let Ok(res) = rx.try_recv() {
-                if res.is_ok() {
-                    got_event = true;
+                if let Ok(ref evt) = res {
+                    // Ignore config.json changes — these are written by the
+                    // settings UI and should not trigger a full plugin reload
+                    // (which would destroy the component and lose edit state).
+                    let dominated_by_config = evt
+                        .paths
+                        .iter()
+                        .all(|p| p.file_name().map(|n| n == "config.json").unwrap_or(false));
+                    if !dominated_by_config {
+                        got_event = true;
+                    }
                 }
             }
             if got_event {
@@ -54,8 +63,14 @@ pub fn spawn_plugin_watcher<F>(
                 std::thread::sleep(Duration::from_millis(350));
                 let mut again = false;
                 while let Ok(res) = rx.try_recv() {
-                    if res.is_ok() {
-                        again = true;
+                    if let Ok(ref evt) = res {
+                        let dominated_by_config = evt
+                            .paths
+                            .iter()
+                            .all(|p| p.file_name().map(|n| n == "config.json").unwrap_or(false));
+                        if !dominated_by_config {
+                            again = true;
+                        }
                     }
                 }
                 if !again {
