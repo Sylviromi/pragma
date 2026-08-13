@@ -1147,6 +1147,21 @@ You converse with the user in turns. In each turn you can write text and call to
                                     tools.push(t);
                                 }
                             }
+                            // A handler-bearing skill's tools are routed through
+                            // the sidecar registry — spawning it NOW (not just at
+                            // run start for already-active skills) is what makes
+                            // the newly advertised tools actually callable.
+                            let sidecar_note = ensure_skill_sidecar(
+                                &state.skill_sidecars,
+                                &state.plugins,
+                                &skill_id,
+                                if executor.working_dir.to_string_lossy() == "." {
+                                    None
+                                } else {
+                                    Some(executor.working_dir.to_string_lossy().to_string())
+                                },
+                            )
+                            .await;
                             let mut msg = md;
                             msg.push('\n');
                             msg.push_str(&if added.is_empty() {
@@ -1154,6 +1169,7 @@ You converse with the user in turns. In each turn you can write text and call to
                             } else {
                                 format!("Skill '{skill_id}' is now active. New tools available to you: {}", added.join(", "))
                             });
+                            msg.push_str(&sidecar_note);
                             (msg, false)
                         }
                         Err(e) => (format!("Failed to load skill '{skill_id}': {e}"), true),
@@ -1513,6 +1529,34 @@ fn skill_tool_definitions(
         out.extend(tools);
     }
     out
+}
+
+/// Ensure a handler-bearing skill's sidecar is running. Called by load_skill
+/// when a skill is loaded mid-run — its tools route through the sidecar
+/// registry, so without this the newly advertised tools fail as "unknown
+/// tool". Returns an empty string on success, or a WARNING note to append to
+/// the load_skill response when the handler can't start.
+async fn ensure_skill_sidecar(
+    sidecars: &crate::tools::sidecar::SkillSidecarRegistry,
+    plugins: &crate::plugins::PluginManager,
+    skill_id: &str,
+    working_dir: Option<String>,
+) -> String {
+    let Some(skill) = plugins.skill(skill_id) else {
+        return String::new();
+    };
+    if !skill.has_handler {
+        return String::new();
+    }
+    match sidecars
+        .ensure(plugins, skill_id, working_dir.as_deref())
+        .await
+    {
+        Ok(()) => String::new(),
+        Err(e) => format!(
+            "\n\nWARNING: the skill's tool handler failed to start ({e}) — its tools will not work this run."
+        ),
+    }
 }
 
 /// The session's metadata_json as a JSON value ({} when missing/broken).
@@ -2346,6 +2390,74 @@ mod tests {
         assert!(git.iter().any(|t| t.name == "git_commit"));
         // unknown skill → empty
         assert!(skill_tool_definitions(&mgr, "nope").is_empty());
+    }
+
+    #[tokio::test]
+    async fn load_skill_ensures_handler_sidecar() {
+        // load_skill must spawn the sidecar for handler-bearing skills the
+        // moment it's called mid-run — otherwise the newly advertised tools
+        // fail as "unknown tool" (the sidecar registry has no entry).
+        let node_ok = std::process::Command::new("node")
+            .arg("--version")
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false);
+        if !node_ok {
+            eprintln!("node not found — skipping sidecar regression test");
+            return;
+        }
+        let dir = tempfile::tempdir().unwrap();
+        let sk = dir.path().join("tp/skills/echo");
+        std::fs::create_dir_all(&sk).unwrap();
+        std::fs::write(
+            dir.path().join("tp/manifest.json"),
+            r#"{"id":"tp","name":"TP","version":"1","description":"test plugin"}"#,
+        )
+        .unwrap();
+        std::fs::write(sk.join("skill.md"), "doc").unwrap();
+        std::fs::write(
+            sk.join("tools.json"),
+            r#"[{"name":"echo","description":"Echo","inputSchema":{"type":"object","properties":{"s":{"type":"string"}}}}]"#,
+        )
+        .unwrap();
+        std::fs::write(
+            sk.join("handler.js"),
+            r#"
+const readline = require('readline');
+const rl = readline.createInterface({ input: process.stdin });
+function reply(id, result) {
+  process.stdout.write(JSON.stringify({ jsonrpc: '2.0', id, result }) + '\n');
+}
+rl.on('line', (line) => {
+  const msg = JSON.parse(line);
+  if (msg.method === 'initialize') {
+    reply(msg.id, { protocolVersion: 1, tools: [{ name: 'echo', description: 'Echo', inputSchema: {} }] });
+  } else if (msg.method === 'tools/call' && msg.params.name === 'echo') {
+    reply(msg.id, { content: [{ type: 'text', text: 'echo:' + ((msg.params.arguments || {}).s || '') }], isError: false });
+  }
+});
+"#,
+        )
+        .unwrap();
+
+        let mgr = crate::plugins::PluginManager::new(dir.path().to_path_buf(), vec![]);
+        let reg = crate::tools::sidecar::SkillSidecarRegistry::new();
+
+        // The exact call load_skill makes mid-run — must register the sidecar
+        // (no warning) and make the skill's tools callable.
+        let note = ensure_skill_sidecar(&reg, &mgr, "tp/echo", Some("/tmp/work".into())).await;
+        assert!(note.is_empty(), "no warning expected, got: {note}");
+        assert_eq!(reg.owner("echo").as_deref(), Some("tp/echo"));
+        let out = reg
+            .call_tool("tp/echo", "echo", &serde_json::json!({ "s": "hi" }))
+            .await
+            .unwrap();
+        assert_eq!(out, "echo:hi");
+
+        // Unknown / handler-less skills are no-ops.
+        assert!(ensure_skill_sidecar(&reg, &mgr, "nope", None)
+            .await
+            .is_empty());
     }
 
     #[test]
