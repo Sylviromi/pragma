@@ -2,7 +2,7 @@ use super::catalog;
 use super::run_detached;
 use super::sse;
 use super::types::{
-    estimate_usage, AgentEvent, ContentBlock, ModelInfo, ProviderInfo, ProviderSource,
+    estimate_usage, AgentEvent, CallError, ContentBlock, ModelInfo, ProviderInfo, ProviderSource,
     ThinkingPref, ToolDefinition, Usage,
 };
 use tauri::Emitter;
@@ -117,7 +117,7 @@ impl AnthropicProvider {
         thinking: ThinkingPref,
         app_handle: &tauri::AppHandle,
         session_id: &str,
-    ) -> Result<(Vec<ContentBlock>, Usage), String> {
+    ) -> Result<(Vec<ContentBlock>, Usage), CallError> {
         let event_name = format!("agent:{session_id}");
         let client = reqwest::Client::new();
 
@@ -254,7 +254,7 @@ impl AnthropicProvider {
                         },
                     )
                     .ok();
-                msg
+                CallError::Other(msg)
             })?;
 
         if !resp.status().is_success() {
@@ -273,7 +273,7 @@ impl AnthropicProvider {
                     },
                 )
                 .ok();
-            return Err(msg);
+            return Err(CallError::classify(status.as_u16(), msg));
         }
 
         // Parse SSE stream, collect content blocks.
@@ -417,11 +417,11 @@ impl AnthropicProvider {
                 estimate_usage(&serde_json::to_string(&blocks).unwrap_or_default());
         }
         if blocks.is_empty() {
-            return Err(if cut_off {
+            return Err(CallError::Other(if cut_off {
                 "Connection interrupted before any content arrived — the Anthropic service may be down.".into()
             } else {
                 "The model returned an empty response — try again.".into()
-            });
+            }));
         }
         if cut_off
             && !blocks

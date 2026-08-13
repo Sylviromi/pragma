@@ -10,7 +10,9 @@ use tauri::Manager;
 
 use anthropic::AnthropicProvider;
 use openai_compat::OpenAICompatProvider;
-use types::{ContentBlock, ModelInfo, ProviderInfo, ThinkingPref, ToolDefinition, Usage};
+use types::{
+    CallError, ContentBlock, ModelInfo, ProviderInfo, ThinkingPref, ToolDefinition, Usage,
+};
 
 /// A callable provider handle. Kept as an enum (rather than `dyn Provider` with an
 /// async method) so the agentic loop can await a concrete `call()` per provider —
@@ -38,7 +40,7 @@ impl ProviderHandle {
         thinking: ThinkingPref,
         app_handle: &tauri::AppHandle,
         session_id: &str,
-    ) -> Result<(Vec<ContentBlock>, Usage), String> {
+    ) -> Result<(Vec<ContentBlock>, Usage), CallError> {
         match self {
             ProviderHandle::Anthropic(p) => {
                 p.call(
@@ -101,6 +103,7 @@ impl ProviderRegistry {
         let Some(handle) = self.inner.read().unwrap().get(id).cloned() else {
             return;
         };
+        let first_key = |k: &Vec<String>| k.first().cloned().unwrap_or_default();
         match handle {
             ProviderHandle::Anthropic(_) => {
                 let key = app.try_state::<crate::AppState>().and_then(|s| {
@@ -109,14 +112,22 @@ impl ProviderRegistry {
                         .unwrap()
                         .api_keys
                         .get("anthropic")
-                        .cloned()
+                        .map(first_key)
                 });
                 anthropic::spawn_discovery(app.clone(), key);
             }
             ProviderHandle::OpenAICompat(p) => {
                 if let Some(key) = app
                     .try_state::<crate::AppState>()
-                    .and_then(|s| s.settings.read().unwrap().api_keys.get(&p.id).cloned())
+                    .and_then(|s| {
+                        s.settings
+                            .read()
+                            .unwrap()
+                            .api_keys
+                            .get(&p.id)
+                            .map(first_key)
+                    })
+                    .filter(|k| !k.is_empty())
                 {
                     spawn_model_discovery(&p.id, &p.base_url, key, app.clone());
                 }
@@ -313,13 +324,23 @@ pub fn spawn_builtin_discovery(app: &tauri::AppHandle) {
     };
 
     // Anthropic: real /v1/models with the API key.
-    anthropic::spawn_discovery(app.clone(), keys.get("anthropic").cloned());
+    anthropic::spawn_discovery(
+        app.clone(),
+        keys.get("anthropic")
+            .and_then(|k| k.first())
+            .cloned()
+            .filter(|k| !k.is_empty()),
+    );
 
     for (id, base_url) in [
         ("deepseek", "https://api.deepseek.com/v1"),
         ("opencode", "http://localhost:4000/v1"),
     ] {
-        let key = keys.get(id).cloned().unwrap_or_default();
+        let key = keys
+            .get(id)
+            .and_then(|k| k.first())
+            .cloned()
+            .unwrap_or_default();
         spawn_model_discovery(id, base_url, key, app.clone());
     }
 }

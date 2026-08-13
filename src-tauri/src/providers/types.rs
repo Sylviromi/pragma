@@ -100,6 +100,53 @@ pub fn estimate_usage(text: &str) -> u64 {
     (text.chars().count() / 4).max(1) as u64
 }
 
+/// A provider call failure, classified so the agentic loop can react:
+/// rate-limited errors (HTTP 429/402/529 or a body that says so) trigger the
+/// harness's API-key rotation; everything else surfaces as a plain error.
+#[derive(Debug, Clone)]
+pub enum CallError {
+    RateLimited(String),
+    Other(String),
+}
+
+impl CallError {
+    pub fn message(&self) -> &str {
+        match self {
+            CallError::RateLimited(m) | CallError::Other(m) => m,
+        }
+    }
+
+    /// Classify a non-success HTTP status (+ body) as rate-limited or not.
+    pub fn classify(status: u16, message: String) -> Self {
+        let rate_coded = matches!(status, 429 | 402 | 529);
+        let rate_mentioned = {
+            let lower = message.to_lowercase();
+            [
+                "rate limit",
+                "rate_limit",
+                "too many requests",
+                "quota",
+                "exceeded",
+            ]
+            .iter()
+            .any(|needle| lower.contains(needle))
+        };
+        if rate_coded || rate_mentioned {
+            CallError::RateLimited(message)
+        } else {
+            CallError::Other(message)
+        }
+    }
+}
+
+impl std::fmt::Display for CallError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.message())
+    }
+}
+
+impl std::error::Error for CallError {}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ModelInfo {

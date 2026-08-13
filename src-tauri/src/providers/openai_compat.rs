@@ -1,6 +1,6 @@
 use super::sse;
 use super::types::{
-    estimate_usage, AgentEvent, ContentBlock, ModelInfo, ProviderInfo, ProviderSource,
+    estimate_usage, AgentEvent, CallError, ContentBlock, ModelInfo, ProviderInfo, ProviderSource,
     ThinkingPref, ToolDefinition, Usage,
 };
 use tauri::Emitter;
@@ -36,7 +36,7 @@ impl OpenAICompatProvider {
         thinking: ThinkingPref,
         app_handle: &tauri::AppHandle,
         session_id: &str,
-    ) -> Result<(Vec<ContentBlock>, Usage), String> {
+    ) -> Result<(Vec<ContentBlock>, Usage), CallError> {
         let event_name = format!("agent:{session_id}");
         let client = reqwest::Client::new();
 
@@ -118,7 +118,7 @@ impl OpenAICompatProvider {
                         },
                     )
                     .ok();
-                msg
+                CallError::Other(msg)
             })?;
         if !resp.status().is_success() {
             let status = resp.status();
@@ -137,7 +137,7 @@ impl OpenAICompatProvider {
                     },
                 )
                 .ok();
-            return Err(msg);
+            return Err(CallError::classify(status.as_u16(), msg));
         }
 
         let mut full_text = String::new();
@@ -262,13 +262,13 @@ impl OpenAICompatProvider {
         if blocks.is_empty() {
             // An empty body that wasn't cut off is still a dead turn — never
             // end the loop with zero content (that looks like the model dying).
-            return Err(if cut_off {
+            return Err(CallError::Other(if cut_off {
                 "Connection interrupted before any content arrived — the model service may be down."
                     .into()
             } else {
                 "The model returned an empty response — the service may be overloaded; try again."
                     .into()
-            });
+            }));
         }
         if cut_off
             && !blocks

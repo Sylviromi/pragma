@@ -48,8 +48,9 @@ export const listMessages = (sessionId: string) =>
     : tauriInvoke<Message[]>('list_messages', { sessionId })
 
 export const listProviders = () => mock<ProviderInfo[]>(mockProviders, 'list_providers')
-export const saveApiKey = (provider: string, key: string) => tauriInvoke<void>('save_api_key', { provider, key })
-export const getApiKeys = () => mock<Record<string, string>>({}, 'get_api_keys')
+/** Save a provider's API key list (rotation order — first is primary). */
+export const saveApiKeys = (provider: string, keys: string[]) => tauriInvoke<void>('save_api_keys', { provider, keys })
+export const getApiKeys = () => mock<Record<string, string[]>>({}, 'get_api_keys')
 
 export const approveTool = (toolUseId: string) => tauriInvoke<void>('approve_tool', { toolUseId })
 export const denyTool = (toolUseId: string) => tauriInvoke<void>('deny_tool', { toolUseId })

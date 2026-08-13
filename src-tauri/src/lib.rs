@@ -11,7 +11,10 @@ mod providers;
 mod tools;
 
 pub struct Settings {
-    pub api_keys: HashMap<String, String>,
+    /// API keys per provider, in rotation order — the first is the primary
+    /// (used for discovery); the harness rotates through the rest when a call
+    /// comes back rate-limited (HTTP 429/402/529).
+    pub api_keys: HashMap<String, Vec<String>>,
     pub disabled_plugins: Vec<String>,
     pub notifications_enabled: bool,
 }
@@ -47,6 +50,9 @@ pub struct AppState {
     // one-shot cancel signal per session — interrupt_session() flips it; the
     // agentic loop selects on it while waiting on the provider / approvals
     pub loop_cancels: Arc<tokio::sync::Mutex<HashMap<String, tokio::sync::watch::Sender<bool>>>>,
+    // per-provider API-key rotation offset (index into settings.api_keys[provider]) —
+    // persists across runs while the app is open so key #0 isn't hammered every run
+    pub api_key_rotation: Arc<tokio::sync::Mutex<HashMap<String, usize>>>,
     // managed plugin sidecar processes (plugin_id → process handle)
     pub plugin_processes: commands::process::PluginProcesses,
     // skill sidecars (skill_id → JSON-RPC handler process) for plugin tool execution
@@ -134,6 +140,7 @@ pub fn run() {
                 )),
                 seen_ledger: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
                 loop_cancels: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
+                api_key_rotation: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
                 plugin_processes: commands::process::new_process_map(),
                 skill_sidecars: tools::sidecar::SkillSidecarRegistry::new(),
                 plugin_confirmations: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
@@ -195,7 +202,7 @@ pub fn run() {
             commands::revert::revert_session,
             commands::revert::get_revert_info,
             commands::stats::get_session_stats,
-            commands::providers::save_api_key,
+            commands::providers::save_api_keys,
             commands::providers::get_api_keys,
             commands::plugins::list_plugins,
             commands::plugins::set_plugin_enabled,
@@ -237,7 +244,7 @@ pub fn save_settings(state: &AppState) {
 /// Serialize + write settings.json.
 fn write_settings(
     path: &std::path::Path,
-    api_keys: &HashMap<String, String>,
+    api_keys: &HashMap<String, Vec<String>>,
     notifications_enabled: bool,
     disabled_plugins: &[String],
 ) {
@@ -257,11 +264,27 @@ fn load_settings(path: &std::path::Path) -> Settings {
     serde_json::from_str::<serde_json::Value>(&text)
         .ok()
         .map(|v| {
+            // api_keys: each provider holds an ordered list (rotation order).
+            // Legacy files stored a single string per provider — migrate.
             let keys = v["api_keys"]
                 .as_object()
                 .map(|obj| {
                     obj.iter()
-                        .filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_owned())))
+                        .filter_map(|(k, v)| {
+                            let list: Vec<String> = if let Some(arr) = v.as_array() {
+                                arr.iter()
+                                    .filter_map(|x| x.as_str().map(|s| s.to_string()))
+                                    .filter(|s| !s.is_empty())
+                                    .collect()
+                            } else {
+                                v.as_str()
+                                    .map(|s| s.to_string())
+                                    .filter(|s| !s.is_empty())
+                                    .map(|s| vec![s])
+                                    .unwrap_or_default()
+                            };
+                            (!list.is_empty()).then_some((k.clone(), list))
+                        })
                         .collect()
                 })
                 .unwrap_or_default();
@@ -315,18 +338,50 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("settings.json");
         let mut keys = HashMap::new();
-        keys.insert("anthropic".to_string(), "sk-test".to_string());
+        keys.insert(
+            "anthropic".to_string(),
+            vec!["sk-test".to_string(), "sk-test-2".to_string()],
+        );
         // A disable toggle persisted the PluginManager's live list:
         write_settings(&path, &keys, false, &["demo".to_string()]);
-        // Restart: load_settings must restore the exact disabled set.
+        // Restart: load_settings must restore the exact disabled set + keys.
         let loaded = load_settings(&path);
         assert_eq!(loaded.disabled_plugins, vec!["demo"]);
-        assert_eq!(loaded.api_keys.get("anthropic").unwrap(), "sk-test");
+        assert_eq!(
+            loaded.api_keys.get("anthropic").unwrap(),
+            &vec!["sk-test".to_string(), "sk-test-2".to_string()]
+        );
         assert!(!loaded.notifications_enabled);
         // Defaults when the file is absent.
         let loaded_default = load_settings(&dir.path().join("missing.json"));
         assert!(loaded_default.disabled_plugins.is_empty());
         assert!(loaded_default.notifications_enabled);
+    }
+
+    #[test]
+    fn load_settings_migrates_legacy_string_api_keys() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("settings.json");
+        // Old format: a plain string per provider.
+        std::fs::write(
+            &path,
+            r#"{"api_keys":{"anthropic":"sk-old","deepseek":""},"disabled_plugins":[]}"#,
+        )
+        .unwrap();
+        let loaded = load_settings(&path);
+        // String migrated to a one-element list; empty strings dropped.
+        assert_eq!(
+            loaded.api_keys.get("anthropic").unwrap(),
+            &vec!["sk-old".to_string()]
+        );
+        assert!(!loaded.api_keys.contains_key("deepseek"));
+        // The array format round-trips as-is.
+        write_settings(&path, &loaded.api_keys, true, &[]);
+        let again = load_settings(&path);
+        assert_eq!(
+            again.api_keys.get("anthropic").unwrap(),
+            &vec!["sk-old".to_string()]
+        );
     }
 
     #[test]

@@ -7,20 +7,27 @@ pub async fn list_providers(
     Ok(state.registry.list_infos())
 }
 
+/// Replace a provider's API key list (rotation order — first is primary).
+/// Empty keys are dropped; an empty list removes the provider's entry.
 #[tauri::command]
-pub async fn save_api_key(
+pub async fn save_api_keys(
     provider: String,
-    key: String,
+    keys: Vec<String>,
     app: tauri::AppHandle,
     state: tauri::State<'_, AppState>,
 ) -> Result<(), String> {
+    let cleaned: Vec<String> = keys
+        .into_iter()
+        .map(|k| k.trim().to_string())
+        .filter(|k| !k.is_empty())
+        .collect();
     {
-        state
-            .settings
-            .write()
-            .unwrap()
-            .api_keys
-            .insert(provider.clone(), key);
+        let mut settings = state.settings.write().unwrap();
+        if cleaned.is_empty() {
+            settings.api_keys.remove(&provider);
+        } else {
+            settings.api_keys.insert(provider.clone(), cleaned);
+        }
     }
     crate::save_settings(&state);
     // Fetch fresh model lists for this provider now that the key changed.
@@ -31,6 +38,6 @@ pub async fn save_api_key(
 #[tauri::command]
 pub async fn get_api_keys(
     state: tauri::State<'_, AppState>,
-) -> Result<std::collections::HashMap<String, String>, String> {
+) -> Result<std::collections::HashMap<String, Vec<String>>, String> {
     Ok(state.settings.read().unwrap().api_keys.clone())
 }

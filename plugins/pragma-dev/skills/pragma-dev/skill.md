@@ -45,7 +45,7 @@ src-tauri/src/commands/agentic.rs  run_agentic_loop (agentic loop + tool dispatc
                                  case + sidecar reloadApp marker/exit-23), get_running_sessions, interrupt_session
 src-tauri/src/commands/sessions.rs  CRUD for sessions (create/list/get/update/archive)
 src-tauri/src/commands/messages.rs  add_message, list_messages
-src-tauri/src/commands/providers.rs list_providers, save_api_key, get_api_keys
+src-tauri/src/commands/providers.rs list_providers, save_api_keys (multi-key rotation per provider), get_api_keys
 src-tauri/src/commands/tools.rs     approve_tool / deny_tool / answer_question / get_pending_approvals
 src-tauri/src/commands/plugins.rs   list/enable/disable plugins, read component/skill, plugin config get/set,
                                  request/respond plugin confirmation, open_plugin_folder, list_skills

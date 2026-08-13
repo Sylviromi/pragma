@@ -537,7 +537,10 @@ async fn run_loop(
     active_skills: &mut Vec<String>,
     exit_app: &mut bool,
 ) -> Result<(), String> {
-    let api_key = state
+    // API keys for this provider, in rotation order. The harness rotates to
+    // the next key when a call comes back rate-limited (429/402/529) — the
+    // rotation offset persists in AppState so key #0 isn't hammered every run.
+    let keys: Vec<String> = state
         .settings
         .read()
         .unwrap()
@@ -545,10 +548,20 @@ async fn run_loop(
         .get(&provider)
         .cloned()
         .unwrap_or_default();
-    if provider == "anthropic" && api_key.is_empty() {
+    if provider == "anthropic" && keys.first().map(|k| k.is_empty()).unwrap_or(true) {
         return Err(
             "No Anthropic API key configured. Add it in Settings → Claude (Providers page).".into(),
         );
+    }
+    let mut key_idx = {
+        let rotation = state.api_key_rotation.lock().await;
+        rotation.get(&provider).copied().unwrap_or(0)
+    };
+    // Clamp in case the key list shrank since the last rotation.
+    if keys.is_empty() {
+        key_idx = 0;
+    } else {
+        key_idx %= keys.len();
     }
     // Tool set = core tools + the tools of every skill already loaded for this
     // session (restored from metadata_json). `load_skill` grows the set mid-run;
@@ -757,38 +770,66 @@ You converse with the user in turns. In each turn you can write text and call to
         trim_history_to_budget(&mut history, history_budget);
 
         // Call the AI — abortable at the press of Esc (the in-flight HTTP
-        // request is dropped, so nothing hangs in the background). On the
-        // retryable upstream errors (thinking-mode/`reasoning_content` or
-        // tool-pairing validation), re-sanitize the in-memory history and
-        // strip reasoning before ONE retry — the relay's session can get out
-        // of sync transiently, and this usually lets the request through.
+        // request is dropped, so nothing hangs in the background). Two kinds of
+        // retries happen here:
+        //   1. Rate-limited (429/402/529) with >1 key configured → rotate to
+        //      the next API key and retry (round-robin, capped at the key count).
+        //   2. Retryable upstream errors (thinking-mode/`reasoning_content` or
+        //      tool-pairing validation) → re-sanitize the in-memory history and
+        //      strip reasoning before ONE retry — the relay's session can get
+        //      out of sync transiently, and this usually lets the request through.
         let mut history_used_for_call = history.clone();
         let (blocks, usage) = {
             let mut have_retried = false;
+            let mut key_rotations = 0usize;
             'call: loop {
+                let api_key = if keys.is_empty() {
+                    ""
+                } else {
+                    keys[key_idx].as_str()
+                };
                 let deadline = cancel.changed();
                 tokio::pin!(deadline);
                 match tokio::select! {
                     res = provider_handle
-                        .call(&history_used_for_call, &model, &api_key, &tools, thinking, app_handle, session_id) => res,
+                        .call(&history_used_for_call, &model, api_key, &tools, thinking, app_handle, session_id) => res,
                     _ = &mut deadline => {
                         emit(app_handle, session_id, AgentEvent::Interrupted);
                         return Ok(());
                     }
                 } {
                     Ok(r) => break 'call r,
+                    // Rotate to the next API key on rate-limit errors.
+                    Err(crate::providers::types::CallError::RateLimited(e))
+                        if keys.len() > 1 && key_rotations < keys.len() - 1 =>
+                    {
+                        key_rotations += 1;
+                        key_idx = (key_idx + 1) % keys.len();
+                        state
+                            .api_key_rotation
+                            .lock()
+                            .await
+                            .insert(provider.clone(), key_idx);
+                        eprintln!(
+                            "[providers] session {session_id}: rate-limited ({e}) — rotating to API key {}/{}",
+                            key_idx + 1,
+                            keys.len()
+                        );
+                        continue 'call;
+                    }
                     Err(e) if !have_retried => {
-                        let retryable = e.contains("reasoning_content")
-                            || e.contains("did not have response")
-                            || e.contains("tool_call_ids")
-                            || e.contains("Invalid tool");
+                        let msg = e.message();
+                        let retryable = msg.contains("reasoning_content")
+                            || msg.contains("did not have response")
+                            || msg.contains("tool_call_ids")
+                            || msg.contains("Invalid tool");
                         if !retryable {
                             crate::notify::notify(
                                 app_handle,
                                 "Pragma hit an error",
                                 &format!("Model request failed: {e}"),
                             );
-                            return Err(e);
+                            return Err(e.message().to_string());
                         }
                         eprintln!(
                             "[providers] session {session_id}: retryable upstream error (attempt 1/2): {e}"
@@ -811,7 +852,7 @@ You converse with the user in turns. In each turn you can write text and call to
                         }
                         continue 'call;
                     }
-                    Err(e) => return Err(e),
+                    Err(e) => return Err(e.message().to_string()),
                 }
             }
         };
@@ -1766,6 +1807,7 @@ async fn spawn_session_naming(
         .unwrap()
         .api_keys
         .get(provider)
+        .and_then(|k| k.first())
         .cloned()
         .unwrap_or_default();
     let app = app_handle.clone();

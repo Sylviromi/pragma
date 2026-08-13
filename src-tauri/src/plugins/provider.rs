@@ -64,7 +64,7 @@ fn looks_like_http_url(s: &str) -> bool {
 pub fn register_plugin_providers(
     registry: &ProviderRegistry,
     manager: &PluginManager,
-    api_keys: &std::collections::HashMap<String, String>,
+    api_keys: &std::collections::HashMap<String, Vec<String>>,
     app: &tauri::AppHandle,
 ) -> usize {
     let mut registered = 0;
@@ -103,7 +103,11 @@ pub fn register_plugin_providers(
 
         // Best-effort model discovery: GET {base_url}/models with a bearer key.
         if def.discover {
-            let key = api_keys.get(&def.id).cloned().unwrap_or_default();
+            let key = api_keys
+                .get(&def.id)
+                .and_then(|k| k.first())
+                .cloned()
+                .unwrap_or_default();
             crate::providers::spawn_model_discovery(&def.id, &def.base_url, key, app.clone());
         }
     }
