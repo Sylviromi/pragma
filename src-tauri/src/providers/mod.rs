@@ -334,7 +334,7 @@ pub fn spawn_builtin_discovery(app: &tauri::AppHandle) {
 
     for (id, base_url) in [
         ("deepseek", "https://api.deepseek.com/v1"),
-        ("opencode", "http://localhost:4000/v1"),
+        ("opencode-go", "https://opencode.ai/zen/go/v1"),
     ] {
         let key = keys
             .get(id)

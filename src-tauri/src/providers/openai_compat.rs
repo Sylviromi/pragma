@@ -473,13 +473,38 @@ pub fn deepseek() -> OpenAICompatProvider {
     }
 }
 
-pub fn opencode_local() -> OpenAICompatProvider {
+pub fn opencode_go() -> OpenAICompatProvider {
+    // OpenCode GO — the PAID tier (https://opencode.ai/zen/go/v1), authenticated
+    // with an OpenCode API key. Distinct from OpenCode ZEN (the free tier, served
+    // by the zen-proxy plugin): ZEN only serves `-free` models, while GO serves
+    // the paid ones (deepseek-v4-pro/flash, minimax, kimi, qwen, …). Model
+    // discovery (with a key) replaces these fallbacks with the full list;
+    // context windows come from the catalog (the /models response has none).
     OpenAICompatProvider {
-        id: "opencode".into(),
-        name: "OpenCode".into(),
-        base_url: "http://localhost:4000/v1".into(),
+        id: "opencode-go".into(),
+        name: "OpenCode GO".into(),
+        base_url: "https://opencode.ai/zen/go/v1".into(),
         source: ProviderSource::Builtin,
-        models: vec![],
+        models: vec![
+            super::catalog::enrich(
+                "deepseek-v4-pro",
+                "DeepSeek V4 Pro".into(),
+                Some(1_000_000),
+                None,
+                None,
+                Some(true),
+                Some(true),
+            ),
+            super::catalog::enrich(
+                "deepseek-v4-flash",
+                "DeepSeek V4 Flash".into(),
+                Some(1_000_000),
+                None,
+                None,
+                Some(true),
+                Some(true),
+            ),
+        ],
         reasoning_effort: None,
     }
 }

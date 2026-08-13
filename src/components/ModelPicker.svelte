@@ -165,7 +165,13 @@
             >
               <span class="dot" aria-hidden="true"></span>
               <span class="rname">{m.name}</span>
-              {#if m.contextWindow}<span class="rmeta">{(m.contextWindow / 1000).toFixed(0)}k</span>{/if}
+              {#if m.contextWindow}
+                <span class="rmeta">
+                  {m.contextWindow >= 1_000_000
+                    ? `${(m.contextWindow / 1_000_000).toFixed(m.contextWindow % 1_000_000 === 0 ? 0 : 2)}M`
+                    : `${(m.contextWindow / 1000).toFixed(0)}k`}
+                </span>
+              {/if}
               {#if m.isFree}<span class="rmeta free">free</span>{/if}
               {#if m.supportsThinking}<span class="rmeta think">think</span>{/if}
               {#if m.id === model && p.id === provider}<span class="check" aria-hidden="true"><Icon name="check" size={13} /></span>{/if}

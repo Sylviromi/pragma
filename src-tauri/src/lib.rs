@@ -113,7 +113,7 @@ pub fn run() {
             let registry = providers::ProviderRegistry::default();
             registry.register(providers::anthropic::AnthropicProvider::default());
             registry.register(providers::openai_compat::deepseek());
-            registry.register(providers::openai_compat::opencode_local());
+            registry.register(providers::openai_compat::opencode_go());
 
             let plugin_manager =
                 plugins::PluginManager::new(plugins_dir.clone(), settings.disabled_plugins.clone());
