@@ -17,7 +17,6 @@ npm-debug.log*
 .vscode/
 .idea/
 # Agent scratch / session state
-.handsfree/
 .superpowers/
 .claude/
 # Deferred-work tracker (gitignored by design — internal scratch)

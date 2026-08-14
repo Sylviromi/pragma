@@ -35,7 +35,6 @@
     neurology: 'neurology',
     // question block (design)
     help: 'help',
-    // handsfree (design)
     smart_toy: 'smart_toy',
     // @ skills (design)
     alternate_email: 'alternate_email',

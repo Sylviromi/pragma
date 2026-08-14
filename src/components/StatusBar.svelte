@@ -4,7 +4,7 @@
   import { sessions } from '../stores/sessions.svelte'
 
   // Render only when a plugin actually claims the `status-bar` slot — the
-  // design keeps this strip (handsfree progress, etc.) hidden otherwise.
+  // design keeps this strip (plugin progress, etc.) hidden otherwise.
   const apps = $derived(pluginsForSlot('status-bar'))
 
   // Give status-bar plugins the active session's working directory as slot

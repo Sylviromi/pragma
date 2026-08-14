@@ -24,12 +24,3 @@ CREATE TABLE IF NOT EXISTS touched_files (
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS idx_touched_files_session ON touched_files(session_id);
-
-CREATE TABLE IF NOT EXISTS plan_items (
-    session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
-    idx INTEGER NOT NULL,
-    label TEXT NOT NULL,
-    state TEXT NOT NULL DEFAULT 'todo' CHECK (state IN ('todo','active','done')),
-    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
-    PRIMARY KEY (session_id, idx)
-);

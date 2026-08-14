@@ -95,11 +95,6 @@ export const mockPlugins: PluginInfo[] = [
     enabled: true, folder: 'zen-warp', hasComponent: false, hasSkill: false, skills: [],
     contributes: { providers: ['zen-warp'], slots: [], commands: [], skills: [] },
   },
-  {
-    id: 'handsfree', name: 'Handsfree', version: '1.1.0', description: 'Autonomous multi-step execution with phase reporting.',
-    enabled: true, folder: 'handsfree', hasComponent: true, hasSkill: false, skills: [],
-    contributes: { providers: [], slots: ['status-bar'], commands: [], skills: [] },
-  },
 ]
 
 export const mockSkills: SkillInfo[] = [
