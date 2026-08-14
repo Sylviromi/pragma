@@ -22,7 +22,7 @@ export interface ToolItem {
   status: 'waiting' | 'running' | 'done' | 'error'
 }
 
-/** A message queued behind a still-running loop (post-reload reconnect). */
+/** A message queued behind a still-running loop. */
 interface PendingMessage {
   content: string
   model: string
