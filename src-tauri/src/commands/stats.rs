@@ -32,6 +32,7 @@ pub struct ContextUsage {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CostRow {
+    pub kind: String,
     pub model: String,
     pub tokens: String,
     pub cost: String,
@@ -176,10 +177,11 @@ pub async fn record_usage(
     system_tokens: i64,
     conversation_tokens: i64,
     files_tokens: i64,
+    kind: &str,
 ) -> Result<(), String> {
     let cost = model_cost_usd(model, input_tokens, output_tokens);
     sqlx::query(
-        "INSERT INTO session_usage (id, session_id, model, provider, input_tokens, output_tokens, cost_usd, system_tokens, conversation_tokens, files_tokens) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO session_usage (id, session_id, model, provider, input_tokens, output_tokens, cost_usd, system_tokens, conversation_tokens, files_tokens, kind) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(uuid::Uuid::new_v4().to_string())
     .bind(session_id)
@@ -191,6 +193,7 @@ pub async fn record_usage(
     .bind(system_tokens)
     .bind(conversation_tokens)
     .bind(files_tokens)
+    .bind(kind)
     .execute(db)
     .await
     .map_err(|e| e.to_string())?;
@@ -261,7 +264,7 @@ pub async fn record_tool_touch(
 /// re-counts the history on every turn and grows unbounded).
 async fn last_call_tokens(db: &SqlitePool, session_id: &str) -> Option<(i64, i64)> {
     sqlx::query_as::<_, (i64, i64)>(
-        "SELECT input_tokens, output_tokens FROM session_usage WHERE session_id=? ORDER BY rowid DESC LIMIT 1",
+        "SELECT input_tokens, output_tokens FROM session_usage WHERE session_id=? AND kind != 'verification' ORDER BY rowid DESC LIMIT 1",
     )
     .bind(session_id)
     .fetch_optional(db)
@@ -319,7 +322,7 @@ fn breakdown_from_rows(rows: &[(String, String)]) -> (i64, i64) {
 /// NULLs — the caller falls back to estimates for those.
 async fn usage_breakdown(db: &SqlitePool, session_id: &str) -> Option<(i64, i64, i64)> {
     sqlx::query_as::<_, (i64, i64, i64)>(
-        "SELECT system_tokens, conversation_tokens, files_tokens FROM session_usage WHERE session_id=? AND system_tokens IS NOT NULL ORDER BY rowid DESC LIMIT 1",
+        "SELECT system_tokens, conversation_tokens, files_tokens FROM session_usage WHERE session_id=? AND system_tokens IS NOT NULL AND kind != 'verification' ORDER BY rowid DESC LIMIT 1",
     )
     .bind(session_id)
     .fetch_optional(db)
@@ -330,26 +333,39 @@ async fn usage_breakdown(db: &SqlitePool, session_id: &str) -> Option<(i64, i64,
 
 async fn cost_rows(db: &SqlitePool, session_id: &str) -> SessionCost {
     struct Row {
+        kind: String,
         model: String,
         input: i64,
         output: i64,
     }
-    let rows: Vec<Row> = sqlx::query_as::<_, (String, i64, i64)>(
-        "SELECT model, COALESCE(SUM(input_tokens),0), COALESCE(SUM(output_tokens),0) FROM session_usage WHERE session_id=? GROUP BY model ORDER BY SUM(input_tokens)+SUM(output_tokens) DESC",
+    let rows: Vec<Row> = sqlx::query_as::<_, (String, String, i64, i64)>(
+        "SELECT kind, model, COALESCE(SUM(input_tokens),0), COALESCE(SUM(output_tokens),0) FROM session_usage WHERE session_id=? GROUP BY kind, model ORDER BY SUM(input_tokens)+SUM(output_tokens) DESC",
     )
     .bind(session_id)
     .fetch_all(db)
     .await
     .unwrap_or_default()
     .into_iter()
-    .map(|(model, input, output)| Row { model, input, output })
+    .map(|(kind, model, input, output)| Row { kind, model, input, output })
     .collect();
 
     let mut out_rows = Vec::new();
     let mut total = 0.0;
+    // All verification usage (harness reviewer calls) collapses into ONE special
+    // row — "Verification" — so the user sees its cost next to the model rows.
+    let mut verify_in = 0i64;
+    let mut verify_out = 0i64;
+    let mut verify_cost = 0.0;
     for r in rows {
+        if r.kind == "verification" {
+            verify_in += r.input;
+            verify_out += r.output;
+            verify_cost += model_cost_usd(&r.model, r.input as u64, r.output as u64);
+            continue;
+        }
         let tokens = r.input + r.output;
         out_rows.push(CostRow {
+            kind: "model".into(),
             model: r.model.clone(),
             tokens: format_tokens(tokens),
             cost: {
@@ -357,6 +373,15 @@ async fn cost_rows(db: &SqlitePool, session_id: &str) -> SessionCost {
                 total += c;
                 format!("${:.2}", c)
             },
+        });
+    }
+    if verify_in > 0 || verify_out > 0 {
+        total += verify_cost;
+        out_rows.push(CostRow {
+            kind: "verification".into(),
+            model: "Verification".into(),
+            tokens: format_tokens(verify_in + verify_out),
+            cost: format!("${:.2}", verify_cost),
         });
     }
     SessionCost {
@@ -664,7 +689,7 @@ pub async fn get_session_stats(
 }
 #[cfg(test)]
 mod tests {
-    use super::{breakdown_from_rows, build_session_stats, scale_to_used, usage_breakdown};
+    use super::{breakdown_from_rows, build_session_stats, cost_rows, scale_to_used, usage_breakdown};
 
     #[test]
     fn scale_maps_estimates_onto_exact_used() {
@@ -804,6 +829,70 @@ mod tests {
         assert_eq!(stats.context.segments[2].tokens, 0); // conversation
         assert_eq!(stats.context.percent, 4);
     }
+    #[tokio::test]
+    async fn verification_rows_stay_out_of_context_but_show_in_cost() {
+        let pool = crate::db::init_db(":memory:").await.unwrap();
+        sqlx::query("INSERT INTO sessions (id, name, created_at, updated_at) VALUES (?, ?, ?, ?)")
+            .bind("s1")
+            .bind("test")
+            .bind("2026-01-01T00:00:00Z")
+            .bind("2026-01-01T00:00:00Z")
+            .execute(&pool)
+            .await
+            .unwrap();
+        // One agent call, then a verification (reviewer) call recorded AFTER it
+        // (the real order at loop-done) — the ring must ignore the latter.
+        sqlx::query(
+            "INSERT INTO session_usage (id, session_id, model, provider, input_tokens, output_tokens, cost_usd, system_tokens, conversation_tokens, files_tokens, kind) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        )
+        .bind(uuid::Uuid::new_v4().to_string())
+        .bind("s1")
+        .bind("m")
+        .bind("p")
+        .bind(10_000i64)
+        .bind(200i64)
+        .bind(0f64)
+        .bind(4_100i64)
+        .bind(5_000i64)
+        .bind(900i64)
+        .bind("agent")
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO session_usage (id, session_id, model, provider, input_tokens, output_tokens, cost_usd, system_tokens, conversation_tokens, files_tokens, kind) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        )
+        .bind(uuid::Uuid::new_v4().to_string())
+        .bind("s1")
+        .bind("m")
+        .bind("p")
+        .bind(2_000i64)
+        .bind(100i64)
+        .bind(0f64)
+        .bind(0i64)
+        .bind(0i64)
+        .bind(0i64)
+        .bind("verification")
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        // Context ring: the newest row is the verification one, but the ring
+        // must still reflect the agent call.
+        let stats = build_session_stats(&pool, "s1", None, Some(100_000)).await;
+        assert_eq!(stats.context.used, 10_000, "verification must not skew the ring");
+
+        // Cost: verification shows as its own special row, model rows intact.
+        let cost = cost_rows(&pool, "s1").await;
+        assert_eq!(cost.rows.len(), 2);
+        assert_eq!(cost.rows[0].kind, "model");
+        assert_eq!(cost.rows[0].model, "m");
+        assert_eq!(cost.rows[1].kind, "verification");
+        assert_eq!(cost.rows[1].model, "Verification");
+        assert_eq!(cost.rows[1].tokens, "2.1k");
+        assert!(cost.total.starts_with("$"));
+    }
+
 
     #[tokio::test]
     async fn no_usage_falls_back_to_estimates() {

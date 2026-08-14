@@ -130,11 +130,12 @@ export const mockStats: Record<string, SessionStats> = {
     },
     cost: {
       rows: [
-        { model: 'claude-sonnet-4-6', tokens: '52.4k', cost: '$0.41' },
-        { model: 'claude-opus-4-6', tokens: '11.8k', cost: '$0.62' },
-        { model: 'deepseek-v4 (warp)', tokens: '9.1k', cost: '$0.00' },
+        { kind: 'model', model: 'claude-sonnet-4-6', tokens: '52.4k', cost: '$0.41' },
+        { kind: 'model', model: 'claude-opus-4-6', tokens: '11.8k', cost: '$0.62' },
+        { kind: 'model', model: 'deepseek-v4 (warp)', tokens: '9.1k', cost: '$0.00' },
+        { kind: 'verification', model: 'Verification', tokens: '2.3k', cost: '$0.02' },
       ],
-      total: '$1.03',
+      total: '$1.05',
     },
     plan: {
       items: [

@@ -125,8 +125,11 @@
         <span class="section-label">Session cost</span>
         <span class="cost-total">{st.cost.total}</span>
       </div>
-      {#each st.cost.rows as row, i (row.model)}
-        <div class="cost-row stagger" style={`--i:${i}`}>
+      {#each st.cost.rows as row, i (row.kind + row.model)}
+        <div class:verify={row.kind === 'verification'} class="cost-row stagger" style={`--i:${i}`}>
+          {#if row.kind === 'verification'}
+            <span class="verify-badge" title="Harness verification (checks + review)">✓</span>
+          {/if}
           <span class="cost-model">{row.model}</span>
           <span class="cost-meta">{row.tokens}</span>
           <span class="cost-amt">{row.cost}</span>
@@ -395,6 +398,25 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+  /* Verification rows: the harness's own spend — accent-tinted to read as a
+     special row distinct from per-model agent usage. */
+  .cost-row.verify {
+    color: var(--accent, var(--text-secondary));
+    border-top: 1px dashed var(--border-subtle);
+    margin-top: 5px;
+    padding-top: 5px;
+  }
+  .cost-row.verify .cost-model {
+    font-weight: 600;
+  }
+  .cost-row.verify .cost-amt {
+    color: var(--accent, var(--text-secondary));
+    font-weight: 600;
+  }
+  .verify-badge {
+    font-size: 9px;
+    color: var(--accent, var(--text-primary));
   }
   .cost-meta { color: var(--text-muted); }
   .cost-amt { color: var(--text-secondary); }

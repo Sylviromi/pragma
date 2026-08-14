@@ -43,6 +43,17 @@ pub async fn run_migrations(pool: &SqlitePool) -> Result<(), sqlx::Error> {
             .execute(pool)
             .await?;
     }
+    // 007 adds a column (SQLite can't ALTER IF NOT EXISTS) — guard manually.
+    let has_kind: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM pragma_table_info('session_usage') WHERE name='kind'",
+    )
+    .fetch_one(pool)
+    .await?;
+    if has_kind == 0 {
+        sqlx::query(include_str!("migrations/007_usage_kind.sql"))
+            .execute(pool)
+            .await?;
+    }
     Ok(())
 }
 

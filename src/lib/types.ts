@@ -143,6 +143,7 @@ export interface ContextSegment {
 }
 
 export interface CostRow {
+  kind: 'model' | 'verification'
   model: string
   tokens: string // humanized, e.g. '52.4k'
   cost: string // '$0.41'
