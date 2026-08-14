@@ -72,7 +72,6 @@ export const setVerificationSettings = (settings: VerificationSettings) =>
 
 export const approveTool = (toolUseId: string) => tauriInvoke<void>('approve_tool', { toolUseId })
 export const denyTool = (toolUseId: string) => tauriInvoke<void>('deny_tool', { toolUseId })
-export const getPendingApprovals = () => mock<string[]>([], 'get_pending_approvals')
 
 /** Answer a pending ask_question (resumes the paused agentic loop). */
 export const answerQuestion = (questionId: string, answer: string | null) =>
