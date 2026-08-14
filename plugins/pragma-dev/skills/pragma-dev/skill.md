@@ -18,7 +18,9 @@ it before cross-module work.
    - `pd_test` / `pd_cargo_test` — vitest / cargo test with failure extraction.
    - `pd_verify_command <name>` / `pd_verify_tool <name>` — after adding a command/tool, confirms every wiring point in one call (catching a forgotten `generate_handler!` entry or a missing `tauri.ts` wrapper).
 2. **Watch the app build**: `pd_dev_start` (mode `app` = `npm run dev:app`, the project's canonical launcher; `tauri` = full tauri dev with auto-reload; `vite` = frontend-only). Poll `pd_dev_status` / `pd_dev_logs` (filter `errors`). Stop with `pd_dev_stop`. Only one dev-app instance at a time — if the user's main app was itself launched via `dev:app`, prefer `pd_reload_app` for Rust changes instead of a second instance.
-3. **Apply Rust changes**: call `pd_reload_app` LAST — it runs `cargo build` in `src-tauri/` and, on success, requests an app relaunch (exit code 23 → the `dev:app` launcher rebuilds and restarts; other launchers exit cleanly). A failed build never restarts. Never use it for frontend-only or plugin-only changes (those hot-reload).
+3. **Apply changes**
+   - **Frontend / plugin-only changes**: hot-reload automatically via Vite — no tool needed. If HMR didn't pick something up cleanly (route/layout edits, stale plugin components) call `pd_reload_frontend` LAST — it reloads ONLY the webview at the end of the run; the Rust backend and the loop keep going, and the conversation survives (reconnect).
+   - **Rust changes**: call `pd_reload_app` LAST — it runs `cargo build` in `src-tauri/` and, on success, requests a full app relaunch (exit code 23 → the `dev:app` launcher rebuilds and restarts; other launchers exit cleanly). A failed build never restarts. This is the ONLY path that restarts the whole app — never use it for frontend-only or plugin-only changes.
 
 ## Stack
 

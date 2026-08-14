@@ -10,7 +10,7 @@ use sqlx::SqlitePool;
 use std::collections::HashSet;
 use std::sync::Arc;
 use std::time::Duration;
-use tauri::Emitter;
+use tauri::{Emitter, Manager};
 use uuid::Uuid;
 
 /// chars/4 ≈ tokens for the prompt segments the sidebar ring shows. Used on
@@ -541,6 +541,10 @@ pub async fn run_agentic_loop(
     // when true, exit(23) right after this run so the dev launcher rebuilds
     // and relaunches with the new Rust code.
     let mut exit_app = false;
+    // Set by a sidecar tool's `reloadFrontend` marker (pragma-dev's
+    // pd_reload_frontend); when true, the WEBVIEW reloads at the end of the
+    // run — the Rust process and the loop itself are untouched.
+    let mut reload_frontend = false;
 
     let mut active_skills = load_active_skills(&state.db, &session_id).await;
     // Drop stale ids (plugin removed/disabled or native skill gone) so a dead
@@ -560,6 +564,7 @@ pub async fn run_agentic_loop(
         cancel_rx,
         &mut active_skills,
         &mut exit_app,
+        &mut reload_frontend,
     )
     .await;
 
@@ -585,6 +590,19 @@ pub async fn run_agentic_loop(
             handle.exit(23);
         });
     }
+    // Frontend-only reload (pd_reload_frontend): reload just the webview — the
+    // Rust process keeps running. The fresh page reconnects via
+    // reconnectRunningSessions and re-renders the persisted conversation.
+    if result.is_ok() && reload_frontend && !exit_app {
+        let handle = app_handle.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_millis(400)).await;
+            eprintln!("[pd_reload_frontend] reloading webview");
+            if let Some(w) = handle.get_webview_window("main") {
+                let _ = w.eval("window.location.reload()");
+            }
+        });
+    }
     result
 }
 
@@ -601,6 +619,7 @@ async fn run_loop(
     mut cancel: tokio::sync::watch::Receiver<bool>,
     active_skills: &mut Vec<String>,
     exit_app: &mut bool,
+    reload_frontend: &mut bool,
 ) -> Result<(), String> {
     // API keys for this provider, in rotation order. The harness rotates to
     // the next key when a call comes back rate-limited (429/402/529) — the
@@ -1489,6 +1508,16 @@ You converse with the user in turns. In each turn you can write text and call to
                             .unwrap_or(false);
                         if wants_reload {
                             *exit_app = true;
+                        }
+                        // Frontend-only reload convention (pragma-dev's
+                        // pd_reload_frontend): the webview reloads at the end of
+                        // the run; the Rust process and this loop keep running.
+                        let wants_frontend_reload = parsed
+                            .as_ref()
+                            .and_then(|v| v.get("reloadFrontend").and_then(|b| b.as_bool()))
+                            .unwrap_or(false);
+                        if wants_frontend_reload {
+                            *reload_frontend = true;
                         }
                         (s, false)
                     }

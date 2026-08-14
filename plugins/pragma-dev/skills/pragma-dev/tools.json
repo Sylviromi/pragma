@@ -131,6 +131,14 @@
     }
   },
   {
+    "name": "pd_reload_frontend",
+    "description": "Reload ONLY the frontend (the webview) — the Rust backend and any running loop keep going, and the run continues. Use when Vite HMR didn't pick up a change cleanly (route/layout edits, stale components, plugin component.js changes) or you want a clean UI state. The reload fires at the END of this run. NEVER use for Rust changes — those need pd_reload_app (a full relaunch).",
+    "inputSchema": {
+      "type": "object",
+      "properties": {}
+    }
+  },
+  {
     "name": "pd_verify_command",
     "description": "Verify a Tauri command is fully wired per pragma conventions: implementation under src-tauri/src/commands/, `pub mod` in commands/mod.rs, registration in lib.rs generate_handler!, and a wrapper in src/lib/tauri.ts. Returns per-check pass/fail with file:line evidence. Call this after adding a Tauri command.",
     "inputSchema": {

@@ -654,6 +654,12 @@ rl.on('line', async (line) => {
         case 'pd_reload_app':
           reply(id, await pdReloadApp(a), false)
           break
+        case 'pd_reload_frontend':
+          // Frontend-only reload: the host reloads the webview at the end of
+          // the run (marker `reloadFrontend`), leaving the Rust process and
+          // the loop untouched — unlike pd_reload_app's full relaunch.
+          reply(id, { ok: true, reloadFrontend: true }, false)
+          break
         case 'pd_verify_command':
           reply(id, pdVerifyCommand(a), false)
           break
