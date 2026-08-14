@@ -156,31 +156,30 @@
       </div>
     </section>
 
-    <!-- plan -->
-    <section class="sec">
-      <div class="sec-head">
-        <span class="msr sec-icon" aria-hidden="true">checklist</span>
-        <span class="sec-label">Plan</span>
-        <span class="sec-meta">{st.plan.progress}</span>
-      </div>
-      <div class="sec-body">
-        {#each st.plan.items as item, i (item.label)}
-          <div class="plan-row stagger" style={`--i:${i}`}>
-            <span
-              class="plan-icon"
-              style={`--plan-color: ${item.state === 'done' ? 'var(--success)' : item.state === 'active' ? 'var(--accent)' : 'var(--text-muted)'}`}
-              aria-hidden="true"
-            >
-              <span class="msr">{item.state === 'done' ? 'task_alt' : item.state === 'active' ? 'radio_button_checked' : 'radio_button_unchecked'}</span>
-            </span>
-            <span class="plan-label" class:done={item.state === 'done'}>{item.label}</span>
-          </div>
-        {/each}
-        {#if st.plan.items.length === 0}
-          <div class="empty-hint">No plan yet — start a handsfree run</div>
-        {/if}
-      </div>
-    </section>
+    <!-- plan: only when a PLAN.md exists in the working dir with tasks -->
+    {#if st.plan.items.length > 0}
+      <section class="sec">
+        <div class="sec-head">
+          <span class="msr sec-icon" aria-hidden="true">checklist</span>
+          <span class="sec-label">Plan</span>
+          <span class="sec-meta">{st.plan.progress}</span>
+        </div>
+        <div class="sec-body">
+          {#each st.plan.items as item, i (item.label)}
+            <div class="plan-row stagger" style={`--i:${i}`}>
+              <span
+                class="plan-icon"
+                style={`--plan-color: ${item.state === 'done' ? 'var(--success)' : item.state === 'active' ? 'var(--accent)' : 'var(--text-muted)'}`}
+                aria-hidden="true"
+              >
+                <span class="msr">{item.state === 'done' ? 'task_alt' : item.state === 'active' ? 'radio_button_checked' : 'radio_button_unchecked'}</span>
+              </span>
+              <span class="plan-label" class:done={item.state === 'done'}>{item.label}</span>
+            </div>
+          {/each}
+        </div>
+      </section>
+    {/if}
 
     <!-- files touched -->
     <section class="sec">

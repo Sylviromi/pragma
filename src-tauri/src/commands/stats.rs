@@ -1,7 +1,7 @@
 //! Telemetry backing the right sidebar: context usage, session cost, plan
 //! checklist, files touched and the git working tree. All data is derived
-//! from the SQLite DB (session_usage / touched_files / plan_items) plus live
-//! filesystem state (`.handsfree/plan.md`, `git status/diff`).
+//! from the SQLite DB (session_usage / touched_files) plus live filesystem
+//! state (`PLAN.md` in the working dir, `git status/diff`).
 
 use crate::AppState;
 use serde::Serialize;
@@ -258,10 +258,12 @@ pub async fn record_tool_touch(
 
 /// The context that would be sent on the NEXT call ≈ the input the provider
 /// just counted for the most recent call (system prompt + full history).
-/// Returns (input_tokens, output_tokens) of the newest session_usage row.
+/// Returns (input_tokens, output_tokens) of the newest AGENT-CALL row.
 /// Using the provider's own count is exact — no local tokenizer needed, and
 /// it reflects the true live context (unlike a cumulative SUM, which
-/// re-counts the history on every turn and grows unbounded).
+/// re-counts the history on every turn and grows unbounded). Verification
+/// rows (kind='verification') are excluded — they are reviewer calls with a
+/// tiny, unrelated prompt and would corrupt the ring.
 async fn last_call_tokens(db: &SqlitePool, session_id: &str) -> Option<(i64, i64)> {
     sqlx::query_as::<_, (i64, i64)>(
         "SELECT input_tokens, output_tokens FROM session_usage WHERE session_id=? AND kind != 'verification' ORDER BY rowid DESC LIMIT 1",
@@ -319,7 +321,8 @@ fn breakdown_from_rows(rows: &[(String, String)]) -> (i64, i64) {
 /// The real per-part prompt breakdown recorded by the agentic loop at call
 /// time (chars/4 of what was actually sent): (system, conversation, files).
 /// Legacy usage rows (pre-006, or sessions written before this feature) have
-/// NULLs — the caller falls back to estimates for those.
+/// NULLs — the caller falls back to estimates for those. Verification rows
+/// are excluded for the same reason as `last_call_tokens`.
 async fn usage_breakdown(db: &SqlitePool, session_id: &str) -> Option<(i64, i64, i64)> {
     sqlx::query_as::<_, (i64, i64, i64)>(
         "SELECT system_tokens, conversation_tokens, files_tokens FROM session_usage WHERE session_id=? AND system_tokens IS NOT NULL AND kind != 'verification' ORDER BY rowid DESC LIMIT 1",
@@ -400,40 +403,38 @@ fn format_tokens(n: i64) -> String {
     }
 }
 
-/// Parse `.handsfree/plan.md` in the working dir into checklist items.
-/// Default source for the Plan panel; plugins/harness can replace it later
-/// via a set_plan_items command (see TODO.md).
+/// Parse `PLAN.md` in the working dir into checklist items (tasks written as
+/// `### Task …` with optional `Status: done|active` markers). The sidebar's
+/// Plan section renders only when the file exists and has parseable tasks.
 async fn plan_from_file(working_dir: Option<&str>) -> SessionPlan {
     let Some(wd) = working_dir else {
         return SessionPlan::default();
     };
-    let plan_path = Path::new(wd).join(".handsfree").join("plan.md");
+    let plan_path = Path::new(wd).join("PLAN.md");
     let text = match std::fs::read_to_string(&plan_path) {
         Ok(t) => t,
         Err(_) => return SessionPlan::default(),
     };
     let mut items: Vec<PlanItem> = Vec::new();
-    let mut next_state = String::from("todo");
     for line in text.lines() {
         let trimmed = line.trim();
         if let Some(rest) = trimmed.strip_prefix("### Task ") {
             // "### Task 1.1: Bundle fonts" → label keeps the number: "1.1 — Bundle fonts"
-            let label = rest.trim();
             items.push(PlanItem {
-                label: label.to_string(),
-                state: next_state.clone(),
+                label: rest.trim().to_string(),
+                state: "todo".to_string(),
             });
-            next_state = String::from("todo");
         } else if trimmed.starts_with("Status:") {
+            // A `Status:` line applies to the task it sits under (the most
+            // recently parsed one), not the next.
             let st = trimmed.trim_start_matches("Status:").trim().to_lowercase();
-            next_state = match st.as_str() {
-                "done" => "done".to_string(),
-                "active" => "active".to_string(),
-                _ => "todo".to_string(),
-            };
-        } else if trimmed.starts_with("### Milestone") && !items.is_empty() {
-            // Reset to todo at milestone boundaries (unless a task follows).
-            next_state = String::from("todo");
+            if let Some(last) = items.last_mut() {
+                last.state = match st.as_str() {
+                    "done" => "done".to_string(),
+                    "active" => "active".to_string(),
+                    _ => "todo".to_string(),
+                };
+            }
         }
     }
     let done = items.iter().filter(|i| i.state == "done").count();
@@ -689,7 +690,35 @@ pub async fn get_session_stats(
 }
 #[cfg(test)]
 mod tests {
-    use super::{breakdown_from_rows, build_session_stats, cost_rows, scale_to_used, usage_breakdown};
+    use super::{
+        breakdown_from_rows, build_session_stats, cost_rows, plan_from_file, scale_to_used,
+        usage_breakdown,
+    };
+
+    #[tokio::test]
+    async fn plan_reads_root_plan_md_and_degrades_when_absent() {
+        use std::fs;
+        let dir = tempfile::tempdir().unwrap();
+        // No PLAN.md → empty plan (sidebar hides the section).
+        let empty = plan_from_file(Some(dir.path().to_str().unwrap())).await;
+        assert!(empty.items.is_empty());
+        assert!(empty.progress.is_empty());
+        // None at all (no working dir) → empty too.
+        assert!(plan_from_file(None).await.items.is_empty());
+        // Root PLAN.md → tasks parsed with statuses, progress = done/total.
+        fs::write(
+            dir.path().join("PLAN.md"),
+            "# Plan\n\n## Milestone 1\n\n### Task 1.1: Bundle fonts\nStatus: done\n\n### Task 1.2: Wire the theme\nStatus: active\n\n### Task 1.3: Ship it\nStatus: pending\n",
+        )
+        .unwrap();
+        let plan = plan_from_file(Some(dir.path().to_str().unwrap())).await;
+        assert_eq!(plan.items.len(), 3);
+        assert_eq!(plan.items[0].label, "1.1: Bundle fonts");
+        assert_eq!(plan.items[0].state, "done");
+        assert_eq!(plan.items[1].state, "active");
+        assert_eq!(plan.items[2].state, "todo");
+        assert_eq!(plan.progress, "1/3");
+    }
 
     #[test]
     fn scale_maps_estimates_onto_exact_used() {
@@ -829,6 +858,7 @@ mod tests {
         assert_eq!(stats.context.segments[2].tokens, 0); // conversation
         assert_eq!(stats.context.percent, 4);
     }
+
     #[tokio::test]
     async fn verification_rows_stay_out_of_context_but_show_in_cost() {
         let pool = crate::db::init_db(":memory:").await.unwrap();
@@ -892,7 +922,6 @@ mod tests {
         assert_eq!(cost.rows[1].tokens, "2.1k");
         assert!(cost.total.starts_with("$"));
     }
-
 
     #[tokio::test]
     async fn no_usage_falls_back_to_estimates() {
