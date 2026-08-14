@@ -169,6 +169,11 @@ export async function runAgenticLoop(
   autoApprove: boolean,
   thinking: ThinkingPref,
   onEvent: (e: AgentEvent) => void,
+  /** Optional per-session listener registry (the chat store's `_listeners`).
+   *  Registering here makes the live subscription visible to
+   *  reconnectRunningSessions, so the queued-message path can detect it and
+   *  never attach a second listener (which would double-process every event). */
+  listenerRegistry?: Map<string, () => void>,
 ): Promise<void> {
   if (isBrowserMock) {
     // Fake a structured stream mirroring Anthropic content blocks (thought →
@@ -196,11 +201,23 @@ export async function runAgenticLoop(
   }
   // Subscribe BEFORE invoking so no events are missed.
   const unlisten = await listenAgentEvents(sessionId, onEvent)
+  // Idempotent: finishTurn() detaches the listener the moment the loop's
+  // terminal event arrives, while this finally also runs when the invoke
+  // resolves — the flag keeps the second detach a no-op (Tauri's unlisten is
+  // not guaranteed safe to call twice for the same event id).
+  let unlistened = false
+  const detach = () => {
+    if (unlistened) return
+    unlistened = true
+    unlisten()
+  }
+  listenerRegistry?.set(sessionId, detach)
   try {
     await tauriInvoke<void>('run_agentic_loop', {
       sessionId, userMessage, model, provider, workingDir, autoApprove, thinking,
     })
   } finally {
-    unlisten()
+    detach()
+    listenerRegistry?.delete(sessionId)
   }
 }

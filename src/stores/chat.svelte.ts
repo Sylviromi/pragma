@@ -137,7 +137,7 @@ export interface ToolItem {
   status: 'waiting' | 'running' | 'done' | 'error'
 }
 
-/** A message queued behind a still-running loop. */
+/** A message queued behind a still-running loop (post-reload reconnect). */
 interface PendingMessage {
   content: string
   model: string
@@ -277,6 +277,21 @@ export async function reconnectRunningSessions() {
       }
       return t
     })
+    // The live loop is confirmed running — never leave the session looking
+    // idle until the first re-attached event lands (which could be minutes
+    // away during a long tool / verification / approval wait). Show an honest
+    // busy state derived from the restored turn; the next event corrects it.
+    const needsAnswer = (chat.liveBlocks[sessionId] ?? []).some(
+      (b) => b.type === 'question' && !b.picked
+    )
+    const hasWaitingTool = (chat.toolItems[sessionId] ?? []).some(
+      (t) => t.status === 'waiting'
+    )
+    chat.status[sessionId] = needsAnswer || hasWaitingTool ? 'waiting' : 'working'
+    // Restore the run start so the live indicator's elapsed timer doesn't
+    // reset on every re-render (the component falls back to Date.now() when
+    // this is unset).
+    if (!chat.startedAt[sessionId]) chat.startedAt[sessionId] = Date.now()
     const unlisten = await listenAgentEvents(sessionId, (ev) => handleEvent(sessionId, ev))
     _listeners.set(sessionId, unlisten)
   }
@@ -557,9 +572,15 @@ export async function sendMessage(
   // Set when the backend tells us another loop is already running — in that
   // case the `finally` must leave the running state alone.
   let keepRunning = false
+  // Run token: the startedAt this sendMessage owns. The `finally` below only
+  // finishes the turn if no newer turn replaced it — the 'done'/'error'/
+  // 'interrupted' events and flushPending's follow-up sendMessage all
+  // overwrite startedAt, so a stale finally can never clobber a live loop's
+  // state (running=false, status='idle', streamed text cleared).
+  const runStartedAt = chat.startedAt[sessionId]
 
   try {
-    await runAgenticLoop(sessionId, content, model, provider, workingDir, autoApprove, thinking, (ev) => handleEvent(sessionId, ev))
+    await runAgenticLoop(sessionId, content, model, provider, workingDir, autoApprove, thinking, (ev) => handleEvent(sessionId, ev), _listeners)
   } catch (err) {
     const msg = String(err)
     if (msg.includes('already has an active agentic loop')) {
@@ -597,7 +618,7 @@ export async function sendMessage(
     // Only reset the running flag if this call owned the loop. If we hit the
     // "already running" branch above, the OTHER loop's events own the state.
     // Reasoning is preserved so the thought stays visible after the turn ends.
-    if (!keepRunning) {
+    if (!keepRunning && chat.startedAt[sessionId] === runStartedAt) {
       finishTurn(sessionId)
       loadMessages(sessionId)
     }
