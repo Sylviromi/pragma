@@ -72,7 +72,22 @@
         </button>
       {/each}
     </div>
-    {#if pending}<div class="q-hint">Pick one, press {options.length === 1 ? '1' : `1–${options.length}`}, or type your own answer below.</div>{/if}
+    <!-- "or type your own answer" — the free-text fallback stays available
+         alongside the chips (e.g. the folder question: pick a suggested
+         directory or type a path). -->
+    {#if pending}
+      <div class="q-input">
+        <input
+          class="free"
+          type="text"
+          bind:value={draft}
+          placeholder="…or type your own answer"
+          aria-label="Type your own answer"
+          onkeydown={(e) => { if (e.key === 'Enter') { e.preventDefault(); submitFreeText() } }}
+        />
+        <button class="chip send" onclick={submitFreeText} disabled={!draft.trim()}>Send</button>
+      </div>
+    {/if}
   {:else if answered}
     <div class="q-answer">
       <Icon name="check" size={14} />
@@ -233,11 +248,6 @@
   }
   .check :global(.msr) {
     color: var(--success);
-  }
-  .q-hint {
-    font-family: var(--font-body);
-    font-size: 11.5px;
-    color: var(--text-muted);
   }
   .q-input {
     display: flex;

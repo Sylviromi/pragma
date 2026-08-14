@@ -95,12 +95,113 @@ fn no_working_dir_fact(tool_name: &str, user_said: Option<&str>) -> String {
     }
 }
 
+/// Well-known project roots searched when the user names a directory instead
+/// of typing a full path ("work on frontend-tests" → /mnt/Projects/frontend-tests).
+fn common_roots() -> Vec<std::path::PathBuf> {
+    let mut roots: Vec<std::path::PathBuf> = Vec::new();
+    if let Ok(home) = std::env::var("HOME") {
+        let home = std::path::PathBuf::from(&home);
+        roots.push(home.clone());
+        for sub in [
+            "Projects", "projects", "Documents", "dev", "code", "workspace", "repos", "src",
+        ] {
+            let p = home.join(sub);
+            if p.is_dir() {
+                roots.push(p);
+            }
+        }
+    }
+    for extra in [
+        "/mnt/Projects", "/workspace", "/opt", "/home", "/srv", "/data", "/Users", "/Users/Shared",
+    ] {
+        let p = std::path::PathBuf::from(extra);
+        if p.is_dir() {
+            roots.push(p);
+        }
+    }
+    roots
+}
+
+/// Words that never name a project folder (keeps bare-name resolution from
+/// matching a stray "the" or "project" directory).
+fn is_name_stopword(tok: &str) -> bool {
+    matches!(
+        tok,
+        "the" | "a" | "an" | "project" | "projects" | "folder" | "directory" | "dir" | "repo"
+            | "repository" | "workspace" | "path" | "work" | "on" | "in" | "at" | "with"
+            | "use" | "using" | "open" | "of" | "my" | "your" | "to" | "please" | "can"
+            | "you" | "for" | "and" | "or" | "the"
+    )
+}
+
+/// Resolve one candidate token to an existing directory: absolute paths and
+/// `~/` paths directly; bare names by looking under `roots` (exact, then
+/// case-insensitive). Returns None when nothing on disk matches.
+fn resolve_dir_candidate(candidate: &str, roots: &[std::path::PathBuf]) -> Option<String> {
+    let candidate = candidate.trim();
+    if candidate.is_empty() {
+        return None;
+    }
+    let p = if let Some(rest) = candidate.strip_prefix("~/") {
+        let home = std::env::var("HOME").ok()?;
+        std::path::PathBuf::from(home).join(rest)
+    } else if candidate.starts_with('/') {
+        std::path::PathBuf::from(candidate)
+    } else {
+        // Bare name (or relative fragment) — search the well-known roots.
+        if is_name_stopword(candidate) || candidate.chars().count() < 2 {
+            return None;
+        }
+        let lower = candidate.to_lowercase();
+        for root in roots {
+            let exact = root.join(candidate);
+            if exact.is_dir() {
+                return Some(exact.to_string_lossy().to_string());
+            }
+            // case-insensitive fallback: "PRAGMA" → <root>/pragma
+            if let Ok(entries) = std::fs::read_dir(root) {
+                for e in entries.flatten() {
+                    if e.file_type().map(|t| t.is_dir()).unwrap_or(false)
+                        && e.file_name().to_string_lossy().to_lowercase() == lower
+                    {
+                        return Some(e.path().to_string_lossy().to_string());
+                    }
+                }
+            }
+        }
+        return None;
+    };
+    if p.is_dir() {
+        Some(p.to_string_lossy().to_string())
+    } else {
+        None
+    }
+}
+
 /// Extract a plausible existing directory from free text (a user prompt or an
-/// answer): absolute paths (leading `/` or `~/`) that exist on disk, picking
-/// the longest match when several are mentioned. Returns None for text with no
-/// usable path — callers then ask or hand the model a "sort it out" fact.
+/// answer). Handles: absolute paths (leading `/` or `~/`) that exist on disk,
+/// quoted paths containing spaces ("…/My Project"), and bare directory names
+/// resolved against well-known project roots ("pragma" → …/pragma). Picks the
+/// longest match when several are mentioned. Returns None for text with no
+/// usable path — callers then ask with candidate options.
 fn guess_dir_from_text(text: &str) -> Option<String> {
+    guess_dir_from_text_roots(text, &common_roots())
+}
+
+fn guess_dir_from_text_roots(text: &str, roots: &[std::path::PathBuf]) -> Option<String> {
     let mut best: Option<String> = None;
+    // Quoted segments first (they can contain spaces): "…/My Project" stays
+    // one candidate instead of being split into "My" + "Project".
+    let mut candidates: Vec<String> = Vec::new();
+    for q in ['"', '\'', '`'] {
+        for seg in text.split(q) {
+            let seg = seg.trim();
+            if !seg.is_empty() {
+                candidates.push(seg.to_string());
+            }
+        }
+    }
+    // Plain whitespace tokens.
     for raw in text.split_ascii_whitespace() {
         let tok = raw.trim_matches(|c: char| {
             matches!(
@@ -108,28 +209,57 @@ fn guess_dir_from_text(text: &str) -> Option<String> {
                 '"' | '\'' | '`' | '(' | ')' | ',' | '.' | ';' | ':' | '!' | '?' | '*',
             )
         });
-        if tok.is_empty() {
-            continue;
+        if !tok.is_empty() {
+            candidates.push(tok.to_string());
         }
-        let path = if let Some(rest) = tok.strip_prefix("~/") {
-            match std::env::var("HOME") {
-                Ok(home) => std::path::Path::new(&home).join(rest),
-                Err(_) => continue,
+    }
+    for candidate in candidates {
+        if let Some(p) = resolve_dir_candidate(&candidate, roots) {
+            if best.as_ref().map_or(true, |b| p.len() > b.len()) {
+                best = Some(p);
             }
-        } else if tok.starts_with('/') {
-            std::path::PathBuf::from(tok)
-        } else {
-            continue; // relative fragment or not a path at all
-        };
-        if !path.is_dir() {
-            continue;
-        }
-        let s = path.to_string_lossy().to_string();
-        if best.as_ref().map_or(true, |b| s.len() > b.len()) {
-            best = Some(s);
         }
     }
     best
+}
+
+/// Candidate working directories offered as clickable options when the
+/// harness must ask which folder to open (instead of forcing the user to type
+/// a full path). Recently-used session dirs first, then one level of the
+/// well-known roots. Deduped, capped so the question block stays readable.
+async fn dir_candidates(db: &SqlitePool) -> Vec<String> {
+    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut out: Vec<String> = Vec::new();
+    // Recently-used working dirs (most likely what the user wants).
+    let recent: Vec<String> = sqlx::query_scalar(
+        "SELECT DISTINCT working_dir FROM sessions WHERE working_dir != '' ORDER BY updated_at DESC",
+    )
+    .fetch_all(db)
+    .await
+    .unwrap_or_default();
+    for dir in recent {
+        if seen.insert(dir.clone()) && std::path::Path::new(&dir).is_dir() {
+            out.push(dir);
+        }
+    }
+    // One level of the well-known roots (fills in anything not used recently).
+    for root in common_roots() {
+        if let Ok(entries) = std::fs::read_dir(&root) {
+            let mut names: Vec<String> = entries
+                .flatten()
+                .filter(|e| e.file_type().map(|t| t.is_dir()).unwrap_or(false))
+                .map(|e| e.path().to_string_lossy().to_string())
+                .collect();
+            names.sort();
+            for dir in names {
+                if seen.insert(dir.clone()) {
+                    out.push(dir);
+                }
+            }
+        }
+    }
+    out.truncate(8);
+    out
 }
 
 /// Persist a new session working dir, rebuild the executor with it, and tell
@@ -1218,12 +1348,20 @@ You converse with the user in turns. In each turn you can write text and call to
                 if !has_wd {
                     let answer = if !path_question_asked {
                         path_question_asked = true;
+                        // Offer clickable candidate folders (recently used +
+                        // known roots) so the user rarely has to type a path.
+                        let candidates = dir_candidates(&state.db).await;
+                        let prompt = if candidates.is_empty() {
+                            "Which project folder should I use as the working directory?".to_string()
+                        } else {
+                            "Which project folder should I use as the working directory? Pick one below or type a path (e.g. /home/you/project).".to_string()
+                        };
                         ask_user(
                             app_handle,
                             state,
                             session_id,
-                            "Which project folder should I use as the working directory? Name a path (e.g. /home/you/project) or just say where to work.",
-                            Vec::new(),
+                            &prompt,
+                            candidates,
                             600,
                             &mut cancel,
                         )
@@ -1411,10 +1549,16 @@ You converse with the user in turns. In each turn you can write text and call to
                 }
             } else if name == "change_directory" {
                 let new_dir = input.get("path").and_then(|v| v.as_str()).unwrap_or("");
-                let abs = if std::path::Path::new(new_dir).is_absolute() {
-                    std::path::PathBuf::from(new_dir)
+                // Resolve a bare directory name ("frontend-tests") against the
+                // well-known roots; prefer an existing dir relative to the
+                // current working dir ("src" stays ./src, not /mnt/Projects/src).
+                let rel = executor.working_dir.join(new_dir);
+                let abs = if rel.is_dir() {
+                    rel
+                } else if let Some(p) = guess_dir_from_text(new_dir) {
+                    std::path::PathBuf::from(p)
                 } else {
-                    executor.working_dir.join(new_dir)
+                    rel
                 };
                 match set_working_dir(
                     &mut executor,
@@ -2933,6 +3077,33 @@ rl.on('line', (line) => {
         );
         assert_eq!(guess_dir_from_text("no paths here at all"), None);
         assert_eq!(guess_dir_from_text(""), None);
+    }
+
+    #[test]
+    fn guess_dir_resolves_bare_names_against_roots() {
+        // Hermetic: explicit roots, no env dependence.
+        let root = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(root.path().join("pragma")).unwrap();
+        std::fs::create_dir_all(root.path().join("frontend-tests")).unwrap();
+        std::fs::create_dir_all(root.path().join("My Project")).unwrap();
+        let roots = vec![root.path().to_path_buf()];
+        let pragma = root.path().join("pragma").to_string_lossy().to_string();
+        // Bare name in a sentence → resolved under the root.
+        assert_eq!(
+            guess_dir_from_text_roots("work on the pragma project please", &roots),
+            Some(pragma.clone())
+        );
+        // Quoted path with spaces stays one candidate.
+        let spaced = root.path().join("My Project").to_string_lossy().to_string();
+        assert_eq!(
+            guess_dir_from_text_roots(&format!("open \"{spaced}\" now"), &roots),
+            Some(spaced)
+        );
+        // Case-insensitive fallback: PRAGMA → <root>/pragma.
+        assert_eq!(guess_dir_from_text_roots("use PRAGMA", &roots), Some(pragma));
+        // Stopwords never match; unknown names return None.
+        assert_eq!(guess_dir_from_text_roots("just the project folder", &roots), None);
+        assert_eq!(guess_dir_from_text_roots("use not-a-real-dir", &roots), None);
     }
 
     #[test]
