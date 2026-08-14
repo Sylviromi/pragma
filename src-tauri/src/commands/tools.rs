@@ -1,7 +1,7 @@
 use crate::AppState;
 
-/// Returns the tool_use_ids that are currently blocked waiting for frontend approval.
-/// Used by the frontend after HMR reloads to reconcile stale tool card states.
+/// Returns the tool_use_ids currently blocked waiting for frontend approval
+/// (used by UI plugins to surface pending approvals).
 #[tauri::command]
 pub async fn get_pending_approvals(
     state: tauri::State<'_, AppState>,

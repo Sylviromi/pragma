@@ -213,9 +213,8 @@ pub struct ProviderInfo {
     pub has_key: bool,
 }
 
-// Events emitted over the Channel during an agentic loop.
-// The outer rename_all = "snake_case" controls tag values (token, tool_call, etc.).
-// Per-variant rename_all = "camelCase" controls field names sent to the frontend.
+// Agent events emitted over the app event bus (`agent:{session_id}`) during
+// an agentic loop — tag = snake_case, fields = camelCase.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "event", rename_all = "snake_case")]
 pub enum AgentEvent {

@@ -11,7 +11,6 @@ use tauri_plugin_notification::NotificationExt;
 /// and notifications are enabled. Best-effort: failures are logged, never
 /// fatal.
 pub fn notify(app_handle: &tauri::AppHandle, title: &str, body: &str) {
-    // Respect the user's notification preference.
     let enabled = app_handle
         .try_state::<AppState>()
         .map(|st| st.settings.read().unwrap().notifications_enabled)
