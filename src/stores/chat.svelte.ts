@@ -47,6 +47,7 @@ function writeLiveState(sessionId: string) {
       toolItems:    chat.toolItems[sessionId]     ?? [],
       autoApprove:  chat.autoApprove[sessionId]  ?? false,
       alwaysApprove: [...(chat.alwaysApprove[sessionId] ?? new Set())],
+      pending:      chat.pending[sessionId]       ?? null,
     }))
   } catch { /* storage quota — ignore */ }
 }
@@ -80,6 +81,11 @@ function restoreLiveState(sessionId: string) {
     chat.autoApprove[sessionId] = s.autoApprove ?? false
     if (Array.isArray(s.alwaysApprove)) {
       chat.alwaysApprove[sessionId] = new Set(s.alwaysApprove)
+    }
+    // A message queued while the previous loop was still running survives a
+    // reload too — flushed automatically when that loop reports 'done'.
+    if (s.pending && typeof s.pending === 'object' && typeof s.pending.content === 'string') {
+      chat.pending[sessionId] = s.pending
     }
   } catch { /* corrupt entry — ignore */ }
 }
@@ -129,6 +135,19 @@ export interface ToolItem {
   isError?: boolean
   /** waiting = needs user approval, running = approved/executing, done/error = finished */
   status: 'waiting' | 'running' | 'done' | 'error'
+}
+
+/** A message queued behind a still-running loop (post-reload reconnect). */
+interface PendingMessage {
+  content: string
+  model: string
+  provider: string
+  workingDir: string
+  autoApprove: boolean
+  thinking: ThinkingPref
+  /** id of the optimistic user bubble shown while queued — swapped for a
+   *  fresh one when the message actually sends. */
+  optimisticId: string
 }
 
 /** A block in the live (in-progress) assistant turn — mirrors the ContentBlock
@@ -189,6 +208,10 @@ export const chat = $state({
    *  from the role='verification' message after 'done'). Cleared at the next
    *  sendMessage. */
   verification:   {} as Record<string, VerificationInfo | null>,
+  /** A message the user sent while a previous loop was still running (e.g.
+   *  after a reload re-attached to a live loop). Auto-sent when that loop
+   *  reports 'done' — never silently dropped. Survives HMR via live state. */
+  pending:        {} as Record<string, PendingMessage | null>,
 })
 
 /** Turn-completion notices: in-app toast only. Native OS notifications live on
@@ -228,6 +251,24 @@ export async function reconnectRunningSessions() {
     chat.streamingToken[sessionId] = chat.streamingToken[sessionId] ?? ''
     if (!chat.liveBlocks[sessionId]) chat.liveBlocks[sessionId] = []
     if (!chat.toolItems[sessionId])  chat.toolItems[sessionId]  = []
+    // Re-show a queued message's bubble after the reload wiped it (its DB
+    // row doesn't exist yet — it's flushed when the running loop finishes).
+    const pending = chat.pending[sessionId]
+    if (pending && !(chat.messages[sessionId] ?? []).some(m => m.id === pending.optimisticId)) {
+      chat.messages[sessionId] = [
+        ...(chat.messages[sessionId] ?? []),
+        {
+          id: pending.optimisticId,
+          sessionId,
+          role: 'user' as const,
+          content: JSON.stringify(pending.content),
+          model: pending.model,
+          provider: pending.provider,
+          timestamp: new Date().toISOString(),
+          tokens: 0,
+        },
+      ]
+    }
     // Reconcile stale tool statuses: tools we think are pending but the backend
     // already processed should be shown as done (their ToolResult event was lost).
     chat.toolItems[sessionId] = chat.toolItems[sessionId].map(t => {
@@ -355,6 +396,8 @@ function handleEvent(sessionId: string, ev: AgentEvent) {
 
   } else if (ev.event === 'interrupted') {
     chat.notice[sessionId] = 'Turn interrupted by user.'
+    chat.pending[sessionId] = null // respect the stop — don't auto-send later
+    clearLiveState(sessionId)
     finishTurn(sessionId)
     loadMessages(sessionId)
 
@@ -369,6 +412,8 @@ function handleEvent(sessionId: string, ev: AgentEvent) {
     notifyTurn(sessionId, 'error', msg)
     finishTurn(sessionId)
     loadMessages(sessionId)
+    // A queued message still deserves its turn — the lock was released.
+    void flushPending(sessionId)
 
   } else if (ev.event === 'verification_started') {
     // Harness verification phase (checks → review). Show the phase live.
@@ -399,6 +444,8 @@ function handleEvent(sessionId: string, ev: AgentEvent) {
     notifyTurn(sessionId, 'done')
     finishTurn(sessionId)
     loadMessages(sessionId)
+    // Send any message the user queued while this loop was still running.
+    void flushPending(sessionId)
   }
 }
 
@@ -452,6 +499,32 @@ export async function sendMessage(
   chat.autoApprove[sessionId] = autoApprove
   chat.thinking[sessionId] = thinking
 
+  // A loop from before a reload/reconnect is STILL RUNNING on the backend.
+  // Queue the message and let that turn finish — never wipe its live bubbles
+  // (the thinking bubble the user is watching), never silently drop the text.
+  // flushPending() in the 'done' handler sends it automatically afterwards.
+  const runningNow = await getRunningSessionIds()
+  if (runningNow.includes(sessionId)) {
+    const queued: Message = {
+      id: `optimistic-${Date.now()}`,
+      sessionId,
+      role: 'user',
+      content: JSON.stringify(content),
+      model,
+      provider,
+      timestamp: new Date().toISOString(),
+      tokens: 0,
+    }
+    chat.messages[sessionId] = [...(chat.messages[sessionId] ?? []), queued]
+    chat.pending[sessionId] = { content, model, provider, workingDir, autoApprove, thinking, optimisticId: queued.id }
+    persistLiveState(sessionId)
+    pushToast('A previous turn is still running — your message is queued and will send when it finishes')
+    if (!_listeners.has(sessionId)) {
+      reconnectRunningSessions()
+    }
+    return
+  }
+
   // Clear live turn state from the previous run
   chat.running[sessionId] = true
   chat.status[sessionId] = 'thinking'
@@ -463,6 +536,7 @@ export async function sendMessage(
   chat.notice[sessionId] = null
   chat.verification[sessionId] = null
   chat.verifying[sessionId] = null
+  chat.pending[sessionId] = null // a stale queue entry must not fire later
   clearLiveState(sessionId)
   // Save autoApprove immediately so it survives HMR even before the first event arrives
   persistLiveState(sessionId)
@@ -490,23 +564,29 @@ export async function sendMessage(
     const msg = String(err)
     if (msg.includes('already has an active agentic loop')) {
       // Only trust this if the backend actually reports a live loop in memory.
-      // A DB-only lock (crashed instance, stale row) would otherwise leave the
-      // UI spinning forever with the typed message silently dropped.
+      // A DB-only lock (crashed instance, stale row) means the message must
+      // NOT be sent yet — the lock is reclaimed once the heartbeat goes stale.
       const live = await getRunningSessionIds()
       if (!live.includes(sessionId)) {
+        // No live loop: a crashed instance still holds the cross-process lock
+        // (heartbeat cooling down, up to ~2 min). Be honest about it and do
+        // NOT claim the message was sent.
         chat.running[sessionId] = false
         chat.streamingToken[sessionId] = null
         chat.error[sessionId] =
-          'The previous run left a stale lock and was recovered — please send your message again.'
+          'A previous (crashed) run still holds this session\u2019s lock — it is released automatically within about 2 minutes. ' +
+          'Your message was not sent; try again shortly or use another session.'
         loadMessages(sessionId)
         return
       }
       // A loop IS still running (leftover from before an HMR reload, or a
-      // second app instance). Keep the UI running, drop our optimistic message
-      // (it was never persisted), and re-attach the listener if we lost it.
+      // second app instance) — raced between our check and the invoke. Queue
+      // instead of dropping: the optimistic message stays visible as queued.
+      chat.pending[sessionId] = { content, model, provider, workingDir, autoApprove, thinking, optimisticId: optimistic.id }
+      persistLiveState(sessionId)
+      pushToast('A previous turn is still running — your message is queued and will send when it finishes')
       keepRunning = true
       chat.running[sessionId] = true
-      chat.messages[sessionId] = (chat.messages[sessionId] ?? []).filter(m => m.id !== optimistic.id)
       if (!_listeners.has(sessionId)) {
         reconnectRunningSessions()
       }
@@ -521,6 +601,31 @@ export async function sendMessage(
       finishTurn(sessionId)
       loadMessages(sessionId)
     }
+  }
+}
+
+/** Send a message that was queued behind a still-running loop. Called from the
+ *  'done'/'error' handlers — after the previous turn released the loop lock. */
+async function flushPending(sessionId: string) {
+  const pending = chat.pending[sessionId]
+  if (!pending) return
+  chat.pending[sessionId] = null
+  // Let the DB state land first, then swap the queued optimistic bubble for a
+  // fresh one from sendMessage (the queued one was never persisted).
+  await loadMessages(sessionId)
+  chat.messages[sessionId] = (chat.messages[sessionId] ?? []).filter(m => m.id !== pending.optimisticId)
+  try {
+    await sendMessage(
+      sessionId,
+      pending.content,
+      pending.model,
+      pending.provider,
+      pending.workingDir,
+      pending.autoApprove,
+      pending.thinking
+    )
+  } catch {
+    chat.error[sessionId] = 'Queued message failed to send.'
   }
 }
 
