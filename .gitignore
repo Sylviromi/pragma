@@ -1,5 +1,4 @@
 # Node
-node_modules/
 node_modules
 dist/
 build/
@@ -17,13 +16,10 @@ npm-debug.log*
 .DS_Store
 .vscode/
 .idea/
-# Agent scratch / session state
+
+# Agent scratch / generated artifacts
 .superpowers/
 .claude/
-# Deferred-work tracker (gitignored by design — internal scratch)
 TODO.md
-# Agent-generated specs/plans
 docs/
-
-# Design prototype scratch (not part of the app)
 prototype_design/

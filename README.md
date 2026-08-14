@@ -38,7 +38,7 @@ WEBKIT_DISABLE_COMPOSITING_MODE=1 WEBKIT_DISABLE_DMABUF_RENDERER=1 npm run tauri
 
 ## API keys
 
-Settings → Providers (`~/.config/pragma/settings.json`). Built-in providers:
+Settings → Providers (`~/.config/dev.pragma.app/settings.json`). Built-in providers:
 Anthropic (Claude), DeepSeek, and a local OpenAI-compatible endpoint (`localhost:4000`).
 
 ## Project layout
