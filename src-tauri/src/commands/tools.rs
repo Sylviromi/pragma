@@ -23,6 +23,13 @@ pub async fn approve_tool(
     let mut pending = state.pending_approvals.lock().await;
     if let Some(tx) = pending.remove(&tool_use_id) {
         tx.send(true).ok();
+    } else {
+        // The approval arrived before the loop registered the pending entry
+        // (the frontend auto-approves SAFE tools the moment it sees the
+        // tool_call event). Remember it so the loop's later wait resolves
+        // immediately instead of hanging forever.
+        drop(pending);
+        state.pre_approved.lock().await.insert(tool_use_id);
     }
     Ok(())
 }
@@ -35,6 +42,9 @@ pub async fn deny_tool(
     let mut pending = state.pending_approvals.lock().await;
     if let Some(tx) = pending.remove(&tool_use_id) {
         tx.send(false).ok();
+    } else {
+        drop(pending);
+        state.pre_denied.lock().await.insert(tool_use_id);
     }
     Ok(())
 }

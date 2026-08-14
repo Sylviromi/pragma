@@ -38,6 +38,11 @@ pub struct AppState {
     // pending tool approvals: tool_use_id → oneshot sender
     pub pending_approvals:
         Arc<tokio::sync::Mutex<HashMap<String, tokio::sync::oneshot::Sender<bool>>>>,
+    // approvals/denials that arrived BEFORE the loop registered a pending
+    // entry (the frontend auto-approves SAFE tools the moment it sees the
+    // tool_call event — those signals must not be lost).
+    pub pre_approved: Arc<tokio::sync::Mutex<std::collections::HashSet<String>>>,
+    pub pre_denied: Arc<tokio::sync::Mutex<std::collections::HashSet<String>>>,
     // pending ask_question answers: question_id → oneshot sender (Option = answer,
     // None = timeout/no answer). Mirrors pending_approvals so the loop can pause
     // on a question and resume from answer_question.
@@ -134,6 +139,8 @@ pub fn run() {
                 settings: RwLock::new(settings),
                 settings_path,
                 pending_approvals: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
+                pre_approved: Arc::new(tokio::sync::Mutex::new(std::collections::HashSet::new())),
+                pre_denied: Arc::new(tokio::sync::Mutex::new(std::collections::HashSet::new())),
                 question_channels: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
                 running_sessions: Arc::new(tokio::sync::Mutex::new(
                     std::collections::HashSet::new(),

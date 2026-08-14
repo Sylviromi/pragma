@@ -187,6 +187,71 @@ const THINKING_MAX_TOKENS: usize = 25_600;
 /// longer stall the loop for 50 minutes — anything still running when this
 /// expires is reported to the model as timed out.
 const BATCH_EXEC_BUDGET_SECS: u64 = 300;
+/// How long a mutating tool's approval prompt stays open before the loop
+/// proceeds WITHOUT it (a missed prompt must never hang the agentic loop
+/// forever — the model is told the tool wasn't approved and adapts).
+const APPROVAL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(120);
+
+/// Result of resolving a tool approval.
+#[derive(Debug, PartialEq)]
+enum ApprovalOutcome {
+    Approved,
+    /// Not approved, with the reason to feed back to the model.
+    Denied(String),
+    /// Esc pressed while waiting.
+    Interrupted,
+}
+
+/// Resolve a tool approval without ever hanging the loop:
+/// 1. An approval/denial that arrived BEFORE the pending entry was registered
+///    (the frontend auto-approves SAFE tools the moment it sees the tool_call
+///    event) is honored via the pre-approved/pre-denied sets.
+/// 2. Otherwise wait on the pending oneshot, bounded by `timeout` — a missed
+///    or ignored prompt resolves to Denied instead of blocking forever.
+/// 3. Esc (cancel) interrupts the wait.
+async fn resolve_tool_approval(
+    pending: Arc<
+        tokio::sync::Mutex<std::collections::HashMap<String, tokio::sync::oneshot::Sender<bool>>>,
+    >,
+    pre_approved: Arc<tokio::sync::Mutex<std::collections::HashSet<String>>>,
+    pre_denied: Arc<tokio::sync::Mutex<std::collections::HashSet<String>>>,
+    tool_use_id: &str,
+    timeout: std::time::Duration,
+    cancel: &mut tokio::sync::watch::Receiver<bool>,
+) -> ApprovalOutcome {
+    if pre_approved.lock().await.remove(tool_use_id) {
+        return ApprovalOutcome::Approved;
+    }
+    if pre_denied.lock().await.remove(tool_use_id) {
+        return ApprovalOutcome::Denied("Tool call denied by user.".into());
+    }
+    let (tx, rx) = tokio::sync::oneshot::channel::<bool>();
+    pending.lock().await.insert(tool_use_id.to_string(), tx);
+
+    let sleep = tokio::time::sleep(timeout);
+    tokio::pin!(sleep);
+    tokio::select! {
+        v = rx => match v {
+            Ok(true) => ApprovalOutcome::Approved,
+            Ok(false) => ApprovalOutcome::Denied("Tool call denied by user.".into()),
+            Err(_) => {
+                pending.lock().await.remove(tool_use_id);
+                ApprovalOutcome::Denied("Tool approval channel closed — treating as denied.".into())
+            }
+        },
+        _ = &mut sleep => {
+            pending.lock().await.remove(tool_use_id);
+            ApprovalOutcome::Denied(format!(
+                "Tool was not approved within {}s — proceed without it, or ask the user.",
+                timeout.as_secs()
+            ))
+        }
+        _ = cancel.changed() => {
+            pending.lock().await.remove(tool_use_id);
+            ApprovalOutcome::Interrupted
+        }
+    }
+}
 
 /// RAII guard releasing the agentic-loop lock on drop, so a panic mid-loop can
 /// never leave a session permanently stuck (which would otherwise silently
@@ -970,7 +1035,7 @@ You converse with the user in turns. In each turn you can write text and call to
         // Plain (executor-backed) tool calls are queued here during the loop
         // and flushed as a parallel batch afterwards: read-only calls run
         // concurrently, so a multi-file exploration turn takes one round trip
-        // instead of N. (tool_use_id, name, input, approved, working_dir)
+        // instead of N. (tool_use_id, name, input, is_mutating, working_dir)
         let mut plain_queue: Vec<(String, String, serde_json::Value, bool, std::path::PathBuf)> =
             Vec::new();
 
@@ -1097,30 +1162,57 @@ You converse with the user in turns. In each turn you can write text and call to
                 }
             }
 
-            let approved = if auto_approve || is_question {
-                true
+            // Plain tools (file/shell/git/web) queue immediately WITHOUT an
+            // approval wait — approvals resolve at flush time. That way an
+            // already-approved read-only tool (read_file & co) executes while
+            // a mutating tool's approval prompt is still open. Previously a
+            // single unapproved run_command in a batch blocked the WHOLE
+            // batch (including read_file) until the user noticed the prompt —
+            // which looked like the model was stuck.
+            let is_plain_tool = !matches!(
+                name.as_str(),
+                "load_skill" | "change_directory" | "ask_question"
+            ) && state.skill_sidecars.owner(name).is_none();
+            if is_plain_tool {
+                let mutating = crate::commands::revert::is_mutating_file_tool(name)
+                    || matches!(name.as_str(), "run_command" | "git_add" | "git_commit");
+                plain_queue.push((
+                    tool_use_id.clone(),
+                    name.clone(),
+                    input.clone(),
+                    mutating,
+                    executor.working_dir.clone(),
+                ));
+                continue;
+            }
+
+            // Inline tools (load_skill / change_directory / ask_question /
+            // sidecar) resolve approval here — bounded by a timeout so a
+            // missed prompt can never hang the loop forever.
+            let (approved, approval_note) = if auto_approve || is_question {
+                (true, String::new())
             } else {
-                // Wait for frontend to approve or deny — Esc cancels the wait.
-                let (tx, rx) = tokio::sync::oneshot::channel::<bool>();
-                state
-                    .pending_approvals
-                    .lock()
-                    .await
-                    .insert(tool_use_id.clone(), tx);
-                let result = tokio::select! {
-                    v = rx => v.unwrap_or(false),
-                    _ = cancel.changed() => {
-                        // Remove the stale entry so a late approve can't leak.
-                        state.pending_approvals.lock().await.remove(tool_use_id);
+                match resolve_tool_approval(
+                    state.pending_approvals.clone(),
+                    state.pre_approved.clone(),
+                    state.pre_denied.clone(),
+                    tool_use_id,
+                    APPROVAL_TIMEOUT,
+                    &mut cancel,
+                )
+                .await
+                {
+                    ApprovalOutcome::Approved => (true, String::new()),
+                    ApprovalOutcome::Denied(note) => (false, note),
+                    ApprovalOutcome::Interrupted => {
                         emit(app_handle, session_id, AgentEvent::Interrupted);
                         return Ok(());
                     }
-                };
-                result
+                }
             };
 
             let (mut output, is_error) = if !approved {
-                ("Tool call denied by user.".to_string(), true)
+                (approval_note, true)
             } else if name == "load_skill" {
                 let skill_id = input
                     .get("skill_id")
@@ -1279,17 +1371,7 @@ You converse with the user in turns. In each turn you can write text and call to
                     Err(e) => (e, true),
                 }
             } else {
-                // Plain tool (file/shell/git/web): queue for the parallel
-                // batch after the loop — snapshots, execution and telemetry
-                // happen at flush time so read-only calls run concurrently.
-                plain_queue.push((
-                    tool_use_id.clone(),
-                    name.clone(),
-                    input.clone(),
-                    approved,
-                    executor.working_dir.clone(),
-                ));
-                continue;
+                unreachable!("non-plain tools are all handled above");
             };
             // Cap oversized outputs so one big result can't blow the context
             // window (and the persisted history) for the whole conversation.
@@ -1314,22 +1396,33 @@ You converse with the user in turns. In each turn you can write text and call to
         }
 
         // ── Flush the plain batch: parallel-safe execution ───────────────
-        // Denied + mutating calls run serially (writes must not race);
-        // read-only calls run concurrently under one budget. Results are
-        // collected by call index so the persisted turn keeps the model's
-        // original order, and every ToolResult event fires before the turn
-        // is persisted.
+        // Read-only calls (auto-approved by the frontend's SAFE_TOOLS) run
+        // concurrently under one budget and are flushed FIRST, so they
+        // complete while a mutating tool's approval prompt is still open — a
+        // pending approval must never stall already-approved tools (that
+        // looked like the model being stuck after a read_file). Mutating
+        // calls resolve approval (bounded by APPROVAL_TIMEOUT) and run
+        // serially (writes must not race). Results are collected by call
+        // index so the persisted turn keeps the model's original order, and
+        // every ToolResult event fires before the turn is persisted.
         if !plain_queue.is_empty() {
             let mut flush_results: std::collections::BTreeMap<usize, serde_json::Value> =
                 std::collections::BTreeMap::new();
             let mut read_only: Vec<(usize, String, String, serde_json::Value, std::path::PathBuf)> =
                 Vec::new();
+            let mut mutating: Vec<(usize, String, String, serde_json::Value, std::path::PathBuf)> =
+                Vec::new();
 
-            // 1. Serial pass: denied (instant) and mutating (ordered) calls.
-            for (i, (tool_use_id, name, input, approved, wd)) in plain_queue.iter().enumerate() {
-                let is_mutating = crate::commands::revert::is_mutating_file_tool(name)
-                    || matches!(name.as_str(), "run_command" | "git_add" | "git_commit");
-                if *approved && !is_mutating {
+            // 1. Partition + resolve approvals. Read-only tools resolve
+            //    instantly (the frontend auto-approves them the moment their
+            //    card renders); mutating tools wait for the user, bounded by
+            //    a timeout so a missed prompt can't hang the loop forever.
+            for (i, (tool_use_id, name, input, is_mutating, wd)) in plain_queue.iter().enumerate() {
+                if interrupted(&cancel) {
+                    emit(app_handle, session_id, AgentEvent::Interrupted);
+                    return Ok(());
+                }
+                if !*is_mutating {
                     read_only.push((
                         i,
                         tool_use_id.clone(),
@@ -1339,56 +1432,55 @@ You converse with the user in turns. In each turn you can write text and call to
                     ));
                     continue;
                 }
-                let (mut output, is_error) = if !approved {
-                    ("Tool call denied by user.".to_string(), true)
+                let outcome = if auto_approve {
+                    ApprovalOutcome::Approved
                 } else {
-                    let ex = ToolExecutor::with_ledger(wd, session_id, ledger.clone());
-                    // Journal the pre-op file state so a later "return to
-                    // this point" can restore the filesystem.
-                    if crate::commands::revert::is_mutating_file_tool(name) {
-                        let _ = crate::commands::revert::record_snapshot(
-                            &state.db,
-                            session_id,
-                            asst_rowid,
-                            tool_use_id,
-                            name,
-                            input,
-                            &ex.working_dir,
-                        )
-                        .await
-                        .map_err(|e| eprintln!("[revert] snapshot failed: {e}"));
-                    }
-                    match ex.execute(name, input) {
-                        Ok(out) => {
-                            // Telemetry: what the tool did to the project tree.
-                            let _ = crate::commands::stats::record_tool_touch(
-                                &state.db, session_id, name, input,
-                            )
-                            .await;
-                            (out, false)
-                        }
-                        Err(e) => (e, true),
-                    }
+                    resolve_tool_approval(
+                        state.pending_approvals.clone(),
+                        state.pre_approved.clone(),
+                        state.pre_denied.clone(),
+                        tool_use_id,
+                        APPROVAL_TIMEOUT,
+                        &mut cancel,
+                    )
+                    .await
                 };
-                output = truncate_output(&output, tool_result_budget);
-                emit(
-                    app_handle,
-                    session_id,
-                    AgentEvent::ToolResult {
-                        tool_use_id: tool_use_id.clone(),
-                        output: output.clone(),
-                        is_error,
-                    },
-                );
-                flush_results.insert(
-                    i,
-                    serde_json::json!({
-                        "type": "tool_result",
-                        "tool_use_id": tool_use_id,
-                        "content": output,
-                        "is_error": is_error,
-                    }),
-                );
+                match outcome {
+                    ApprovalOutcome::Approved => {
+                        mutating.push((
+                            i,
+                            tool_use_id.clone(),
+                            name.clone(),
+                            input.clone(),
+                            wd.clone(),
+                        ));
+                    }
+                    ApprovalOutcome::Denied(note) => {
+                        let output = truncate_output(&note, tool_result_budget);
+                        emit(
+                            app_handle,
+                            session_id,
+                            AgentEvent::ToolResult {
+                                tool_use_id: tool_use_id.clone(),
+                                output: output.clone(),
+                                is_error: true,
+                            },
+                        );
+                        flush_results.insert(
+                            i,
+                            serde_json::json!({
+                                "type": "tool_result",
+                                "tool_use_id": tool_use_id,
+                                "content": output,
+                                "is_error": true,
+                            }),
+                        );
+                    }
+                    ApprovalOutcome::Interrupted => {
+                        emit(app_handle, session_id, AgentEvent::Interrupted);
+                        return Ok(());
+                    }
+                }
             }
 
             // 2. Parallel pass for read-only calls, streamed as each finishes,
@@ -1485,6 +1577,57 @@ You converse with the user in turns. In each turn you can write text and call to
                         }),
                     );
                 }
+            }
+
+            // 3. Mutating pass (serial, ordered) — after read-only so safe
+            //    reads complete while writes execute; writes never race.
+            for (i, tool_use_id, name, input, wd) in mutating {
+                let ex = ToolExecutor::with_ledger(&wd, session_id, ledger.clone());
+                // Journal the pre-op file state so a later "return to
+                // this point" can restore the filesystem.
+                if crate::commands::revert::is_mutating_file_tool(&name) {
+                    let _ = crate::commands::revert::record_snapshot(
+                        &state.db,
+                        session_id,
+                        asst_rowid,
+                        &tool_use_id,
+                        &name,
+                        &input,
+                        &ex.working_dir,
+                    )
+                    .await
+                    .map_err(|e| eprintln!("[revert] snapshot failed: {e}"));
+                }
+                let (mut output, is_error) = match ex.execute(&name, &input) {
+                    Ok(out) => {
+                        // Telemetry: what the tool did to the project tree.
+                        let _ = crate::commands::stats::record_tool_touch(
+                            &state.db, session_id, &name, &input,
+                        )
+                        .await;
+                        (out, false)
+                    }
+                    Err(e) => (e, true),
+                };
+                output = truncate_output(&output, tool_result_budget);
+                emit(
+                    app_handle,
+                    session_id,
+                    AgentEvent::ToolResult {
+                        tool_use_id: tool_use_id.clone(),
+                        output: output.clone(),
+                        is_error,
+                    },
+                );
+                flush_results.insert(
+                    i,
+                    serde_json::json!({
+                        "type": "tool_result",
+                        "tool_use_id": tool_use_id,
+                        "content": output,
+                        "is_error": is_error,
+                    }),
+                );
             }
 
             // Emitted in the model's original call order.
@@ -2458,6 +2601,131 @@ rl.on('line', (line) => {
         assert!(ensure_skill_sidecar(&reg, &mgr, "nope", None)
             .await
             .is_empty());
+    }
+
+    #[tokio::test]
+    async fn approval_resolution_never_hangs_and_honors_pre_signals() {
+        use std::collections::{HashMap, HashSet};
+        use std::time::{Duration, Instant};
+        use tokio::sync::oneshot;
+
+        let pending = Arc::new(tokio::sync::Mutex::new(HashMap::new()));
+        let pre_approved = Arc::new(tokio::sync::Mutex::new(HashSet::new()));
+        let pre_denied = Arc::new(tokio::sync::Mutex::new(HashSet::new()));
+        let (tx, mut cancel) = tokio::sync::watch::channel(false);
+        let short = Duration::from_millis(100);
+
+        // 1. Approval that arrived BEFORE the pending entry was registered
+        //    (frontend auto-approves SAFE tools on the tool_call event) → the
+        //    wait resolves immediately.
+        pre_approved.lock().await.insert("t1".into());
+        assert_eq!(
+            resolve_tool_approval(
+                pending.clone(),
+                pre_approved.clone(),
+                pre_denied.clone(),
+                "t1",
+                short,
+                &mut cancel
+            )
+            .await,
+            ApprovalOutcome::Approved
+        );
+
+        // 2. Pre-denial honored the same way.
+        pre_denied.lock().await.insert("t2".into());
+        assert_eq!(
+            resolve_tool_approval(
+                pending.clone(),
+                pre_approved.clone(),
+                pre_denied.clone(),
+                "t2",
+                short,
+                &mut cancel
+            )
+            .await,
+            ApprovalOutcome::Denied("Tool call denied by user.".into())
+        );
+
+        // 3. Pending entry resolved by the user (approve). resolve() registers
+        //    its own sender in the pending map — send on that.
+        let f3 = {
+            let p = pending.clone();
+            let pa = pre_approved.clone();
+            let pd = pre_denied.clone();
+            let mut c = cancel.clone();
+            tokio::spawn(async move { resolve_tool_approval(p, pa, pd, "t3", short, &mut c).await })
+        };
+        tokio::time::sleep(Duration::from_millis(20)).await; // let it register
+        if let Some(tx) = pending.lock().await.remove("t3") {
+            tx.send(true).unwrap();
+        }
+        assert_eq!(f3.await.unwrap(), ApprovalOutcome::Approved);
+
+        // 4. Pending entry resolved by the user (deny).
+        let f4 = {
+            let p = pending.clone();
+            let pa = pre_approved.clone();
+            let pd = pre_denied.clone();
+            let mut c = cancel.clone();
+            tokio::spawn(async move { resolve_tool_approval(p, pa, pd, "t4", short, &mut c).await })
+        };
+        tokio::time::sleep(Duration::from_millis(20)).await;
+        if let Some(tx) = pending.lock().await.remove("t4") {
+            tx.send(false).unwrap();
+        }
+        assert_eq!(
+            f4.await.unwrap(),
+            ApprovalOutcome::Denied("Tool call denied by user.".into())
+        );
+
+        // 5. Nobody answers → Denied after the timeout; never hangs.
+        let mut c5 = cancel.clone();
+        let t0 = Instant::now();
+        let out = resolve_tool_approval(
+            pending.clone(),
+            pre_approved.clone(),
+            pre_denied.clone(),
+            "t5",
+            short,
+            &mut c5,
+        )
+        .await;
+        assert!(t0.elapsed() >= short, "timeout must actually wait");
+        assert!(
+            matches!(&out, ApprovalOutcome::Denied(msg) if msg.contains("not approved within")),
+            "got: {out:?}"
+        );
+
+        // 6. Esc during the wait interrupts.
+        let f6 = {
+            let p = pending.clone();
+            let pa = pre_approved.clone();
+            let pd = pre_denied.clone();
+            let mut c = cancel.clone();
+            tokio::spawn(async move { resolve_tool_approval(p, pa, pd, "t6", short, &mut c).await })
+        };
+        tokio::time::sleep(Duration::from_millis(20)).await;
+        tx.send(true).unwrap();
+        assert_eq!(f6.await.unwrap(), ApprovalOutcome::Interrupted);
+
+        // 7. Pending entry removed while waiting (stale cleanup) → closed
+        //    channel → Denied rather than hanging. Own cancel channel so the
+        //    earlier send(true) doesn't pre-interrupt it.
+        let (_tx7, mut cancel7) = tokio::sync::watch::channel(false);
+        let f7 = {
+            let p = pending.clone();
+            let pa = pre_approved.clone();
+            let pd = pre_denied.clone();
+            let mut c = cancel7.clone();
+            tokio::spawn(async move { resolve_tool_approval(p, pa, pd, "t7", short, &mut c).await })
+        };
+        tokio::time::sleep(Duration::from_millis(20)).await; // let it register
+        pending.lock().await.remove("t7");
+        assert!(
+            matches!(f7.await.unwrap(), ApprovalOutcome::Denied(_)),
+            "closed channel must deny, not hang"
+        );
     }
 
     #[test]
