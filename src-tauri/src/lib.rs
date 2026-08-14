@@ -17,6 +17,9 @@ pub struct Settings {
     /// comes back rate-limited (HTTP 429/402/529).
     pub api_keys: HashMap<String, Vec<String>>,
     pub disabled_plugins: Vec<String>,
+    /// Plugin ids the app has loaded at least once — anything NOT in this
+    /// list is a first-time plugin and starts DISABLED.
+    pub seen_plugins: Vec<String>,
     pub notifications_enabled: bool,
     pub verification: VerificationSettings,
 }
@@ -58,6 +61,7 @@ impl Default for Settings {
         Self {
             api_keys: HashMap::new(),
             disabled_plugins: Vec::new(),
+            seen_plugins: Vec::new(),
             notifications_enabled: true,
             verification: VerificationSettings::default(),
         }
@@ -155,8 +159,16 @@ pub fn run() {
             registry.register(providers::openai_compat::deepseek());
             registry.register(providers::openai_compat::opencode_go());
 
-            let plugin_manager =
-                plugins::PluginManager::new(plugins_dir.clone(), settings.disabled_plugins.clone());
+            let plugin_manager = plugins::PluginManager::new(
+                plugins_dir.clone(),
+                settings.disabled_plugins.clone(),
+                settings.seen_plugins.clone(),
+            );
+            // First-time plugins start DISABLED: anything on disk that was
+            // never seen before (installed while the app was closed) is
+            // disabled before the UI loads. Existing plugins were seeded as
+            // seen at construction and keep their state.
+            let new_plugins_seen = plugin_manager.register_new_plugins();
             // Symlinked plugin entries (dev workflow: plugin lives in an
             // untracked folder, linked in with `ln -s`) — watch their real
             // targets explicitly since notify doesn't follow symlinks.
@@ -189,6 +201,13 @@ pub fn run() {
                 plugins: plugin_manager,
             });
 
+            // Persist the seen/disabled state from the startup sweep (a
+            // first-time plugin found on disk was just disabled).
+            if new_plugins_seen {
+                let state = app.handle().state::<AppState>();
+                crate::save_settings(&state);
+            }
+
             // Model discovery for the built-in providers (Anthropic /v1/models,
             // DeepSeek and local /v1/models). Runs detached; results replace the
             // static fallbacks and emit providers:changed so the UI refreshes.
@@ -214,6 +233,11 @@ pub fn run() {
                         &api_keys,
                         &handle,
                     );
+                    // A plugin folder added at runtime is first-time: disable
+                    // it before the frontend re-scans, and persist the state.
+                    if state.plugins.register_new_plugins() {
+                        crate::save_settings(&state);
+                    }
                     let _ = handle.emit(
                         "plugin:reload",
                         serde_json::json!({ "version": chrono::Utc::now().timestamp_millis() }),
@@ -270,7 +294,7 @@ pub fn run() {
         .expect("error while running tauri application");
 }
 
-/// Persist settings.json (api_keys + disabled_plugins + verification).
+/// Persist settings.json (api_keys + disabled/seen plugins + verification).
 pub fn save_settings(state: &AppState) {
     let settings = state.settings.read().unwrap();
     write_settings(
@@ -283,6 +307,7 @@ pub fn save_settings(state: &AppState) {
         // the live list — not the startup-time Settings snapshot — is what
         // makes plugins remember their state across restarts.
         &state.plugins.disabled_ids(),
+        &state.plugins.seen_ids(),
     );
 }
 
@@ -293,10 +318,12 @@ fn write_settings(
     notifications_enabled: bool,
     verification: &VerificationSettings,
     disabled_plugins: &[String],
+    seen_plugins: &[String],
 ) {
     let json = serde_json::json!({
         "api_keys": api_keys,
         "disabled_plugins": disabled_plugins,
+        "seen_plugins": seen_plugins,
         "notifications_enabled": notifications_enabled,
         "verification": {
             "enabled": verification.enabled,
@@ -350,6 +377,16 @@ fn load_settings(path: &std::path::Path) -> Settings {
                         .collect()
                 })
                 .unwrap_or_default();
+            // Plugin ids the app has loaded before. Missing/empty on the
+            // upgrade run — PluginManager seeds on-disk plugins there.
+            let seen_plugins = v["seen_plugins"]
+                .as_array()
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(|x| x.as_str().map(|s| s.to_string()))
+                        .collect()
+                })
+                .unwrap_or_default();
             let notifications_enabled = v["notifications_enabled"].as_bool().unwrap_or(true);
             // Verification settings: each field falls back to its default when
             // missing (older settings.json files won't have the object at all).
@@ -374,6 +411,7 @@ fn load_settings(path: &std::path::Path) -> Settings {
             Settings {
                 api_keys: keys,
                 disabled_plugins,
+                seen_plugins,
                 notifications_enabled,
                 verification,
             }
@@ -418,10 +456,18 @@ mod tests {
             vec!["sk-test".to_string(), "sk-test-2".to_string()],
         );
         // A disable toggle persisted the PluginManager's live list:
-        write_settings(&path, &keys, false, &VerificationSettings::default(), &["demo".to_string()]);
-        // Restart: load_settings must restore the exact disabled set + keys.
+        write_settings(
+            &path,
+            &keys,
+            false,
+            &VerificationSettings::default(),
+            &["demo".to_string()],
+            &["demo".to_string(), "zen".to_string()],
+        );
+        // Restart: load_settings must restore the exact disabled/seen sets + keys.
         let loaded = load_settings(&path);
         assert_eq!(loaded.disabled_plugins, vec!["demo"]);
+        assert_eq!(loaded.seen_plugins, vec!["demo", "zen"]);
         assert_eq!(
             loaded.api_keys.get("anthropic").unwrap(),
             &vec!["sk-test".to_string(), "sk-test-2".to_string()]
@@ -451,7 +497,14 @@ mod tests {
         );
         assert!(!loaded.api_keys.contains_key("deepseek"));
         // The array format round-trips as-is.
-        write_settings(&path, &loaded.api_keys, true, &VerificationSettings::default(), &[]);
+        write_settings(
+            &path,
+            &loaded.api_keys,
+            true,
+            &VerificationSettings::default(),
+            &[],
+            &[],
+        );
         let again = load_settings(&path);
         assert_eq!(
             again.api_keys.get("anthropic").unwrap(),

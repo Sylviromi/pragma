@@ -4,6 +4,7 @@ pub mod watcher;
 
 use manifest::{load_manifest_from_dir, Contributes, PluginManifest};
 use serde::Serialize;
+use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::RwLock;
 
@@ -53,14 +54,84 @@ pub struct PluginInfo {
 pub struct PluginManager {
     pub dir: PathBuf,
     disabled: RwLock<Vec<String>>,
+    /// Plugin ids that have been loaded before (persisted in settings.json as
+    /// `seen_plugins`). A plugin whose id is NOT in this set has never been
+    /// seen — it starts DISABLED (see `register_new_plugins`).
+    seen: RwLock<HashSet<String>>,
 }
 
 impl PluginManager {
-    pub fn new(dir: PathBuf, disabled: Vec<String>) -> Self {
-        Self {
+    /// `seen` = plugin ids already known to the app (persisted). Existing
+    /// on-disk plugins are automatically treated as seen (upgrade migration:
+    /// they keep their current enabled state); only plugins whose folders
+    /// appear AFTER this point start disabled.
+    pub fn new(dir: PathBuf, disabled: Vec<String>, seen: Vec<String>) -> Self {
+        let m = Self {
             dir,
             disabled: RwLock::new(disabled),
+            seen: RwLock::new(seen.into_iter().collect()),
+        };
+        m.seed_existing();
+        m
+    }
+
+    /// Mark everything currently on disk as seen WITHOUT touching enabled
+    /// state — the upgrade migration. A brand-new install has nothing to
+    /// seed; a pre-existing plugins dir keeps its plugins enabled as before.
+    fn seed_existing(&self) {
+        for id in self.scan_ids() {
+            self.seen.write().unwrap().insert(id);
         }
+    }
+
+    /// First-time plugins start DISABLED. Every discoverable plugin id that
+    /// is not in `seen` is recorded and added to the disabled list — the user
+    /// explicitly enables it in Settings → Plugins. Returns true when
+    /// anything changed (the caller persists settings). Idempotent.
+    pub fn register_new_plugins(&self) -> bool {
+        let mut changed = false;
+        let mut seen = self.seen.write().unwrap();
+        let mut disabled = self.disabled.write().unwrap();
+        for id in self.scan_ids() {
+            if seen.insert(id.clone()) {
+                if !disabled.contains(&id) {
+                    disabled.push(id);
+                }
+                changed = true;
+            }
+        }
+        changed
+    }
+
+    /// Plugin ids that have been seen at least once (for settings.json).
+    pub fn seen_ids(&self) -> Vec<String> {
+        let mut v: Vec<String> = self.seen.read().unwrap().iter().cloned().collect();
+        v.sort();
+        v
+    }
+
+    /// Discoverable plugin ids: folder names with a valid manifest whose
+    /// declared id matches the folder name (mirrors `list()`'s filtering).
+    fn scan_ids(&self) -> Vec<String> {
+        let Ok(entries) = std::fs::read_dir(&self.dir) else {
+            return Vec::new();
+        };
+        let mut ids: Vec<String> = entries
+            .filter_map(|e| e.ok())
+            .filter(|e| {
+                std::fs::metadata(e.path())
+                    .map(|m| m.is_dir())
+                    .unwrap_or(false)
+            })
+            .filter_map(|e| e.file_name().into_string().ok())
+            .filter(|id| {
+                load_manifest_from_dir(&self.dir.join(id))
+                    .map(|m| m.id == *id)
+                    .unwrap_or(false)
+            })
+            .collect();
+        ids.sort();
+        ids
     }
 
     pub fn plugin_dir(&self, id: &str) -> PathBuf {
@@ -337,7 +408,7 @@ mod tests {
             }
             std::fs::write(path, content).unwrap();
         }
-        (PluginManager::new(dir.path().to_path_buf(), vec![]), dir)
+        (PluginManager::new(dir.path().to_path_buf(), vec![], vec![]), dir)
     }
     #[test]
     fn lists_plugins_and_flags() {
@@ -503,5 +574,74 @@ mod tests {
             list.iter().map(|p| &p.id).collect::<Vec<_>>()
         );
         assert!(list.iter().any(|p| p.id == "real"));
+    }
+
+    #[test]
+    fn first_time_plugins_start_disabled() {
+        let dir = tempfile::tempdir().unwrap();
+        let m = PluginManager::new(dir.path().to_path_buf(), vec![], vec![]);
+        // A plugin folder appears AFTER startup (installed while running).
+        std::fs::create_dir_all(dir.path().join("brand-new")).unwrap();
+        std::fs::write(
+            dir.path().join("brand-new/manifest.json"),
+            r#"{"id":"brand-new","name":"BN","version":"1"}"#,
+        )
+        .unwrap();
+        assert!(m.register_new_plugins(), "first-time plugin registers as new");
+        let p = m.list().into_iter().find(|p| p.id == "brand-new").unwrap();
+        assert!(!p.enabled, "first-time plugin starts DISABLED");
+        assert!(m.seen_ids().contains(&"brand-new".to_string()));
+        assert!(m.disabled_ids().contains(&"brand-new".to_string()));
+        // Idempotent: a second sweep changes nothing.
+        assert!(!m.register_new_plugins());
+    }
+
+    #[test]
+    fn existing_plugins_keep_their_state_after_upgrade() {
+        // Upgrade run: empty seen list, plugins already on disk. Construction
+        // seeds them as seen, so they keep their current enabled state.
+        let (m, _dir) = mk_manager(vec![(
+            "demo/manifest.json",
+            r#"{"id":"demo","name":"Demo","version":"1"}"#,
+        )]);
+        assert!(
+            !m.register_new_plugins(),
+            "on-disk plugins were seeded — nothing new to disable"
+        );
+        assert!(m.list()[0].enabled, "existing plugin stays enabled");
+        assert!(m.seen_ids().contains(&"demo".to_string()));
+    }
+
+    #[test]
+    fn explicitly_enabled_plugin_is_not_re_disabled() {
+        // User enabled a first-time-disabled plugin; a later sweep must not
+        // flip it back off.
+        let dir = tempfile::tempdir().unwrap();
+        let m = PluginManager::new(dir.path().to_path_buf(), vec![], vec![]);
+        std::fs::create_dir_all(dir.path().join("p1")).unwrap();
+        std::fs::write(
+            dir.path().join("p1/manifest.json"),
+            r#"{"id":"p1","name":"P1","version":"1"}"#,
+        )
+        .unwrap();
+        assert!(m.register_new_plugins());
+        assert!(!m.list()[0].enabled);
+        // User enables it (removes from disabled). seen still contains p1.
+        m.set_disabled("p1", false);
+        assert!(!m.register_new_plugins(), "no NEW plugins — p1 already seen");
+        assert!(m.list()[0].enabled, "explicitly enabled plugin stays enabled");
+    }
+
+    #[test]
+    fn disabled_list_from_settings_is_respected() {
+        // A plugin that was already disabled before the change stays disabled.
+        let (m, _dir) = mk_manager(vec![(
+            "demo/manifest.json",
+            r#"{"id":"demo","name":"Demo","version":"1"}"#,
+        )]);
+        let m = PluginManager::new(m.dir.clone(), vec!["demo".to_string()], vec![]);
+        assert!(m.list()[0].enabled == false);
+        assert!(!m.register_new_plugins());
+        assert!(!m.list()[0].enabled);
     }
 }

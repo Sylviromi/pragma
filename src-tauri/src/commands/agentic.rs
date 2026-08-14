@@ -2680,6 +2680,7 @@ mod tests {
         let mgr = crate::plugins::PluginManager::new(
             std::env::temp_dir().join(format!("pragma-test-{}", std::process::id())),
             vec![],
+            vec![],
         );
         let git = skill_tool_definitions(&mgr, "git");
         assert!(git.iter().any(|t| t.name == "git_status"));
@@ -2736,7 +2737,7 @@ rl.on('line', (line) => {
         )
         .unwrap();
 
-        let mgr = crate::plugins::PluginManager::new(dir.path().to_path_buf(), vec![]);
+        let mgr = crate::plugins::PluginManager::new(dir.path().to_path_buf(), vec![], vec![]);
         let reg = crate::tools::sidecar::SkillSidecarRegistry::new();
 
         // The exact call load_skill makes mid-run — must register the sidecar

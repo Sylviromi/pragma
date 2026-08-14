@@ -815,7 +815,7 @@ rl.on('line', (line) => {
         std::fs::write(sk.join("skill.md"), "doc").unwrap();
         std::fs::write(sk.join("handler.js"), handler).unwrap();
         std::fs::write(sk.join("tools.json"), tools).unwrap();
-        (PluginManager::new(dir.path().to_path_buf(), vec![]), dir)
+        (PluginManager::new(dir.path().to_path_buf(), vec![], vec![]), dir)
     }
 
     #[tokio::test]
@@ -918,7 +918,7 @@ rl.on('line', (line) => {
         }
         let dir = tempfile::tempdir().unwrap();
         write_frontend_dev_plugin(dir.path());
-        let mgr = PluginManager::new(dir.path().to_path_buf(), vec![]);
+        let mgr = PluginManager::new(dir.path().to_path_buf(), vec![], vec![]);
 
         let skill = mgr
             .skill("frontend-dev/frontend-dev")
@@ -1037,7 +1037,7 @@ rl.on('line', (line) => {
         // dir = <repo>/plugins/pragma-dev → plugins dir = dir.parent(), repo = grandparent.
         let plugins_dir = dir.parent().unwrap();
         let repo = plugins_dir.parent().unwrap();
-        let mgr = PluginManager::new(plugins_dir.to_path_buf(), vec![]);
+        let mgr = PluginManager::new(plugins_dir.to_path_buf(), vec![], vec![]);
 
         let skill = mgr
             .skill("pragma-dev/pragma-dev")

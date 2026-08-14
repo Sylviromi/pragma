@@ -5,6 +5,11 @@ use tauri::Emitter;
 pub async fn list_plugins(
     state: tauri::State<'_, AppState>,
 ) -> Result<Vec<crate::plugins::PluginInfo>, String> {
+    // Safety net for first-time plugins: if a new folder slipped in without a
+    // watcher event, sweep it now (disables it) before the UI renders.
+    if state.plugins.register_new_plugins() {
+        crate::save_settings(&state);
+    }
     Ok(state.plugins.list())
 }
 
