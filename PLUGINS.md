@@ -146,6 +146,7 @@ export default class MyPlugin extends HTMLElement {
 
 | Slot | Location | Use Case |
 |------|----------|----------|
+| `chat-view` | Replaces the whole message list | Full custom conversation surface (owns the composer too — when a plugin claims it, the default `InputArea` is hidden) |
 | `input-toolbar` | Next to the message input | Quick action buttons |
 | `chat-toolbar-extra` | Right side of chat controls | Extra chat actions |
 | `model-picker-extra` | Below model selector | Provider info, status |
@@ -162,6 +163,26 @@ Plugins can call any registered Tauri command:
 const { invoke } = window.__TAURI__.core
 const result = await invoke('command_name', { arg1: 'value' })
 ```
+
+### Rendering Markdown Like the App
+
+The host exposes its own markdown renderer (the `marked`-based one from
+`src/lib/markdown.ts`) on `window.__pragmaMarkdown` so plugin bubbles can render
+model text identically to the built-in chat — no need to vendor a parser:
+
+```javascript
+const md = window.__pragmaMarkdown  // { renderMarkdown, segmentsOf, withCaret }
+const segs = md.segmentsOf(text)     // split fenced code blocks from prose
+for (const seg of segs) {
+  if (seg.kind === 'code')  /* render <pre> with escaped text */
+  else                      html += md.renderMarkdown(seg.text)  // safe HTML
+}
+```
+
+`renderMarkdown` HTML-escapes input and sanitizes links/images (http/https/mailto
+only) exactly like the built-in chat. The bridge is installed once at app mount;
+check `typeof md.renderMarkdown === 'function'` before using it and fall back to
+plain text when absent (e.g. very old builds).
 
 ### Listening to Events
 

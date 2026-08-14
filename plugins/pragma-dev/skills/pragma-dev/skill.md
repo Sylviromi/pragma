@@ -33,6 +33,10 @@ it before cross-module work.
 ```
 src/lib/tauri.ts                 All Tauri invoke() wrappers (mock<T>() falls back in browser mock mode)
 src/lib/types.ts                 Shared TS types (Session, Message, AgentEvent, ProviderInfo, SkillInfo…)
+src/lib/markdown.ts              safe markdown for model output (marked: escape-then-sanitize);
+                                 installMarkdownPluginBridge() exposes {renderMarkdown, segmentsOf, withCaret}
+                                 on window.__pragmaMarkdown (installed in +layout.svelte) so plugins render
+                                 model text with the exact same renderer — plugins never vendor a parser
 src/stores/chat.svelte.ts        Chat state — streaming, tool items, approval, SAFE_TOOLS set, working_dir sync
 src/stores/sessions.svelte.ts    Sessions list + tab management
 src/components/                  ChatPanel (root per-tab: StatusBar + MessageList + InputArea), ChatMessage,
@@ -150,7 +154,10 @@ session_usage(id, session_id, model, provider, input_tokens, output_tokens, cost
 - `manifest.json` — id (lowercase, = folder name), name, version, contributes: {providers, slots, commands, skills}. Legacy `contributes.skills` kept for compatibility; modern skills live in `skills/<id>/` and are auto-discovered.
 - `skills/<id>/` — `skill.md` (reference, loaded on demand via load_skill), `tools.json` (model-facing schemas — authoritative), `handler.js` (Node sidecar implementing them, JSON-RPC over stdio).
 - `provider.json` — optional OpenAI-compat model registration (auth "api-key"|"none", discover, reasoningEffort, per-model supportsThinking/thinkingBudget/maxTokens).
-- `component.js` — ES module Web Component for UI slots: `input-toolbar`, `chat-toolbar-extra`, `model-picker-extra`, `status-bar`, `composer-center`, `sidebar-section`, `settings-page`.
+- `component.js` — ES module Web Component for UI slots: `chat-view` (replaces the
+  whole message list AND owns the composer — the default InputArea is hidden when a
+  plugin claims it), `input-toolbar`, `chat-toolbar-extra`, `model-picker-extra`,
+  `status-bar`, `composer-center`, `sidebar-section`, `settings-page`.
 - `config.json` — plugin-scoped persistent config via `get/set_plugin_config` commands.
 - Enable/disable is persisted app-wide in `settings.json` (`disabled_plugins`), toggled from
   Settings → Plugins. The PluginManager's live list is the source of truth;
