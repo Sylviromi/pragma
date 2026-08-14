@@ -22,13 +22,16 @@
 
 <div class="panel">
   {#if chatViewPlugin}
+    <!-- A `chat-view` plugin owns the whole panel: conversation AND composer
+         (it forces its own send path, e.g. auto-approve always on). The default
+         InputArea is hidden so the plugin's composer is the only one shown. -->
     <div class="chat-view-slot">
       <PluginSlot slot="chat-view" context={sessionId} pluginId={chatViewPlugin.id} />
     </div>
   {:else}
     <MessageList {sessionId} />
+    <InputArea {sessionId} />
   {/if}
-  <InputArea {sessionId} />
 </div>
 
 <style>
@@ -43,5 +46,9 @@
     flex: 1;
     min-height: 0;
     overflow: hidden;
+    /* Let the plugin host flex-fill instead of relying on height:100%
+       through the display:contents wrapper (collapses in WebKitGTK). */
+    display: flex;
+    flex-direction: column;
   }
 </style>
