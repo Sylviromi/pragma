@@ -18,7 +18,6 @@
   import PluginConfirmModal from '../components/PluginConfirmModal.svelte';
   import { onMount } from 'svelte';
   import { loadPlugins, initPluginEvents } from '../stores/plugins.svelte';
-  import { reconnectRunningSessions } from '../stores/chat.svelte';
   import { initStatsEvents } from '../stores/stats.svelte';
   import { initTheme, applyTheme, theme } from '../stores/theme.svelte';
 
@@ -28,7 +27,6 @@
     initTheme();
     initPluginEvents();
     loadPlugins();
-    reconnectRunningSessions();
     initStatsEvents();
   });
 

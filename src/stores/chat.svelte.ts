@@ -1,8 +1,6 @@
 import {
   runAgenticLoop,
-  listenAgentEvents,
   getRunningSessionIds,
-  getPendingApprovals,
   listMessages as fetchMessages,
   approveTool as apiApprove,
   denyTool as apiDeny,
@@ -13,119 +11,6 @@ import {
 import type { AgentEvent, Message, RevertSummary, ThinkingPref, VerificationInfo } from '../lib/types'
 import { sessions } from './sessions.svelte'
 import { pushToast } from './toast.svelte'
-// Unlisten functions keyed by sessionId — outlive component HMR reloads.
-const _listeners = new Map<string, () => void>()
-
-// --- sessionStorage persistence for live turn state ---
-// Survives Vite HMR module reloads so in-progress turns aren't wiped.
-//
-// IMPORTANT: writes are DEBOUNCED, not per-token. sessionStorage in
-// WebKitGTK goes through synchronous IPC to the network process, and the
-// payload here grows with the streamed text (up to hundreds of KB per turn).
-// Writing on every token event means 30–50 blocking round-trips + O(n²)
-// JSON.stringify per second on the UI thread — the main cause of UI jank
-// while the agent is generating. Debouncing to a few writes/second and
-// flushing at turn boundaries keeps the state HMR-safe without the stall.
-
-const LIVE_SAVE_DEBOUNCE_MS = 250
-const _liveSaveTimers = new Map<string, ReturnType<typeof setTimeout>>()
-
-/** Write the current live turn state synchronously (cheap/rare paths only). */
-function persistLiveState(sessionId: string) {
-  const timer = _liveSaveTimers.get(sessionId)
-  if (timer) {
-    clearTimeout(timer)
-    _liveSaveTimers.delete(sessionId)
-  }
-  writeLiveState(sessionId)
-}
-
-function writeLiveState(sessionId: string) {
-  try {
-    sessionStorage.setItem(`pragma:live:${sessionId}`, JSON.stringify({
-      liveBlocks:   chat.liveBlocks[sessionId]   ?? [],
-      toolItems:    chat.toolItems[sessionId]     ?? [],
-      autoApprove:  chat.autoApprove[sessionId]  ?? false,
-      alwaysApprove: [...(chat.alwaysApprove[sessionId] ?? new Set())],
-      pending:      chat.pending[sessionId]       ?? null,
-    }))
-  } catch { /* storage quota — ignore */ }
-}
-
-/** Debounced save — safe to call on every token event. */
-function saveLiveState(sessionId: string) {
-  const existing = _liveSaveTimers.get(sessionId)
-  if (existing) clearTimeout(existing)
-  _liveSaveTimers.set(sessionId, setTimeout(() => {
-    _liveSaveTimers.delete(sessionId)
-    writeLiveState(sessionId)
-  }, LIVE_SAVE_DEBOUNCE_MS))
-}
-
-/** Force an immediate write if one is scheduled (turn boundaries, teardown). */
-function flushLiveState(sessionId: string) {
-  const timer = _liveSaveTimers.get(sessionId)
-  if (!timer) return
-  clearTimeout(timer)
-  _liveSaveTimers.delete(sessionId)
-  writeLiveState(sessionId)
-}
-
-function restoreLiveState(sessionId: string) {
-  try {
-    const raw = sessionStorage.getItem(`pragma:live:${sessionId}`)
-    if (!raw) return
-    const s = JSON.parse(raw)
-    chat.liveBlocks[sessionId]  = s.liveBlocks ?? []
-    chat.toolItems[sessionId]   = s.toolItems  ?? []
-    chat.autoApprove[sessionId] = s.autoApprove ?? false
-    if (Array.isArray(s.alwaysApprove)) {
-      chat.alwaysApprove[sessionId] = new Set(s.alwaysApprove)
-    }
-    // A message queued while the previous loop was still running survives a
-    // reload too — flushed automatically when that loop reports 'done'.
-    if (s.pending && typeof s.pending === 'object' && typeof s.pending.content === 'string') {
-      chat.pending[sessionId] = s.pending
-    }
-  } catch { /* corrupt entry — ignore */ }
-}
-
-function clearLiveState(sessionId: string) {
-  const timer = _liveSaveTimers.get(sessionId)
-  if (timer) {
-    clearTimeout(timer)
-    _liveSaveTimers.delete(sessionId)
-  }
-  sessionStorage.removeItem(`pragma:live:${sessionId}`)
-}
-
-// Clean up all Tauri event listeners before Vite replaces this module.
-// Without this, each HMR cycle adds a new orphaned listener on top of old ones.
-if (import.meta.hot) {
-  import.meta.hot.dispose(() => {
-    for (const [, unlisten] of _listeners) unlisten()
-    _listeners.clear()
-    // Flush any pending live-turn writes so the reload restores the latest state.
-    for (const sessionId of [..._liveSaveTimers.keys()]) {
-      const timer = _liveSaveTimers.get(sessionId)
-      if (timer) clearTimeout(timer)
-      _liveSaveTimers.delete(sessionId)
-      try {
-        sessionStorage.setItem(`pragma:live:${sessionId}`, JSON.stringify({
-          liveBlocks:   chat.liveBlocks[sessionId]   ?? [],
-          toolItems:    chat.toolItems[sessionId]     ?? [],
-          autoApprove:  chat.autoApprove[sessionId]  ?? false,
-          alwaysApprove: [...(chat.alwaysApprove[sessionId] ?? new Set())],
-        }))
-      } catch { /* storage quota — ignore */ }
-    }
-  })
-  window.addEventListener('pagehide', () => {
-    for (const sessionId of [..._liveSaveTimers.keys()]) {
-      flushLiveState(sessionId)
-    }
-  })
-}
 
 export interface ToolItem {
   toolUseId: string
@@ -232,56 +117,6 @@ function notifyTurn(sessionId: string, kind: 'done' | 'error' | 'waiting' | 'que
   }
 }
 
-/** Re-attach to any agentic loops that are still running on the Rust side.
- *  Call this on app startup / after HMR reloads. */
-export async function reconnectRunningSessions() {
-  const ids = await getRunningSessionIds()
-  if (ids.length === 0) return
-
-  // Fetch which tools are actually still waiting for approval in the backend.
-  // Any tool the frontend thinks is "waiting"/"running" that isn't in this set
-  // was already handled before HMR fired and the result event was missed.
-  const pendingIds = new Set(await getPendingApprovals())
-
-  for (const sessionId of ids) {
-    if (_listeners.has(sessionId)) continue // already subscribed
-    // Restore live turn state that was saved before HMR reloaded this module
-    restoreLiveState(sessionId)
-    chat.running[sessionId] = true // backend loop is confirmed running — enforce after restore
-    chat.streamingToken[sessionId] = chat.streamingToken[sessionId] ?? ''
-    if (!chat.liveBlocks[sessionId]) chat.liveBlocks[sessionId] = []
-    if (!chat.toolItems[sessionId])  chat.toolItems[sessionId]  = []
-    // Re-show a queued message's bubble after the reload wiped it (its DB
-    // row doesn't exist yet — it's flushed when the running loop finishes).
-    const pending = chat.pending[sessionId]
-    if (pending && !(chat.messages[sessionId] ?? []).some(m => m.id === pending.optimisticId)) {
-      chat.messages[sessionId] = [
-        ...(chat.messages[sessionId] ?? []),
-        {
-          id: pending.optimisticId,
-          sessionId,
-          role: 'user' as const,
-          content: JSON.stringify(pending.content),
-          model: pending.model,
-          provider: pending.provider,
-          timestamp: new Date().toISOString(),
-          tokens: 0,
-        },
-      ]
-    }
-    // Reconcile stale tool statuses: tools we think are pending but the backend
-    // already processed should be shown as done (their ToolResult event was lost).
-    chat.toolItems[sessionId] = chat.toolItems[sessionId].map(t => {
-      if ((t.status === 'waiting' || t.status === 'running') && !pendingIds.has(t.toolUseId)) {
-        return { ...t, status: 'done' as const }
-      }
-      return t
-    })
-    const unlisten = await listenAgentEvents(sessionId, (ev) => handleEvent(sessionId, ev))
-    _listeners.set(sessionId, unlisten)
-  }
-}
-
 /** End a turn's transient state: stop the spinner and detach the event
  *  listener (if any). The streamed live blocks stay visible until the next
  *  sendMessage (which clears them) or revertToMessage. */
@@ -290,8 +125,6 @@ function finishTurn(sessionId: string) {
   chat.status[sessionId] = 'idle'
   chat.streamingToken[sessionId] = null
   chat.startedAt[sessionId] = 0
-  _listeners.get(sessionId)?.()
-  _listeners.delete(sessionId)
 }
 
 function handleEvent(sessionId: string, ev: AgentEvent) {
@@ -309,7 +142,6 @@ function handleEvent(sessionId: string, ev: AgentEvent) {
       chat.liveBlocks[sessionId] = [...blocks, { type: 'thinking', text: ev.content, done: false }]
     }
     chat.status[sessionId] = 'thinking'
-    saveLiveState(sessionId)
 
   } else if (ev.event === 'thinking_end') {
     // Seal the thought block so the NEXT reasoning chunk opens a new one
@@ -318,7 +150,6 @@ function handleEvent(sessionId: string, ev: AgentEvent) {
     const last = blocks.length > 0 ? blocks[blocks.length - 1] : null
     if (last?.type === 'thinking' && !last.done) {
       chat.liveBlocks[sessionId] = [...blocks.slice(0, -1), { ...last, done: true }]
-      saveLiveState(sessionId)
     }
 
   } else if (ev.event === 'token') {
@@ -335,13 +166,11 @@ function handleEvent(sessionId: string, ev: AgentEvent) {
     } else {
       chat.liveBlocks[sessionId] = [...blocks, { type: 'text', text: ev.content }]
     }
-    saveLiveState(sessionId)
 
   } else if (ev.event === 'tool_call') {
     // ask_question is handled by the `question` event ("Needs your answer"
     // block) — never show a tool card or an approval prompt for it.
     if (ev.name === 'ask_question') {
-      saveLiveState(sessionId)
       return
     }
     const alwaysSet = chat.alwaysApprove[sessionId] ?? new Set<string>()
@@ -367,7 +196,6 @@ function handleEvent(sessionId: string, ev: AgentEvent) {
     if (shouldAutoApprove) {
       apiApprove(ev.toolUseId)
     }
-    saveLiveState(sessionId)
 
   } else if (ev.event === 'tool_result') {
     chat.toolItems[sessionId] = (chat.toolItems[sessionId] ?? []).map(t => {
@@ -376,7 +204,6 @@ function handleEvent(sessionId: string, ev: AgentEvent) {
       return { ...t, output: ev.output, isError: ev.isError, status }
     })
     chat.status[sessionId] = 'generating'
-    saveLiveState(sessionId)
 
   } else if (ev.event === 'question') {
     // The model asked a question — the loop is paused until the user answers
@@ -387,7 +214,6 @@ function handleEvent(sessionId: string, ev: AgentEvent) {
       ...(chat.liveBlocks[sessionId] ?? []),
       { type: 'question', questionId: ev.questionId, text: ev.text, options: ev.options },
     ]
-    saveLiveState(sessionId)
 
   } else if (ev.event === 'working_dir_changed') {
     sessions.list = sessions.list.map(s =>
@@ -397,7 +223,6 @@ function handleEvent(sessionId: string, ev: AgentEvent) {
   } else if (ev.event === 'interrupted') {
     chat.notice[sessionId] = 'Turn interrupted by user.'
     chat.pending[sessionId] = null // respect the stop — don't auto-send later
-    clearLiveState(sessionId)
     finishTurn(sessionId)
     loadMessages(sessionId)
 
@@ -419,7 +244,6 @@ function handleEvent(sessionId: string, ev: AgentEvent) {
     // Harness verification phase (checks → review). Show the phase live.
     chat.verifying[sessionId] = ev.phase
     chat.status[sessionId] = 'verifying'
-    saveLiveState(sessionId)
 
   } else if (ev.event === 'verification_result') {
     chat.verifying[sessionId] = null
@@ -436,10 +260,8 @@ function handleEvent(sessionId: string, ev: AgentEvent) {
       reviewUsed: ev.tokens > 0,
     }
     chat.status[sessionId] = 'verifying'
-    saveLiveState(sessionId)
 
   } else if (ev.event === 'done') {
-    clearLiveState(sessionId)
     // Keep the streamed reasoning — the live thought card collapses to a chip.
     notifyTurn(sessionId, 'done')
     finishTurn(sessionId)
@@ -476,7 +298,6 @@ export async function answerQuestion(sessionId: string, questionId: string, opti
   chat.liveBlocks[sessionId] = blocks.map((b) =>
     b.type === 'question' && b.questionId === questionId ? { ...b, picked: option } : b
   )
-  persistLiveState(sessionId)
   // … then resume the backend loop.
   try {
     await apiAnswerQuestion(questionId, option)
@@ -499,10 +320,11 @@ export async function sendMessage(
   chat.autoApprove[sessionId] = autoApprove
   chat.thinking[sessionId] = thinking
 
-  // A loop from before a reload/reconnect is STILL RUNNING on the backend.
-  // Queue the message and let that turn finish — never wipe its live bubbles
-  // (the thinking bubble the user is watching), never silently drop the text.
-  // flushPending() in the 'done' handler sends it automatically afterwards.
+  // A previous turn is still running on the backend (e.g. a second message
+  // sent while the first loop was still going). Queue the message and let
+  // that turn finish — never wipe its live bubbles (the thinking bubble the
+  // user is watching), never silently drop the text. flushPending() in the
+  // 'done' handler sends it automatically afterwards.
   const runningNow = await getRunningSessionIds()
   if (runningNow.includes(sessionId)) {
     const queued: Message = {
@@ -517,11 +339,7 @@ export async function sendMessage(
     }
     chat.messages[sessionId] = [...(chat.messages[sessionId] ?? []), queued]
     chat.pending[sessionId] = { content, model, provider, workingDir, autoApprove, thinking, optimisticId: queued.id }
-    persistLiveState(sessionId)
     pushToast('A previous turn is still running — your message is queued and will send when it finishes')
-    if (!_listeners.has(sessionId)) {
-      reconnectRunningSessions()
-    }
     return
   }
 
@@ -537,9 +355,6 @@ export async function sendMessage(
   chat.verification[sessionId] = null
   chat.verifying[sessionId] = null
   chat.pending[sessionId] = null // a stale queue entry must not fire later
-  clearLiveState(sessionId)
-  // Save autoApprove immediately so it survives HMR even before the first event arrives
-  persistLiveState(sessionId)
 
   // Show user message immediately — replaced by DB reload on completion
   const optimistic: Message = {
@@ -557,6 +372,12 @@ export async function sendMessage(
   // Set when the backend tells us another loop is already running — in that
   // case the `finally` must leave the running state alone.
   let keepRunning = false
+  // Run token: the startedAt this sendMessage owns. The `finally` below only
+  // finishes the turn if no newer turn replaced it — the 'done'/'error'/
+  // 'interrupted' events and flushPending's follow-up sendMessage all
+  // overwrite startedAt, so a stale finally can never clobber a live loop's
+  // state (running=false, status='idle', streamed text cleared).
+  const runStartedAt = chat.startedAt[sessionId]
 
   try {
     await runAgenticLoop(sessionId, content, model, provider, workingDir, autoApprove, thinking, (ev) => handleEvent(sessionId, ev))
@@ -583,13 +404,9 @@ export async function sendMessage(
       // second app instance) — raced between our check and the invoke. Queue
       // instead of dropping: the optimistic message stays visible as queued.
       chat.pending[sessionId] = { content, model, provider, workingDir, autoApprove, thinking, optimisticId: optimistic.id }
-      persistLiveState(sessionId)
       pushToast('A previous turn is still running — your message is queued and will send when it finishes')
       keepRunning = true
       chat.running[sessionId] = true
-      if (!_listeners.has(sessionId)) {
-        reconnectRunningSessions()
-      }
     } else {
       chat.error[sessionId] = msg || 'Model request failed (no error details provided).'
     }
@@ -597,7 +414,7 @@ export async function sendMessage(
     // Only reset the running flag if this call owned the loop. If we hit the
     // "already running" branch above, the OTHER loop's events own the state.
     // Reasoning is preserved so the thought stays visible after the turn ends.
-    if (!keepRunning) {
+    if (!keepRunning && chat.startedAt[sessionId] === runStartedAt) {
       finishTurn(sessionId)
       loadMessages(sessionId)
     }
@@ -641,7 +458,6 @@ export async function revertToMessage(
   chat.notice[sessionId] = null
   chat.liveBlocks[sessionId] = []
   chat.toolItems[sessionId] = []
-  clearLiveState(sessionId)
   finishTurn(sessionId)
   await loadMessages(sessionId)
   return summary
@@ -651,7 +467,6 @@ export function approveTool(sessionId: string, toolUseId: string) {
   chat.toolItems[sessionId] = (chat.toolItems[sessionId] ?? []).map(t =>
     t.toolUseId === toolUseId ? { ...t, status: 'running' as const } : t
   )
-  persistLiveState(sessionId) // persist before HMR can fire during tool execution
   apiApprove(toolUseId)
 }
 
@@ -659,12 +474,10 @@ export function denyTool(sessionId: string, toolUseId: string) {
   chat.toolItems[sessionId] = (chat.toolItems[sessionId] ?? []).map(t =>
     t.toolUseId === toolUseId ? { ...t, status: 'error' as const, output: 'Denied by user.' } : t
   )
-  persistLiveState(sessionId)
   apiDeny(toolUseId)
 }
 
 export function alwaysApproveTool(sessionId: string, toolName: string) {
   const existing = chat.alwaysApprove[sessionId] ?? new Set<string>()
   chat.alwaysApprove[sessionId] = new Set([...existing, toolName])
-  persistLiveState(sessionId)
 }
