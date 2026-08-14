@@ -154,6 +154,16 @@ export interface PlanItem {
   state: 'todo' | 'active' | 'done'
 }
 
+// Granular toggles for the harness verification layer (Settings → Verification).
+export interface VerificationSettings {
+  enabled: boolean
+  runChecks: boolean
+  independentReview: boolean
+  maxRounds: number
+  reviewerModel: string | null
+  testCommand: string | null
+}
+
 export interface TouchedFile {
   path: string
   kind: 'read' | 'edited' | 'created' | 'deleted'

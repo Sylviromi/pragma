@@ -1,3 +1,4 @@
+use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
@@ -17,6 +18,39 @@ pub struct Settings {
     pub api_keys: HashMap<String, Vec<String>>,
     pub disabled_plugins: Vec<String>,
     pub notifications_enabled: bool,
+    pub verification: VerificationSettings,
+}
+
+/// Granular toggles for the harness verification layer (runs at loop-done:
+/// deterministic project checks + one small asymmetric LLM review).
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VerificationSettings {
+    /// Master switch — verification phase entirely on/off.
+    pub enabled: bool,
+    /// Run the project's checks (cargo test / npm test …) — deterministic, no LLM.
+    pub run_checks: bool,
+    /// Independent LLM review pass (task + diff + check output only, no conversation).
+    pub independent_review: bool,
+    /// Max fix rounds fed back to the agent before surfacing the report (0 = report only).
+    pub max_rounds: u32,
+    /// Override model for the reviewer call (defaults to the session model).
+    pub reviewer_model: Option<String>,
+    /// Override test command (defaults to auto-detection from the project).
+    pub test_command: Option<String>,
+}
+
+impl Default for VerificationSettings {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            run_checks: true,
+            independent_review: true,
+            max_rounds: 2,
+            reviewer_model: None,
+            test_command: None,
+        }
+    }
 }
 
 impl Default for Settings {
@@ -25,6 +59,7 @@ impl Default for Settings {
             api_keys: HashMap::new(),
             disabled_plugins: Vec::new(),
             notifications_enabled: true,
+            verification: VerificationSettings::default(),
         }
     }
 }
@@ -211,6 +246,8 @@ pub fn run() {
             commands::stats::get_session_stats,
             commands::providers::save_api_keys,
             commands::providers::get_api_keys,
+            commands::providers::get_verification_settings,
+            commands::providers::set_verification_settings,
             commands::plugins::list_plugins,
             commands::plugins::set_plugin_enabled,
             commands::plugins::read_plugin_component,
@@ -233,13 +270,14 @@ pub fn run() {
         .expect("error while running tauri application");
 }
 
-/// Persist settings.json (api_keys + disabled_plugins).
+/// Persist settings.json (api_keys + disabled_plugins + verification).
 pub fn save_settings(state: &AppState) {
     let settings = state.settings.read().unwrap();
     write_settings(
         &state.settings_path,
         &settings.api_keys,
         settings.notifications_enabled,
+        &settings.verification,
         // PluginManager is the single source of truth for plugin on/off state:
         // toggles mutate its internal list (set_plugin_enabled), so persisting
         // the live list — not the startup-time Settings snapshot — is what
@@ -253,12 +291,21 @@ fn write_settings(
     path: &std::path::Path,
     api_keys: &HashMap<String, Vec<String>>,
     notifications_enabled: bool,
+    verification: &VerificationSettings,
     disabled_plugins: &[String],
 ) {
     let json = serde_json::json!({
         "api_keys": api_keys,
         "disabled_plugins": disabled_plugins,
         "notifications_enabled": notifications_enabled,
+        "verification": {
+            "enabled": verification.enabled,
+            "run_checks": verification.run_checks,
+            "independent_review": verification.independent_review,
+            "max_rounds": verification.max_rounds,
+            "reviewer_model": verification.reviewer_model,
+            "test_command": verification.test_command,
+        },
     });
     let _ = std::fs::write(path, serde_json::to_string_pretty(&json).unwrap());
 }
@@ -304,10 +351,31 @@ fn load_settings(path: &std::path::Path) -> Settings {
                 })
                 .unwrap_or_default();
             let notifications_enabled = v["notifications_enabled"].as_bool().unwrap_or(true);
+            // Verification settings: each field falls back to its default when
+            // missing (older settings.json files won't have the object at all).
+            let def = VerificationSettings::default();
+            let vv = &v["verification"];
+            let verification = VerificationSettings {
+                enabled: vv["enabled"].as_bool().unwrap_or(def.enabled),
+                run_checks: vv["run_checks"].as_bool().unwrap_or(def.run_checks),
+                independent_review: vv["independent_review"]
+                    .as_bool()
+                    .unwrap_or(def.independent_review),
+                max_rounds: vv["max_rounds"].as_u64().unwrap_or(def.max_rounds as u64) as u32,
+                reviewer_model: vv["reviewer_model"]
+                    .as_str()
+                    .filter(|s| !s.is_empty())
+                    .map(|s| s.to_string()),
+                test_command: vv["test_command"]
+                    .as_str()
+                    .filter(|s| !s.is_empty())
+                    .map(|s| s.to_string()),
+            };
             Settings {
                 api_keys: keys,
                 disabled_plugins,
                 notifications_enabled,
+                verification,
             }
         })
         .unwrap_or_default()
@@ -350,7 +418,7 @@ mod tests {
             vec!["sk-test".to_string(), "sk-test-2".to_string()],
         );
         // A disable toggle persisted the PluginManager's live list:
-        write_settings(&path, &keys, false, &["demo".to_string()]);
+        write_settings(&path, &keys, false, &VerificationSettings::default(), &["demo".to_string()]);
         // Restart: load_settings must restore the exact disabled set + keys.
         let loaded = load_settings(&path);
         assert_eq!(loaded.disabled_plugins, vec!["demo"]);
@@ -383,12 +451,15 @@ mod tests {
         );
         assert!(!loaded.api_keys.contains_key("deepseek"));
         // The array format round-trips as-is.
-        write_settings(&path, &loaded.api_keys, true, &[]);
+        write_settings(&path, &loaded.api_keys, true, &VerificationSettings::default(), &[]);
         let again = load_settings(&path);
         assert_eq!(
             again.api_keys.get("anthropic").unwrap(),
             &vec!["sk-old".to_string()]
         );
+        // Verification settings round-trip through the file.
+        assert!(again.verification.enabled);
+        assert_eq!(again.verification.max_rounds, 2);
     }
 
     #[test]

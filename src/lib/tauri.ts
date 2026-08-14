@@ -1,6 +1,6 @@
 import { invoke as tauriInvoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
-import type { Session, Message, ProviderInfo, AgentEvent, RevertInfo, RevertSummary, SessionStats, ThinkingPref } from './types'
+import type { Session, Message, ProviderInfo, AgentEvent, RevertInfo, RevertSummary, SessionStats, ThinkingPref, VerificationSettings } from './types'
 import {
   isBrowserMock,
   mockSessions,
@@ -51,6 +51,24 @@ export const listProviders = () => mock<ProviderInfo[]>(mockProviders, 'list_pro
 /** Save a provider's API key list (rotation order — first is primary). */
 export const saveApiKeys = (provider: string, keys: string[]) => tauriInvoke<void>('save_api_keys', { provider, keys })
 export const getApiKeys = () => mock<Record<string, string[]>>({}, 'get_api_keys')
+
+// ── Verification settings ──────────────────────────────────────────────────
+export const getVerificationSettings = (): Promise<VerificationSettings> =>
+  isBrowserMock
+    ? Promise.resolve({
+        enabled: true,
+        runChecks: true,
+        independentReview: true,
+        maxRounds: 2,
+        reviewerModel: null,
+        testCommand: null,
+      })
+    : tauriInvoke<VerificationSettings>('get_verification_settings')
+
+export const setVerificationSettings = (settings: VerificationSettings) =>
+  isBrowserMock
+    ? Promise.resolve()
+    : tauriInvoke<void>('set_verification_settings', { settings })
 
 export const approveTool = (toolUseId: string) => tauriInvoke<void>('approve_tool', { toolUseId })
 export const denyTool = (toolUseId: string) => tauriInvoke<void>('deny_tool', { toolUseId })

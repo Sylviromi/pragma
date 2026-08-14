@@ -8,6 +8,7 @@
     { label: 'General', href: '/settings/general' },
     { label: 'Providers', href: '/settings/providers' },
     { label: 'Skills', href: '/settings/skills' },
+    { label: 'Verification', href: '/settings/verification' },
     { label: 'Plugins', href: '/settings/plugins' },
     { label: 'Shortcuts', href: '/settings/shortcuts' },
     { label: 'Appearance', href: '/settings/appearance' }

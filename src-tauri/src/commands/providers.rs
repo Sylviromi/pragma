@@ -41,3 +41,25 @@ pub async fn get_api_keys(
 ) -> Result<std::collections::HashMap<String, Vec<String>>, String> {
     Ok(state.settings.read().unwrap().api_keys.clone())
 }
+
+/// Granular settings for the harness verification layer (loop-done checks +
+/// independent review). Persisted to settings.json alongside the rest.
+#[tauri::command]
+pub async fn get_verification_settings(
+    state: tauri::State<'_, AppState>,
+) -> Result<crate::VerificationSettings, String> {
+    Ok(state.settings.read().unwrap().verification.clone())
+}
+
+#[tauri::command]
+pub async fn set_verification_settings(
+    settings: crate::VerificationSettings,
+    state: tauri::State<'_, AppState>,
+) -> Result<(), String> {
+    let mut s = settings;
+    // Sanity-clamp the retry rounds (the reviewer loop must never run away).
+    s.max_rounds = s.max_rounds.min(5);
+    state.settings.write().unwrap().verification = s;
+    crate::save_settings(&state);
+    Ok(())
+}
