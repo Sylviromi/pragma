@@ -1797,7 +1797,12 @@ You converse with the user in turns. In each turn you can write text and call to
                                 ex.execute(&name_arg, &input_arg)
                             })
                             .await;
-                            (*i, id, name, res)
+                            // NOTE: `i` is the index into `plain_queue`, NOT into
+                            // the filtered `read_only` list — never index
+                            // `read_only[i]` with it (a mutating tool earlier in
+                            // the batch makes read_only shorter, which used to
+                            // panic). Carry the input through instead.
+                            (*i, id, name, input, res)
                         }
                     })
                     .collect();
@@ -1807,7 +1812,7 @@ You converse with the user in turns. In each turn you can write text and call to
                 loop {
                     tokio::select! {
                         maybe = futs.next() => {
-                            let Some((i, id, name, res)) = maybe else { break };
+                            let Some((i, id, name, input, res)) = maybe else { break };
                             completed.insert(i);
                             let (mut output, is_error) = match res {
                                 Ok(Ok(out)) => {
@@ -1815,7 +1820,7 @@ You converse with the user in turns. In each turn you can write text and call to
                                         &state.db,
                                         session_id,
                                         &name,
-                                        &read_only[i].3,
+                                        &input,
                                     )
                                     .await;
                                     (out, false)
