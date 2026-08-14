@@ -21,10 +21,12 @@
   import { reconnectRunningSessions } from '../stores/chat.svelte';
   import { initStatsEvents } from '../stores/stats.svelte';
   import { initTheme, applyTheme, theme } from '../stores/theme.svelte';
+  import { installMarkdownPluginBridge } from '../lib/markdown';
 
   let { children } = $props();
 
   onMount(() => {
+    installMarkdownPluginBridge();
     initTheme();
     initPluginEvents();
     loadPlugins();

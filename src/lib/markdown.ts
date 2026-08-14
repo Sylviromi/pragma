@@ -73,6 +73,18 @@ export function withCaret(html: string): string {
   return html.slice(0, p) + '<span class="caret">▌</span>' + html.slice(p)
 }
 
+/** Expose the app's markdown renderer to plugins. Plugin components load as
+ *  blob ES modules with no bundler, so they can't `import` this module — the
+ *  host installs the exact renderer on `window.__pragmaMarkdown` for them
+ *  (rendering is shared verbatim; only the CSS classes are the plugin's own).
+ *  Called once from +layout.svelte on mount. */
+export function installMarkdownPluginBridge() {
+  if (typeof window === 'undefined') return
+  const w = window as unknown as Record<string, unknown>
+  if (w.__pragmaMarkdown) return
+  w.__pragmaMarkdown = { renderMarkdown, segmentsOf, withCaret }
+}
+
 /** Split prose from fenced code blocks so code renders as a styled block and
  *  prose goes through renderMarkdown. Shared by ChatMessage (persisted turns)
  *  and MessageList (streaming live bubbles). */

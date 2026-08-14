@@ -63,3 +63,19 @@ describe('tidy', () => {
     expect(tidy('')).toBe('')
   })
 })
+describe('installMarkdownPluginBridge', () => {
+  it('installs the renderer on window.__pragmaMarkdown once', async () => {
+    const { installMarkdownPluginBridge } = await import('./markdown')
+    installMarkdownPluginBridge()
+    const bridge = (globalThis as any).window.__pragmaMarkdown
+    expect(bridge).toBeDefined()
+    expect(typeof bridge.renderMarkdown).toBe('function')
+    expect(typeof bridge.segmentsOf).toBe('function')
+    expect(typeof bridge.withCaret).toBe('function')
+    // idempotent — re-install keeps the same object
+    installMarkdownPluginBridge()
+    expect((globalThis as any).window.__pragmaMarkdown).toBe(bridge)
+    // and it actually renders (same renderer the app uses)
+    expect(bridge.renderMarkdown('**ok**')).toContain('<strong>ok</strong>')
+  })
+})
