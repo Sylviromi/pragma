@@ -517,9 +517,16 @@ fn git_working_tree(working_dir: Option<&str>) -> GitWorkingTree {
 }
 
 async fn touched_files(db: &SqlitePool, session_id: &str) -> Vec<TouchedFile> {
+    // A file can be recorded more than once (read → edited → …). Keep only
+    // the NEWEST row per path — the sidebar lists each touched file once and
+    // the frontend keys the list on `path` (duplicates would trip Svelte's
+    // each_key_duplicate check). MAX(rowid) = most recent insert for a path.
     sqlx::query_as::<_, (String, String, Option<i64>, Option<i64>)>(
-        "SELECT path, kind, added, removed FROM touched_files WHERE session_id=? ORDER BY updated_at DESC, rowid DESC LIMIT 60",
+        "SELECT path, kind, added, removed FROM touched_files \
+         WHERE session_id=? AND rowid IN (SELECT MAX(rowid) FROM touched_files WHERE session_id=? GROUP BY path) \
+         ORDER BY updated_at DESC, rowid DESC LIMIT 60",
     )
+    .bind(session_id)
     .bind(session_id)
     .fetch_all(db)
     .await
@@ -692,8 +699,57 @@ pub async fn get_session_stats(
 mod tests {
     use super::{
         breakdown_from_rows, build_session_stats, cost_rows, plan_from_file, scale_to_used,
-        usage_breakdown,
+        touched_files, usage_breakdown,
     };
+
+    #[tokio::test]
+    async fn touched_files_dedupes_per_path_keeping_newest() {
+        let pool = crate::db::init_db(":memory:").await.unwrap();
+        sqlx::query("INSERT INTO sessions (id, name, created_at, updated_at) VALUES (?, ?, ?, ?)")
+            .bind("s1")
+            .bind("test")
+            .bind("2026-01-01T00:00:00Z")
+            .bind("2026-01-01T00:00:00Z")
+            .execute(&pool)
+            .await
+            .unwrap();
+        // Same file touched twice: read first, then edited. The edited row is
+        // inserted later → highest rowid → must win.
+        for (kind, added, removed) in [
+            ("read", None::<i64>, None::<i64>),
+            ("edited", Some(5), Some(2)),
+        ] {
+            sqlx::query(
+                "INSERT INTO touched_files (id, session_id, path, kind, added, removed) VALUES (?, ?, ?, ?, ?, ?)",
+            )
+            .bind(uuid::Uuid::new_v4().to_string())
+            .bind("s1")
+            .bind("/mnt/Projects/frontend-tests/README.md")
+            .bind(kind)
+            .bind(added)
+            .bind(removed)
+            .execute(&pool)
+            .await
+            .unwrap();
+        }
+        let files = touched_files(&pool, "s1").await;
+        assert_eq!(files.len(), 1, "one row per path — no duplicate keys");
+        assert_eq!(files[0].path, "/mnt/Projects/frontend-tests/README.md");
+        assert_eq!(files[0].kind, "edited", "newest row wins");
+        assert_eq!(files[0].added, Some(5));
+        // Different paths are untouched by the dedup.
+        sqlx::query(
+            "INSERT INTO touched_files (id, session_id, path, kind) VALUES (?, ?, ?, ?)",
+        )
+        .bind(uuid::Uuid::new_v4().to_string())
+        .bind("s1")
+        .bind("src/lib/types.ts")
+        .bind("read")
+        .execute(&pool)
+        .await
+        .unwrap();
+        assert_eq!(touched_files(&pool, "s1").await.len(), 2);
+    }
 
     #[tokio::test]
     async fn plan_reads_root_plan_md_and_degrades_when_absent() {
