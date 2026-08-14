@@ -771,8 +771,12 @@ You converse with the user in turns. In each turn you can write text and call to
     //      never receives an unpaired tool_use, for both Anthropic (which
     //      hard-rejects it) and OpenAI-compat (whose sanitizer used to drop
     //      everything — including the user's new prompt — downstream of it).
+    // Verification records are role='verification' — they must NEVER reach the
+    // provider (the reviewer's independence depends on it, and the provider
+    // would reject the unknown role). Filter them out of the model history.
     let raw_history: Vec<serde_json::Value> = db_messages
         .iter()
+        .filter(|m| m.role != "verification")
         .map(|m| {
             let content: serde_json::Value = serde_json::from_str(&m.content)
                 .unwrap_or(serde_json::Value::String(m.content.clone()));
@@ -822,6 +826,13 @@ You converse with the user in turns. In each turn you can write text and call to
     // Consecutive empty/whitespace-only replies get a "continue" nudge; too
     // many in a row means the upstream is actually dead.
     let mut empty_replies = 0u64;
+    // Did this run actually call tools? Pure chat turns (planning, Q&A) skip
+    // the verification phase entirely.
+    let mut any_tool_called = false;
+    // Fix rounds fed back by verification (capped by settings.max_rounds).
+    let mut verification_rounds = 0u32;
+    // Granular verification toggles — read once per run (settings page).
+    let verification_settings = state.settings.read().unwrap().verification.clone();
 
     // Agentic loop
     loop {
@@ -941,6 +952,7 @@ You converse with the user in turns. In each turn you can write text and call to
             system_tokens,
             conversation_tokens,
             files_tokens,
+            "agent",
         )
         .await;
 
@@ -1017,6 +1029,114 @@ You converse with the user in turns. In each turn you can write text and call to
         }));
 
         if tool_calls.is_empty() {
+            // ── Harness verification phase (loop-done) ───────────────────
+            // The model says it's done. Instead of trusting the self-report,
+            // run deterministic project checks + one small asymmetric LLM
+            // review when the run actually did work and the feature is on.
+            // Reviewer context = task + diff + check output ONLY (no
+            // conversation) — see tools/verify.rs + commands/verify.rs.
+            let mut verification: Option<crate::commands::verify::VerificationOutcome> = None;
+            if any_tool_called && verification_settings.enabled {
+                verification = Some(
+                    crate::commands::verify::run_verification(
+                        &verification_settings,
+                        &state,
+                        app_handle,
+                        session_id,
+                        &executor.working_dir.clone(),
+                        has_wd,
+                        &provider,
+                        &model,
+                        &keys,
+                        &user_message,
+                        cancel.clone(),
+                    )
+                    .await,
+                );
+            }
+            if let Some(outcome) = verification {
+                // Persist the verification record as a role='verification'
+                // message — the UI bubble survives reloads, and it is filtered
+                // out of the model's history (never reaches the provider).
+                let vjson = serde_json::json!({
+                    "passed": outcome.passed,
+                    "cancelled": outcome.cancelled,
+                    "summary": outcome.summary,
+                    "findings": outcome.findings,
+                    "rounds": verification_rounds,
+                    "tokens": outcome.tokens,
+                    "durationMs": outcome.duration_ms,
+                    "checksLabel": outcome.checks_label,
+                    "checksRan": outcome.checks_ran,
+                    "reviewUsed": outcome.review_used,
+                });
+                let _ = persist_message(
+                    &state.db,
+                    session_id,
+                    "verification",
+                    &vjson.to_string(),
+                    &model,
+                    &provider,
+                )
+                .await;
+
+                if !outcome.cancelled
+                    && !outcome.passed
+                    && verification_rounds < verification_settings.max_rounds
+                {
+                    // Targeted feedback → one more agent fix round. Reuses the
+                    // existing context (cheap); only the report is appended,
+                    // never a re-review.
+                    verification_rounds += 1;
+                    emit(
+                        app_handle,
+                        session_id,
+                        AgentEvent::VerificationResult {
+                            passed: false,
+                            cancelled: false,
+                            summary: outcome.summary.clone(),
+                            findings: outcome.findings.clone(),
+                            rounds: verification_rounds,
+                            tokens: outcome.tokens,
+                            duration_ms: outcome.duration_ms,
+                            checks_label: outcome.checks_label.clone(),
+                        },
+                    );
+                    let feedback = format!(
+                        "Verification round {} found issues. Fix them and re-run the relevant checks:\n\n{}",
+                        verification_rounds, outcome.summary
+                    );
+                    let _ = persist_message(
+                        &state.db,
+                        session_id,
+                        "user",
+                        &serde_json::to_string(&feedback).unwrap(),
+                        &model,
+                        &provider,
+                    )
+                    .await;
+                    history.push(serde_json::json!({
+                        "role": "user",
+                        "content": feedback,
+                    }));
+                    continue;
+                }
+                // Accepted, cancelled, or fix rounds exhausted — surface it.
+                emit(
+                    app_handle,
+                    session_id,
+                    AgentEvent::VerificationResult {
+                        passed: outcome.passed,
+                        cancelled: outcome.cancelled,
+                        summary: outcome.summary.clone(),
+                        findings: outcome.findings.clone(),
+                        rounds: verification_rounds,
+                        tokens: outcome.tokens,
+                        duration_ms: outcome.duration_ms,
+                        checks_label: outcome.checks_label.clone(),
+                    },
+                );
+            }
             // No tool calls — done; push final sidebar stats.
             let _ = crate::commands::stats::emit_stats(
                 app_handle,
@@ -1028,6 +1148,9 @@ You converse with the user in turns. In each turn you can write text and call to
             emit(app_handle, session_id, AgentEvent::Done);
             break;
         }
+
+        // A tool batch ran this turn — the run did real work.
+        any_tool_called = true;
 
         // Handle tool calls
         let run_id = Uuid::new_v4().to_string();
@@ -1359,8 +1482,9 @@ You converse with the user in turns. In each turn you can write text and call to
                         // The handler sets it ONLY after a successful build, so a
                         // failed build never triggers a restart. The post-run
                         // exit(23) relaunch is handled by the caller.
-                        let wants_reload = serde_json::from_str::<serde_json::Value>(&s)
-                            .ok()
+                        let parsed = serde_json::from_str::<serde_json::Value>(&s).ok();
+                        let wants_reload = parsed
+                            .as_ref()
                             .and_then(|v| v.get("reloadApp").and_then(|b| b.as_bool()))
                             .unwrap_or(false);
                         if wants_reload {

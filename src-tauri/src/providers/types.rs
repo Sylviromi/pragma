@@ -252,6 +252,28 @@ pub enum AgentEvent {
     },
     /// User pressed Esc / Stop — the loop ended before the turn completed.
     Interrupted,
+    /// Harness verification phase (loop-done): started a sub-phase.
+    #[serde(rename_all = "camelCase")]
+    VerificationStarted {
+        /// "checks" | "review"
+        phase: String,
+    },
+    /// Harness verification phase finished (before Done). `passed` false means
+    /// the report was either fed back for a fix round (rounds < maxRounds) or
+    /// surfaced to the user (rounds exhausted). `cancelled` is set when the
+    /// user stopped it (Esc) — distinct from a failure. `tokens`/`durationMs`
+    /// power the bubble's meta line; `checksLabel` names what ran.
+    #[serde(rename_all = "camelCase")]
+    VerificationResult {
+        passed: bool,
+        cancelled: bool,
+        summary: String,
+        findings: Vec<String>,
+        rounds: u32,
+        tokens: u64,
+        duration_ms: u64,
+        checks_label: Option<String>,
+    },
     #[serde(rename_all = "camelCase")]
     WorkingDirChanged {
         new_path: String,

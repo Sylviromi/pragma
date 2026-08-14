@@ -8,3 +8,4 @@ pub mod sessions;
 pub mod skills;
 pub mod stats;
 pub mod tools;
+pub mod verify;

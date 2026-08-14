@@ -105,6 +105,23 @@ export type AgentEvent =
   | { event: 'done' }
   | { event: 'error'; message: string }
   | { event: 'interrupted' }
+  // Harness verification phase (loop-done): started a sub-phase.
+  | { event: 'verification_started'; phase: 'checks' | 'review' }
+  // Verification finished — passed=false means the report was fed back for a
+  // fix round (rounds < maxRounds) or surfaced to the user (rounds exhausted).
+  // cancelled=true = user stopped it (Esc). tokens/durationMs power the
+  // bubble meta; checksLabel names the command that ran.
+  | {
+      event: 'verification_result'
+      passed: boolean
+      cancelled: boolean
+      summary: string
+      findings: string[]
+      rounds: number
+      tokens: number
+      durationMs: number
+      checksLabel: string | null
+    }
   | { event: 'working_dir_changed'; newPath: string }
 
 export interface RevertInfo {
@@ -131,6 +148,7 @@ export interface CostRow {
   cost: string // '$0.41'
 }
 
+// Plan checklist parsed from PLAN.md in the session working directory.
 export interface PlanItem {
   label: string
   state: 'todo' | 'active' | 'done'

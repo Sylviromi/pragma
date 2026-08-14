@@ -3,6 +3,7 @@ pub mod file_ops;
 pub mod git;
 pub mod shell;
 pub mod sidecar;
+pub mod verify;
 pub mod web;
 
 use std::collections::HashMap;
