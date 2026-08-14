@@ -4,7 +4,7 @@
   import { loadProviders, providerState } from '../stores/providers.svelte'
   import SlotStack from './SlotStack.svelte'
   import Icon from './Icon.svelte'
-  import type { ThinkingPref } from '../lib/types'
+  import type { ProviderInfo, ThinkingPref } from '../lib/types'
 
   let {
     model = $bindable(''),
@@ -38,23 +38,21 @@
     await loadProviders()
   })
 
-  // Default to the first available model once providers are known — also fires
-  // when discovery lands *after* mount (new API key saved, /v1/models response
-  // received), so the chip never sits on "Choose model" when choices exist.
-  // Prefers a provider with a free model (zen-proxy style free tiers) so a
-  // fresh app without API keys lands on a model that actually works, instead
-  // of Anthropic's fallback list which needs an API key.
-  $effect(() => {
-    if (model || !providerState.providers.length) return
-    const prov =
-      providerState.providers.find((p) => p.models.some((m) => m.isFree)) ??
-      providerState.providers[0]
-    provider = prov.id
-    model = prov.models[0]?.id ?? ''
-  })
+  // NOTE: there is deliberately NO auto-selection here. Loading a plugin with
+  // models (or discovery landing after mount) refreshes the provider list —
+  // that must NEVER change the model the user has selected (or the session's
+  // stored one). The session's model/provider come from the session itself;
+  // new sessions show "Choose model" until the user picks.
+
+  // Only providers the user can actually use: api-key providers need at
+  // least one configured key; "none" providers are always usable.
+  const usable = $derived(
+    (p: ProviderInfo) => p.auth !== 'api-key' || p.hasKey
+  )
 
   const filtered = $derived(
     providerState.providers
+      .filter(usable)
       .map((p) => ({
         ...p,
         models: p.models.filter(

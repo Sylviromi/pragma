@@ -197,11 +197,20 @@ pub enum ProviderSource {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ProviderInfo {
     pub id: String,
     pub name: String,
     pub source: ProviderSource,
     pub models: Vec<ModelInfo>,
+    /// "api-key" | "none" — how the provider authenticates. The model picker
+    /// hides api-key providers the user hasn't configured a key for.
+    pub auth: String,
+    /// Whether the user can actually use this provider right now: api-key
+    /// providers need at least one configured key; "none" providers are
+    /// always usable. Enriched by the list_providers command (the registry
+    /// itself doesn't know about settings).
+    pub has_key: bool,
 }
 
 // Events emitted over the Channel during an agentic loop.

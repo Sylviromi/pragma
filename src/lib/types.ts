@@ -89,6 +89,11 @@ export interface ProviderInfo {
   // Rust: ProviderSource::Builtin → "builtin", Plugin { plugin_id } → { plugin: { pluginId } }
   source: 'builtin' | { plugin: { pluginId: string } }
   models: ModelInfo[]
+  // "api-key" | "none" — how the provider authenticates.
+  auth: 'api-key' | 'none'
+  // True when usable right now: api-key providers need ≥1 configured key;
+  // "none" providers are always usable. The model picker hides unusable ones.
+  hasKey: boolean
 }
 
 export type AgentEvent =

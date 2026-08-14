@@ -4,7 +4,26 @@ use crate::AppState;
 pub async fn list_providers(
     state: tauri::State<'_, AppState>,
 ) -> Result<Vec<crate::providers::types::ProviderInfo>, String> {
-    Ok(state.registry.list_infos())
+    // Enrich each provider with whether the user can actually use it right
+    // now: api-key providers need at least one configured key (auth "none"
+    // providers like local/free endpoints are always usable). The model
+    // picker hides unusable providers; the Settings page shows everything.
+    let keys = state.settings.read().unwrap().api_keys.clone();
+    Ok(state
+        .registry
+        .list_infos()
+        .into_iter()
+        .map(|mut p| {
+            p.has_key = match p.auth.as_str() {
+                "api-key" => keys
+                    .get(&p.id)
+                    .map(|ks| ks.iter().any(|k| !k.is_empty()))
+                    .unwrap_or(false),
+                _ => true,
+            };
+            p
+        })
+        .collect())
 }
 
 /// Replace a provider's API key list (rotation order — first is primary).

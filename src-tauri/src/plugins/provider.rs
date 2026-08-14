@@ -97,6 +97,7 @@ pub fn register_plugin_providers(
             },
             models: def.models.clone(),
             reasoning_effort: def.reasoning_effort.clone(),
+            auth: def.auth.clone(),
         };
         registry.register(provider);
         registered += 1;

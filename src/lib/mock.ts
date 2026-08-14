@@ -71,6 +71,7 @@ export const mockMessages: Record<string, Message[]> = {
 export const mockProviders: ProviderInfo[] = [
   {
     id: 'anthropic', name: 'Anthropic', source: 'builtin',
+    auth: 'api-key', hasKey: true,
     models: [
       { id: 'claude-sonnet-4-6', name: 'claude-sonnet-4-6', contextWindow: 200000, isFree: false, isVision: false, supportsThinking: true, supportsThinkingLevels: true },
       { id: 'claude-opus-4-6', name: 'claude-opus-4-6', contextWindow: 200000, isFree: false, isVision: false, supportsThinking: true, supportsThinkingLevels: true },
@@ -78,10 +79,12 @@ export const mockProviders: ProviderInfo[] = [
   },
   {
     id: 'deepseek', name: 'DeepSeek', source: 'builtin',
+    auth: 'api-key', hasKey: false,
     models: [{ id: 'deepseek-v4-flash', name: 'deepseek-v4-flash', contextWindow: 65536, isFree: false, isVision: false, supportsThinking: false, supportsThinkingLevels: false }],
   },
   {
     id: 'zen-warp', name: 'Zen WARP', source: { plugin: { pluginId: 'zen-warp' } },
+    auth: 'none', hasKey: true,
     models: [
       { id: 'deepseek-v4 via warp', name: 'deepseek-v4 via warp', contextWindow: 200000, isFree: true, isVision: false, supportsThinking: false, supportsThinkingLevels: false },
       { id: 'mimo-v2.5 via warp', name: 'mimo-v2.5 via warp', contextWindow: 128000, isFree: true, isVision: true, supportsThinking: false, supportsThinkingLevels: false },

@@ -105,6 +105,8 @@ impl AnthropicProvider {
             name: "Anthropic".into(),
             source: ProviderSource::Builtin,
             models: self.models.clone(),
+            auth: "api-key".into(),
+            has_key: false, // enriched by the list_providers command
         }
     }
 

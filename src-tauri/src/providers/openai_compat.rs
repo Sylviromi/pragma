@@ -15,6 +15,9 @@ pub struct OpenAICompatProvider {
     /// Provider-level reasoning effort, applied to every model unless a model
     /// declares its own `reasoningEffort`. None = never send the field.
     pub reasoning_effort: Option<String>,
+    /// "api-key" | "none" — set from the plugin's provider.json (builtins
+    /// are "api-key").
+    pub auth: String,
 }
 
 impl OpenAICompatProvider {
@@ -24,6 +27,8 @@ impl OpenAICompatProvider {
             name: self.name.clone(),
             source: self.source.clone(),
             models: self.models.clone(),
+            auth: self.auth.clone(),
+            has_key: false, // enriched by the list_providers command
         }
     }
 
@@ -446,6 +451,7 @@ fn to_openai_messages(messages: &[serde_json::Value]) -> Vec<serde_json::Value> 
 pub fn deepseek() -> OpenAICompatProvider {
     OpenAICompatProvider {
         id: "deepseek".into(),
+        auth: "api-key".into(),
         name: "DeepSeek".into(),
         base_url: "https://api.deepseek.com/v1".into(),
         source: ProviderSource::Builtin,
@@ -483,6 +489,7 @@ pub fn opencode_go() -> OpenAICompatProvider {
     OpenAICompatProvider {
         id: "opencode-go".into(),
         name: "OpenCode GO".into(),
+        auth: "api-key".into(),
         base_url: "https://opencode.ai/zen/go/v1".into(),
         source: ProviderSource::Builtin,
         models: vec![
