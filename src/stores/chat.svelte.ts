@@ -10,7 +10,7 @@ import {
   answerQuestion as apiAnswerQuestion,
   revertSession
 } from '../lib/tauri'
-import type { AgentEvent, Message, RevertSummary, ThinkingPref } from '../lib/types'
+import type { AgentEvent, Message, RevertSummary, ThinkingPref, VerificationInfo } from '../lib/types'
 import { sessions } from './sessions.svelte'
 import { pushToast } from './toast.svelte'
 // Unlisten functions keyed by sessionId — outlive component HMR reloads.
@@ -151,7 +151,7 @@ const SAFE_TOOLS = new Set([
   'change_directory',
 ])
 
-export type AgentStatus = 'idle' | 'thinking' | 'working' | 'generating' | 'waiting'
+export type AgentStatus = 'idle' | 'thinking' | 'working' | 'generating' | 'waiting' | 'verifying'
 
 /** Design status meta shared by TabBar dots + sidebar sessions list. */
 export const STATUS_META: Record<AgentStatus, { label: string; color: string }> = {
@@ -160,6 +160,7 @@ export const STATUS_META: Record<AgentStatus, { label: string; color: string }> 
   working:    { label: 'Working', color: 'var(--warning)' },
   generating: { label: 'Generating', color: 'var(--accent)' },
   waiting:    { label: 'Waiting for you', color: 'var(--danger)' },
+  verifying:  { label: 'Verifying', color: 'var(--accent)' },
 }
 
 export const chat = $state({
@@ -182,6 +183,12 @@ export const chat = $state({
   startedAt:      {} as Record<string, number>,
   /** Aggregate session status for the design's status dots / labels. */
   status:         {} as Record<string, AgentStatus>,
+  /** Live verification phase while the harness is checking/reviewing. */
+  verifying:      {} as Record<string, 'checks' | 'review' | null>,
+  /** Last verification phase result (live-only — the persisted bubble comes
+   *  from the role='verification' message after 'done'). Cleared at the next
+   *  sendMessage. */
+  verification:   {} as Record<string, VerificationInfo | null>,
 })
 
 /** Turn-completion notices: in-app toast only. Native OS notifications live on
@@ -363,6 +370,29 @@ function handleEvent(sessionId: string, ev: AgentEvent) {
     finishTurn(sessionId)
     loadMessages(sessionId)
 
+  } else if (ev.event === 'verification_started') {
+    // Harness verification phase (checks → review). Show the phase live.
+    chat.verifying[sessionId] = ev.phase
+    chat.status[sessionId] = 'verifying'
+    saveLiveState(sessionId)
+
+  } else if (ev.event === 'verification_result') {
+    chat.verifying[sessionId] = null
+    chat.verification[sessionId] = {
+      passed: ev.passed,
+      cancelled: ev.cancelled,
+      summary: ev.summary,
+      findings: ev.findings,
+      rounds: ev.rounds,
+      tokens: ev.tokens,
+      durationMs: ev.durationMs,
+      checksLabel: ev.checksLabel,
+      checksRan: ev.checksLabel !== null,
+      reviewUsed: ev.tokens > 0,
+    }
+    chat.status[sessionId] = 'verifying'
+    saveLiveState(sessionId)
+
   } else if (ev.event === 'done') {
     clearLiveState(sessionId)
     // Keep the streamed reasoning — the live thought card collapses to a chip.
@@ -431,6 +461,8 @@ export async function sendMessage(
   chat.toolItems[sessionId] = []
   chat.error[sessionId] = null
   chat.notice[sessionId] = null
+  chat.verification[sessionId] = null
+  chat.verifying[sessionId] = null
   clearLiveState(sessionId)
   // Save autoApprove immediately so it survives HMR even before the first event arrives
   persistLiveState(sessionId)

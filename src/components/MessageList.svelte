@@ -5,11 +5,12 @@
   import QuestionBlock from './QuestionBlock.svelte'
   import ThoughtCard from './ThoughtCard.svelte'
   import ReturnModal from './ReturnModal.svelte'
+  import VerificationBubble from './VerificationBubble.svelte'
   import ContextMenu, { type MenuItem } from './ContextMenu.svelte'
   import { chat, answerQuestion, stopTurn, STATUS_META, type AgentStatus } from '../stores/chat.svelte'
   import { pushToast } from '../stores/toast.svelte'
   import { buildAgentTranscript } from '../lib/transcript'
-  import { messageText, isToolResultTurn, parseContent } from '../lib/types'
+  import { messageText, isToolResultTurn, parseContent, parseVerification } from '../lib/types'
   import TextBubble from './TextBubble.svelte'
   import type { Message, ToolResultBlock } from '../lib/types'
 
@@ -31,6 +32,8 @@
   const statusMeta    = $derived(STATUS_META[status])
   const error         = $derived(chat.error[sessionId] ?? null)
   const notice        = $derived(chat.notice[sessionId] ?? null)
+  const verifying     = $derived(chat.verifying[sessionId] ?? null)
+  const verification  = $derived(chat.verification[sessionId] ?? null)
 
   // "Return to this point" target for the modal
   let revertTarget = $state<Message | null>(null)
@@ -93,6 +96,7 @@
     working:    { icon: 'progress_activity',  spin: true,  still: false },
     generating: { icon: 'edit',               spin: false, still: false },
     waiting:    { icon: 'front_hand',         spin: false, still: true },
+    verifying:  { icon: 'fact_check',         spin: false, still: false },
     idle:       { icon: 'bolt',               spin: false, still: false },
   }
   const indMeta = $derived(INDICATOR[status] ?? INDICATOR.idle)
@@ -104,6 +108,7 @@
     working: 'var(--warning)',
     generating: 'var(--accent)',
     waiting: 'var(--warning)',
+    verifying: 'var(--accent)',
     idle: 'var(--accent)',
   }
   const indColor = $derived(IND_COLORS[status] ?? 'var(--accent)')
@@ -175,6 +180,7 @@
     + liveChars
     + (streamingToken ?? '').length
     + (error ? 1 : 0)
+    + (verification || verifying ? 1 : 0)
     + (chat.toolItems[sessionId] ?? []).reduce((n, t) => n + (t.output?.length ?? 0), 0)
   )
 
@@ -221,16 +227,23 @@
   aria-label="Conversation"
 >
   {#each visibleMessages as msg (msg.id)}
-    <ChatMessage
-      message={msg}
-      {toolOutputs}
-      highlighted={ctx?.msg.id === msg.id}
-      animate={msg.id === lastMsgId}
-      onContextMenu={(e) => {
-        e.preventDefault()
-        ctx = { msg, x: e.clientX, y: e.clientY }
-      }}
-    />
+    {#if msg.role === 'verification'}
+      {@const vrun = parseVerification(msg)}
+      {#if vrun}
+        <VerificationBubble run={vrun} />
+      {/if}
+    {:else}
+      <ChatMessage
+        message={msg}
+        {toolOutputs}
+        highlighted={ctx?.msg.id === msg.id}
+        animate={msg.id === lastMsgId}
+        onContextMenu={(e) => {
+          e.preventDefault()
+          ctx = { msg, x: e.clientX, y: e.clientY }
+        }}
+      />
+    {/if}
   {/each}
 
   {#if liveBlocks.length > 0 || thinking}
@@ -310,6 +323,17 @@
       <span class="msr" aria-hidden="true">stop</span>
       <span>{notice}</span>
     </div>
+  {/if}
+
+  {#if running && (verifying || verification)}
+    <!-- Live verification bubble: shows the active phase with a Stop button
+         while the harness checks/reviews, then the result until 'done' hands
+         over to the persisted role='verification' message. -->
+    <VerificationBubble
+      run={verification}
+      phase={verifying}
+      onStop={() => stopTurn(sessionId)}
+    />
   {/if}
 </div>
 

@@ -28,7 +28,7 @@ export type MessageContent = string | ContentBlock[]
 export interface Message {
   id: string
   sessionId: string
-  role: 'user' | 'assistant' | 'system'
+  role: 'user' | 'assistant' | 'system' | 'verification'
   content: string // serialised JSON: string or ContentBlock[]
   model: string
   provider: string
@@ -163,6 +163,32 @@ export interface VerificationSettings {
   maxRounds: number
   reviewerModel: string | null
   testCommand: string | null
+}
+
+// Live verification state for the current turn (chat store → UI card). Also
+// the shape persisted as a role='verification' message (parseVerification).
+export interface VerificationInfo {
+  passed: boolean
+  cancelled: boolean
+  summary: string
+  findings: string[]
+  rounds: number
+  tokens: number
+  durationMs: number
+  checksLabel: string | null
+  checksRan: boolean
+  reviewUsed: boolean
+}
+
+/** Parse a stored role='verification' message's content JSON. */
+export function parseVerification(m: Message): VerificationInfo | null {
+  try {
+    const c = JSON.parse(m.content)
+    if (typeof c !== 'object' || c === null || typeof c.passed !== 'boolean') return null
+    return c as VerificationInfo
+  } catch {
+    return null
+  }
 }
 
 export interface TouchedFile {
