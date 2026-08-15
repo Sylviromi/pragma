@@ -5,6 +5,11 @@ import { sveltekit } from '@sveltejs/kit/vite';
 export default defineConfig({
 	plugins: [sveltekit()],
 	clearScreen: false,
+	/* Svelte 5 ships a server + client build; the browser condition makes
+	   component tests (jsdom mount/unmount) resolve the client build. */
+	resolve: {
+		conditions: ['browser', 'module', 'development']
+	},
 	server: {
 		port: 1420,
 		strictPort: true,
