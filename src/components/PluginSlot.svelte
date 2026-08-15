@@ -14,9 +14,7 @@
 
   /** Import a plugin's component code and return its default-export class.
    *  Always imports a fresh module for the given code (blob URL is unique per
-   *  read), so hot-reloaded code actually replaces the previous class — a
-   *  plain `customElements.define` would keep reusing the FIRST class ever
-   *  loaded (the registry never redefines). */
+   *  read), so hot-reloaded code actually replaces the previous class. */
   async function loadClass(code: string): Promise<typeof HTMLElement | null> {
     const blobUrl = URL.createObjectURL(new Blob([code], { type: 'text/javascript' }))
     try {
@@ -26,6 +24,16 @@
     } finally {
       URL.revokeObjectURL(blobUrl)
     }
+  }
+
+  /** Tag name for a plugin version. Versioning is what makes hot reload work:
+   *  `customElements.define` refuses to redefine a name, and constructing an
+   *  UNREGISTERED HTMLElement subclass directly throws in real engines
+   *  ("new.target does not define a custom element"). A new code version gets
+   *  a fresh tag, is registered, and mounts — old versions are discarded. */
+  function tagName(pluginId: string, version: number): string {
+    const safe = pluginId.replace(/[^a-z0-9-]/g, '-')
+    return `pragma-plugin-${safe}-${version}`
   }
 
   $effect(() => {
@@ -53,22 +61,30 @@
       const entry = codeCache.get(pluginId)
       if (!entry || cancelled) return
 
+      // Register the versioned tag once, then mount via the registry — the
+      // only way to construct an HTMLElement subclass in real browsers.
+      const name = tagName(pluginId, entry.version)
       try {
-        const Ctor = await loadClass(entry.code)
-        if (!Ctor) {
-          const msg = `[${pluginId}] component.js must export a class`
-          console.warn(msg)
-          pushToast(msg, 'error')
-          return
+        if (!customElements.get(name)) {
+          const Ctor = await loadClass(entry.code)
+          if (!Ctor) {
+            const msg = `[${pluginId}] component.js must export a class`
+            console.warn(msg)
+            pushToast(msg, 'error')
+            return
+          }
+          customElements.define(name, Ctor)
         }
-        // Instantiate directly — no global registry, so every mount (incl.
-        // hot reload) uses the CURRENT code.
-        const el = new Ctor()
+        const el = document.createElement(name)
         el.setAttribute('data-slot', slot)
         if (context) el.setAttribute('data-context', context)
         host.replaceChildren(el)
       } catch (err) {
-        console.warn('[plugin] failed to load component for', pluginId, err)
+        // Race: a sibling slot instance defined the same versioned tag first
+        // (identical code) — safe to proceed; anything else is a hard error.
+        if (!customElements.get(name)) {
+          console.warn('[plugin] failed to load component for', pluginId, err)
+        }
       }
     }
 
