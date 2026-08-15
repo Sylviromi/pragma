@@ -28,6 +28,24 @@ On virtualized displays WebKitGTK can render a black window. If that happens, ru
 WEBKIT_DISABLE_COMPOSITING_MODE=1 WEBKIT_DISABLE_DMABUF_RENDERER=1 npm run tauri dev
 ```
 
+## Building from source
+
+```bash
+npm install
+npm run tauri build
+```
+
+Produces installable bundles in `src-tauri/target/release/bundle/` (`.deb` / `.rpm` /
+`.AppImage` on Linux, `.dmg` / `.app` on macOS, `.msi` / `.exe` on Windows).
+
+## Releasing
+
+Releases are driven by Git tags: push `vX.Y.Z` and GitHub Actions builds every
+platform's installers and attaches them to a draft release. Full runbook —
+including the version-bump script (`scripts/bump-version.sh`), changelog
+conventions, and the smoke-test checklist — lives in
+[RELEASING.md](RELEASING.md).
+
 ## Tools available to the agent
 
 - File ops: `read_file`, `write_file`, `edit_file`, `delete_file`, `list_files`,
@@ -49,5 +67,11 @@ src-tauri/src/db/         SQLite schema + migrations
 src-tauri/src/commands/   Tauri IPC commands (sessions, messages, providers, tools)
 src-tauri/src/providers/  Anthropic + OpenAI-compatible streaming providers
 src-tauri/src/tools/      The tool executor suite
-docs/superpowers/         Design specs + implementation plans
+scripts/                  Dev launcher + release version-bump script
+plugins/pragma-dev/       First-party reference plugin (architecture docs for this codebase)
 ```
+
+## License
+
+[MIT](LICENSE) — © 2025 Pragma contributors. Redistributions must retain the
+copyright notice above; see the license file for the full terms.

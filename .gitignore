@@ -1,25 +1,36 @@
-# Node
-node_modules
+# ── Dependencies ───────────────────────────────────────────────────────────
+node_modules/
 dist/
 build/
 .svelte-kit/
 
-# Tauri
+# ── Tauri / Rust ───────────────────────────────────────────────────────────
 src-tauri/target/
-src-tauri/gen/schemas/
+# Everything under gen/ is generated at build time (schemas, apple/, android/)
+src-tauri/gen/
 
-# Logs
+# ── Secrets ────────────────────────────────────────────────────────────────
+.env
+.env.*
+!.env.example
+
+# ── Logs ───────────────────────────────────────────────────────────────────
 *.log
 npm-debug.log*
 
-# Editor
+# ── Editor / OS ────────────────────────────────────────────────────────────
 .DS_Store
 .vscode/
 .idea/
 
-# Agent scratch / generated artifacts
+# ── Agent scratch / local working files (never shipped) ────────────────────
 .superpowers/
 .claude/
+.handsfree/
+coverage/
+*.local
 TODO.md
+# Design research + prototype docs are development artifacts, not part of the
+# shipped product (they're huge and reference internal processes).
 docs/
 prototype_design/

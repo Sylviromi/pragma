@@ -563,7 +563,10 @@ rl.on('line', (line) => {
         std::fs::write(sk.join("skill.md"), "doc").unwrap();
         std::fs::write(sk.join("handler.js"), handler).unwrap();
         std::fs::write(sk.join("tools.json"), tools).unwrap();
-        (PluginManager::new(dir.path().to_path_buf(), vec![], vec![]), dir)
+        (
+            PluginManager::new(dir.path().to_path_buf(), vec![], vec![]),
+            dir,
+        )
     }
 
     #[tokio::test]
@@ -746,7 +749,11 @@ rl.on('line', (line) => {
             .await
             .unwrap();
         let lj: serde_json::Value = serde_json::from_str(&ls).expect("list json");
-        assert_eq!(lj["htmlFiles"].as_array().map(|a| a.len()).unwrap_or(0), 4, "list: {ls}");
+        assert_eq!(
+            lj["htmlFiles"].as_array().map(|a| a.len()).unwrap_or(0),
+            4,
+            "list: {ls}"
+        );
         assert!(
             lj["htmlFiles"]
                 .as_array()
@@ -832,7 +839,9 @@ rl.on('line', (line) => {
         // Folder without index.html → generated gallery page ("see all N").
         let (_, viz) = http_get(port, "/viz/".to_string()).await;
         assert!(
-            viz.contains("01.html") && viz.contains("02.html") && viz.contains("frontend-dev preview"),
+            viz.contains("01.html")
+                && viz.contains("02.html")
+                && viz.contains("frontend-dev preview"),
             "gallery index: {viz}"
         );
 

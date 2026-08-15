@@ -12,7 +12,7 @@
 use crate::providers::types::{AgentEvent, ContentBlock, ThinkingPref};
 use crate::tools::verify as v;
 use crate::AppState;
-use std::path::PathBuf;
+use std::path::Path;
 use std::time::Instant;
 use tauri::Emitter;
 
@@ -56,7 +56,7 @@ pub async fn run_verification(
     state: &tauri::State<'_, AppState>,
     app_handle: &tauri::AppHandle,
     session_id: &str,
-    working_dir: &PathBuf,
+    working_dir: &Path,
     has_wd: bool,
     provider: &str,
     session_model: &str,
@@ -79,7 +79,7 @@ pub async fn run_verification(
             false,
         );
     }
-    let wd = working_dir.as_path();
+    let wd = working_dir;
 
     // 1. Deterministic checks (no LLM). Settings override wins; otherwise
     //    auto-detect from the project manifest.
@@ -137,8 +137,7 @@ pub async fn run_verification(
         );
     }
 
-    let review_enabled = settings.independent_review
-        && (!diff.trim().is_empty() || checks_ran);
+    let review_enabled = settings.independent_review && (!diff.trim().is_empty() || checks_ran);
     if !review_enabled {
         let summary = if checks_ran {
             format!(
@@ -180,7 +179,11 @@ pub async fn run_verification(
                 .get(provider)
                 .map(|h| h.info().models.iter().any(|x| &x.id == m))
                 .unwrap_or(false);
-            if known { m.as_str() } else { session_model }
+            if known {
+                m.as_str()
+            } else {
+                session_model
+            }
         }
         None => session_model,
     };

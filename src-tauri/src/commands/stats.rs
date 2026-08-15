@@ -738,16 +738,14 @@ mod tests {
         assert_eq!(files[0].kind, "edited", "newest row wins");
         assert_eq!(files[0].added, Some(5));
         // Different paths are untouched by the dedup.
-        sqlx::query(
-            "INSERT INTO touched_files (id, session_id, path, kind) VALUES (?, ?, ?, ?)",
-        )
-        .bind(uuid::Uuid::new_v4().to_string())
-        .bind("s1")
-        .bind("src/lib/types.ts")
-        .bind("read")
-        .execute(&pool)
-        .await
-        .unwrap();
+        sqlx::query("INSERT INTO touched_files (id, session_id, path, kind) VALUES (?, ?, ?, ?)")
+            .bind(uuid::Uuid::new_v4().to_string())
+            .bind("s1")
+            .bind("src/lib/types.ts")
+            .bind("read")
+            .execute(&pool)
+            .await
+            .unwrap();
         assert_eq!(touched_files(&pool, "s1").await.len(), 2);
     }
 
@@ -966,7 +964,10 @@ mod tests {
         // Context ring: the newest row is the verification one, but the ring
         // must still reflect the agent call.
         let stats = build_session_stats(&pool, "s1", None, Some(100_000)).await;
-        assert_eq!(stats.context.used, 10_000, "verification must not skew the ring");
+        assert_eq!(
+            stats.context.used, 10_000,
+            "verification must not skew the ring"
+        );
 
         // Cost: verification shows as its own special row, model rows intact.
         let cost = cost_rows(&pool, "s1").await;

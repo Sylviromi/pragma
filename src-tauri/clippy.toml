@@ -3,4 +3,4 @@
 # functions wire db/registry/state/handles/cancel channels together. Raising
 # the default (7) avoids sprinkling #[allow]s over these call sites; new code
 # should still prefer grouping params into structs when practical.
-too-many-arguments-threshold = 12
+too-many-arguments-threshold = 13

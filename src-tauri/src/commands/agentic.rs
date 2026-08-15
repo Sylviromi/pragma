@@ -103,7 +103,14 @@ fn common_roots() -> Vec<std::path::PathBuf> {
         let home = std::path::PathBuf::from(&home);
         roots.push(home.clone());
         for sub in [
-            "Projects", "projects", "Documents", "dev", "code", "workspace", "repos", "src",
+            "Projects",
+            "projects",
+            "Documents",
+            "dev",
+            "code",
+            "workspace",
+            "repos",
+            "src",
         ] {
             let p = home.join(sub);
             if p.is_dir() {
@@ -112,7 +119,14 @@ fn common_roots() -> Vec<std::path::PathBuf> {
         }
     }
     for extra in [
-        "/mnt/Projects", "/workspace", "/opt", "/home", "/srv", "/data", "/Users", "/Users/Shared",
+        "/mnt/Projects",
+        "/workspace",
+        "/opt",
+        "/home",
+        "/srv",
+        "/data",
+        "/Users",
+        "/Users/Shared",
     ] {
         let p = std::path::PathBuf::from(extra);
         if p.is_dir() {
@@ -127,10 +141,36 @@ fn common_roots() -> Vec<std::path::PathBuf> {
 fn is_name_stopword(tok: &str) -> bool {
     matches!(
         tok,
-        "the" | "a" | "an" | "project" | "projects" | "folder" | "directory" | "dir" | "repo"
-            | "repository" | "workspace" | "path" | "work" | "on" | "in" | "at" | "with"
-            | "use" | "using" | "open" | "of" | "my" | "your" | "to" | "please" | "can"
-            | "you" | "for" | "and" | "or" | "the"
+        "the"
+            | "a"
+            | "an"
+            | "project"
+            | "projects"
+            | "folder"
+            | "directory"
+            | "dir"
+            | "repo"
+            | "repository"
+            | "workspace"
+            | "path"
+            | "work"
+            | "on"
+            | "in"
+            | "at"
+            | "with"
+            | "use"
+            | "using"
+            | "open"
+            | "of"
+            | "my"
+            | "your"
+            | "to"
+            | "please"
+            | "can"
+            | "you"
+            | "for"
+            | "and"
+            | "or"
     )
 }
 
@@ -1189,7 +1229,7 @@ You converse with the user in turns. In each turn you can write text and call to
                 verification = Some(
                     crate::commands::verify::run_verification(
                         &verification_settings,
-                        &state,
+                        state,
                         app_handle,
                         session_id,
                         &executor.working_dir.clone(),
@@ -1352,7 +1392,8 @@ You converse with the user in turns. In each turn you can write text and call to
                         // known roots) so the user rarely has to type a path.
                         let candidates = dir_candidates(&state.db).await;
                         let prompt = if candidates.is_empty() {
-                            "Which project folder should I use as the working directory?".to_string()
+                            "Which project folder should I use as the working directory?"
+                                .to_string()
                         } else {
                             "Which project folder should I use as the working directory? Pick one below or type a path (e.g. /home/you/project).".to_string()
                         };
@@ -2910,7 +2951,6 @@ rl.on('line', (line) => {
     async fn approval_resolution_never_hangs_and_honors_pre_signals() {
         use std::collections::{HashMap, HashSet};
         use std::time::{Duration, Instant};
-        use tokio::sync::oneshot;
 
         let pending = Arc::new(tokio::sync::Mutex::new(HashMap::new()));
         let pre_approved = Arc::new(tokio::sync::Mutex::new(HashSet::new()));
@@ -3015,7 +3055,7 @@ rl.on('line', (line) => {
         // 7. Pending entry removed while waiting (stale cleanup) → closed
         //    channel → Denied rather than hanging. Own cancel channel so the
         //    earlier send(true) doesn't pre-interrupt it.
-        let (_tx7, mut cancel7) = tokio::sync::watch::channel(false);
+        let (_tx7, cancel7) = tokio::sync::watch::channel(false);
         let f7 = {
             let p = pending.clone();
             let pa = pre_approved.clone();
@@ -3105,10 +3145,19 @@ rl.on('line', (line) => {
             Some(spaced)
         );
         // Case-insensitive fallback: PRAGMA → <root>/pragma.
-        assert_eq!(guess_dir_from_text_roots("use PRAGMA", &roots), Some(pragma));
+        assert_eq!(
+            guess_dir_from_text_roots("use PRAGMA", &roots),
+            Some(pragma)
+        );
         // Stopwords never match; unknown names return None.
-        assert_eq!(guess_dir_from_text_roots("just the project folder", &roots), None);
-        assert_eq!(guess_dir_from_text_roots("use not-a-real-dir", &roots), None);
+        assert_eq!(
+            guess_dir_from_text_roots("just the project folder", &roots),
+            None
+        );
+        assert_eq!(
+            guess_dir_from_text_roots("use not-a-real-dir", &roots),
+            None
+        );
     }
 
     #[test]

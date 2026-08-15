@@ -192,9 +192,7 @@ or\n\
 VERDICT: FIX\n\
 FINDINGS:\n\
 - file:line — specific, actionable issue (one per line, only when VERDICT: FIX)\n";
-    let user = format!(
-        "TASK:\n{task}\n\nDIFF:\n{diff}\n\nPROJECT CHECKS OUTPUT:\n{checks}"
-    );
+    let user = format!("TASK:\n{task}\n\nDIFF:\n{diff}\n\nPROJECT CHECKS OUTPUT:\n{checks}");
     vec![
         serde_json::json!({ "role": "system", "content": system }),
         serde_json::json!({ "role": "user", "content": user }),
@@ -215,7 +213,11 @@ pub fn parse_verdict(text: &str) -> (bool, Vec<String>) {
             if upper.contains("FIX") {
                 passes = false;
             }
-        } else if t.starts_with('-') || t.chars().next().map(|c| c.is_ascii_digit()).unwrap_or(false)
+        } else if t.starts_with('-')
+            || t.chars()
+                .next()
+                .map(|c| c.is_ascii_digit())
+                .unwrap_or(false)
         {
             let f = t.trim_start_matches(|c: char| c == '-' || c.is_ascii_whitespace());
             if !f.is_empty() {
@@ -226,7 +228,9 @@ pub fn parse_verdict(text: &str) -> (bool, Vec<String>) {
     if !text.trim().is_empty() && !text.to_ascii_uppercase().contains("VERDICT:") {
         // Unparseable — treat as FIX with the raw tail as a single finding.
         let tail: String = cap_chars(text, 800);
-        findings = vec![format!("reviewer output not in expected format — full response:\n{tail}")];
+        findings = vec![format!(
+            "reviewer output not in expected format — full response:\n{tail}"
+        )];
     }
     (passes, findings)
 }
