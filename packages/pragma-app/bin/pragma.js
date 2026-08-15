@@ -72,6 +72,57 @@ function extractTar(file, dir) {
   execFileSync('tar', ['-xzf', file, '-C', dir], { stdio: 'inherit' })
 }
 
+async function fetchIcon(url, dest) {
+  const res = await fetch(url, { headers: { 'User-Agent': 'pragma-app' } })
+  if (!res.ok) throw new Error(`HTTP ${res.status}`)
+  writeFileSync(dest, Buffer.from(await res.arrayBuffer()))
+}
+
+// Register a desktop launcher (Linux AppImage only) so Pragma shows up in the
+// application menu / grid instead of living in a terminal. Best-effort: a
+// failure here must never break launching the app itself.
+async function ensureDesktopEntry(file) {
+  if (process.platform !== 'linux') return
+  try {
+    const appsDir = join(homedir(), '.local', 'share', 'applications')
+    const iconsDir = join(CACHE_ROOT, 'icons')
+    mkdirSync(appsDir, { recursive: true })
+    mkdirSync(iconsDir, { recursive: true })
+    const icon = join(iconsDir, 'pragma.png')
+    if (!existsSync(icon)) {
+      try {
+        await fetchIcon(`https://raw.githubusercontent.com/${REPO}/main/src-tauri/icons/128x128.png`, icon)
+      } catch {
+        /* entry works without an icon */
+      }
+    }
+    const desktop = join(appsDir, 'pragma.desktop')
+    writeFileSync(
+      desktop,
+      [
+        '[Desktop Entry]',
+        'Type=Application',
+        'Name=Pragma',
+        'Comment=Agentic AI coding harness',
+        `Exec=${file}`,
+        `Icon=${icon}`,
+        'Terminal=false',
+        'Categories=Development;IDE;',
+        'StartupWMClass=pragma',
+        '',
+      ].join('\n')
+    )
+    chmodSync(desktop, 0o755)
+    // Ask the desktop to re-scan (harmless where it doesn't exist).
+    try {
+      execFileSync('update-desktop-database', [appsDir], { stdio: 'ignore' })
+    } catch {}
+    console.log('   added launcher to the application menu')
+  } catch (e) {
+    console.warn(`   (could not add app-menu entry: ${e.message})`)
+  }
+}
+
 function launch(kind, path) {
   console.log('   launching Pragma…')
   if (kind === 'open') {
@@ -123,6 +174,9 @@ async function main() {
   } else if (kind === 'exec') {
     chmodSync(file, 0o755)
     launch('exec', file)
+    if (process.platform === 'linux') {
+      await ensureDesktopEntry(file)
+    }
   } else {
     launch('open', file)
   }
