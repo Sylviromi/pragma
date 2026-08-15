@@ -66,9 +66,12 @@ git push origin main --tags
   `npm view`), and updates re-install through the same path. Pinned sources
   (`npm:pkg@ver`) are skipped by design. See PLUGINS.md.
 - **npm publish tokens expire after 90 days** (npm's security cap, no way to
-  extend). Regenerate at https://www.npmjs.com/settings/<user>/tokens and
-  `npm config set //registry.npmjs.org/:_authToken=<new>` roughly every
-  quarter; the plugins + `pragma-app` publishes need a working token.
+  extend). The token lives in `pragma-plugins/.env` (`NPM_TOKEN=…`, gitignored
+  — the single source of truth). Change it with
+  `node scripts/publish.mjs --token npm_<new>` (plugins) — the wrapper publish
+  (`node scripts/publish-app.mjs`) reads the same .env. Publish plugins with
+  `node scripts/publish.mjs` after bumping each `manifest.json` version; both
+  scripts use a temp userconfig so the token never lands in an npmrc.
 - **CI gates**: every push/PR runs `npm run check`, vitest, `cargo fmt --check`,
   `cargo clippy -D warnings`, and `cargo test` on Linux/macOS/Windows — keep
   those green so a tag push never wastes a release build.
