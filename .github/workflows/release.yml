@@ -217,7 +217,7 @@ jobs:
           releaseName: 'Pragma v__VERSION__'
           # Generate + upload the updater manifest (latest.json) + per-platform
           # updater artifacts each release, so the app can self-update.
-          createUpdaterArtifacts: true
+          includeUpdaterJson: true
           # The full notes (install preamble + changelog section) are written
           # by the publish job via gh --notes-file once the draft exists.
           releaseDraft: true
