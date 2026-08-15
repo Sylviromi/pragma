@@ -1,44 +1,81 @@
 # Releasing Pragma
 
 Pragma's release pipeline is fully automated: pushing a version tag makes
-GitHub Actions build the native bundles for every platform and attach them to a
-**draft** GitHub Release, which you review and publish.
+GitHub Actions build the native bundles for every platform, publish the GitHub
+Release, and publish the `pragma-app` npm wrapper — no manual steps. A manual
+**quick debug** path (workflow_dispatch) builds only the platforms you pick,
+for when you need a fix out in minutes.
 
-## Prerequisites (first release only)
+## One-time setup
 
-1. **Add a `LICENSE`** file (MIT / Apache-2.0 / … — your call) and reference it
-   from `package.json` (`"license": "MIT"`), `Cargo.toml` (`license = "MIT"`),
-   and `tauri.conf.json` → `bundle.copyright` if you want the string baked into
-   the installers.
-2. Make sure the repo is on GitHub with **Actions enabled**.
-3. (Optional) Customize `bundle` metadata in `src-tauri/tauri.conf.json`
-   (`publisher`, `category`, `deb.maintainer` — deb/rpm packaging reads these;
-   the current fallbacks are generic and fine for a first release).
+1. **npm token** — the pipeline auto-publishes the `pragma-app` npm wrapper.
+   Add the npm token as a GitHub secret: Settings → Secrets and variables →
+   Actions → **`NPM_TOKEN`** (same token that lives in `pragma-plugins/.env`).
+   Until it's set, the workflow skips npm and you publish locally with
+   `node scripts/publish-app.mjs`.
+2. **Build-finished notifications** (optional) — GitHub emails you about
+   workflow runs if you watch the repo (Settings → Notification settings →
+   enable "Actions"). For a push notification / chat message, add a secret
+   **`NOTIFY_WEBHOOK_URL`**: an `https://ntfy.sh/<topic>` URL (zero-setup
+   push notifications, free) or any Slack / Discord webhook. A completion
+   message is posted automatically when the run finishes.
+3. **Manual review** (optional) — by default the release is auto-published.
+   If you want to smoke-test the draft before it goes live, set the repo
+   **variable** `MANUAL_RELEASE_REVIEW=true`; the workflow then keeps the
+   release as a draft and skips npm (the wrapper resolves `releases/latest`,
+   which only counts published releases).
 
-## Release steps
+## Full release (all platforms)
 
 ```bash
-# 1. Decide the version (semver). For a first public release: 1.0.0.
+# 1. Decide the version (semver).
+./scripts/bump-version.sh 1.0.0      # syncs package.json, tauri.conf.json,
+                                     # Cargo.toml + lockfile, packages/pragma-app
 
-# 2. Sync the version everywhere (package.json + tauri.conf.json + Cargo.toml).
-./scripts/bump-version.sh 1.0.0
-
-# 3. Update CHANGELOG.md — move "Unreleased" into a dated section
+# 2. Update CHANGELOG.md — move "Unreleased" into a dated section
 #    (keep the format: ## [1.0.0] - 2025-XX-XX).
 
-# 4. Commit and tag. Tags must match v* (workflow trigger).
+# 3. Commit and tag. Tags must match v* (workflow trigger).
 git add -A && git commit -m "Release 1.0.0"
 git tag v1.0.0
 git push origin main --tags
 ```
 
-## What happens next
+That's it — the pipeline builds, publishes the release, and publishes
+`pragma-app@<version>` to npm. You get a notification when it's done.
 
-- The **Release** workflow builds four bundles:
-  Linux `.deb` / `.rpm` / `.AppImage` (ubuntu-22.04), macOS `.dmg` +
-  `.app` for both Apple Silicon and Intel, Windows `.msi` / `.exe` (NSIS).
-- Everything lands on a **draft release** named `Pragma v1.0.0`.
-- Smoke-test the artifacts (see below), then hit **Publish** on the release.
+## Quick debug update (fast, Linux-only by default)
+
+For a hotfix that only needs to be out quickly (e.g. a Linux/GNOME fix), skip
+the multi-platform build:
+
+```bash
+./scripts/bump-version.sh 0.1.2      # bump + commit + push as usual
+git add -A && git commit -m "fix: ..."
+git push origin main
+```
+
+Then run the **Release** workflow manually: Actions → Release →
+"Run workflow" → version `0.1.2`, platforms `ubuntu-22.04` (default). Rust
+builds are cached, so a single-platform build takes a few minutes. Release
+and npm are published automatically; you still get the notification.
+
+Don't do both a tag push and a manual run for the same version — they race on
+the same release.
+
+## What happens next (pipeline detail)
+
+- The **Release** workflow:
+  - builds the bundles for the platforms in the matrix (Linux `.deb` /
+    `.rpm` / `.AppImage` on ubuntu-22.04, macOS `.dmg` + `.app` for both
+    Apple Silicon and Intel, Windows `.msi` / `.exe`) — parallel across
+    runners, with npm + Rust caches so follow-up builds are minutes;
+  - attaches them to the release, then **auto-publishes** it (unless
+    `MANUAL_RELEASE_REVIEW=true`);
+  - publishes the `pragma-app` npm wrapper at the same version;
+  - posts a completion message to `NOTIFY_WEBHOOK_URL` (if configured) —
+    including a link to the release.
+- The **Pages** workflow keeps the download page in sync on every push.
 
 ## Smoke-test checklist
 
@@ -50,6 +87,10 @@ git push origin main --tags
 - [ ] Windows `.msi`: installs, app launches
 - [ ] In-app: create a session, run an agentic loop against a provider, click
       an agent link → opens in the system browser
+- [ ] `npm install -g pragma-app && pragma` downloads and launches the app
+
+With `MANUAL_RELEASE_REVIEW=true` the release waits as a draft so you can
+run this checklist before hitting **Publish**; otherwise it's already live.
 
 ## Notes / follow-ups
 
@@ -67,11 +108,11 @@ git push origin main --tags
   (`npm:pkg@ver`) are skipped by design. See PLUGINS.md.
 - **npm publish tokens expire after 90 days** (npm's security cap, no way to
   extend). The token lives in `pragma-plugins/.env` (`NPM_TOKEN=…`, gitignored
-  — the single source of truth). Change it with
+  — the single source of truth for local publishes) and as the `NPM_TOKEN`
+  GitHub secret for the pipeline. Change both with
   `node scripts/publish.mjs --token npm_<new>` (plugins) — the wrapper publish
-  (`node scripts/publish-app.mjs`) reads the same .env. Publish plugins with
-  `node scripts/publish.mjs` after bumping each `manifest.json` version; both
-  scripts use a temp userconfig so the token never lands in an npmrc.
+  (`node scripts/publish-app.mjs`) reads the same .env. Both scripts use a
+  temp userconfig so the token never lands in an npmrc.
 - **CI gates**: every push/PR runs `npm run check`, vitest, `cargo fmt --check`,
   `cargo clippy -D warnings`, and `cargo test` on Linux/macOS/Windows — keep
   those green so a tag push never wastes a release build.

@@ -1,30 +1,95 @@
 name: Release
 
 # Builds installable bundles for Linux (deb/rpm/AppImage), macOS (arm64 +
-# x64) and Windows, then attaches them to a draft GitHub Release. Triggered by
-# a version tag (see RELEASING.md for the full runbook).
+# x64) and Windows, attaches them to a GitHub Release, auto-publishes it, and
+# publishes the pragma-app npm wrapper. Triggered by a version tag (full
+# release, all platforms) or manually (quick debug build — pick only the
+# platforms you need).
+#
+# Configure once (Settings → Secrets and variables → Actions):
+#   NPM_TOKEN            (secret)   npm auth token — enables auto-publishing
+#                                   the pragma-app wrapper. Until set, publish
+#                                   it locally with scripts/publish-app.mjs.
+#   NOTIFY_WEBHOOK_URL   (secret)   optional — ntfy.sh topic or a Slack /
+#                                   Discord webhook; a completion message is
+#                                   POSTed when the run finishes.
+#   MANUAL_RELEASE_REVIEW (variable) optional — set to "true" to keep the
+#                                   release as a draft for manual review
+#                                   instead of auto-publishing.
 on:
   push:
     tags:
       - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to build, e.g. 0.1.2 (used for the release tag)'
+        required: true
+        type: string
+      platforms:
+        description: >-
+          Runners to build for, comma-separated (quick debug builds).
+          Allowed: ubuntu-22.04, macos-latest, macos-13, windows-latest
+        required: false
+        default: ubuntu-22.04
 
 permissions:
   contents: write
 
 jobs:
+  setup:
+    name: Resolve matrix + tag
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.resolve.outputs.matrix }}
+      tag: ${{ steps.resolve.outputs.tag }}
+    steps:
+      - name: Compute platform matrix and release tag
+        id: resolve
+        run: |
+          ALLOWED='ubuntu-22.04 macos-latest macos-13 windows-latest'
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            VERSION="${{ inputs.version }}"
+            case "$VERSION" in
+              [0-9]*.[0-9]*.[0-9]*) ;;
+              *) echo "::error::workflow_dispatch requires a version like 0.1.2"; exit 1 ;;
+            esac
+            TAG="v$VERSION"
+            SELECTED="${{ inputs.platforms }}"
+          else
+            TAG="${{ github.ref_name }}"
+            SELECTED='ubuntu-22.04, macos-latest, macos-13, windows-latest'
+          fi
+
+          JSON='['
+          IFS=',' read -ra PLATFORMS <<< "$SELECTED"
+          for p in "${PLATFORMS[@]}"; do
+            p="${p//[[:space:]]/}"
+            if [ -z "$p" ]; then continue; fi
+            if ! echo "$ALLOWED" | grep -qw "$p"; then
+              echo "::error::unknown runner '$p' — allowed: $ALLOWED"
+              exit 1
+            fi
+            [ "$JSON" != '[' ] && JSON+=","
+            JSON+="{\"platform\":\"$p\"}"
+          done
+          JSON+=']'
+          if [ "$JSON" = "[]" ]; then
+            echo "::error::no platforms selected"
+            exit 1
+          fi
+
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "matrix=$JSON" >> "$GITHUB_OUTPUT"
+          echo "building tag $TAG on: $JSON"
+
   publish-tauri:
     name: Publish (${{ matrix.platform }})
+    needs: setup
     strategy:
       fail-fast: false
       matrix:
-        include:
-          # One job per architecture, HOST build (no --target): tauri derives
-          # the bundle arch/names from the runner, so cross-compiling macOS on
-          # an arm64 runner produced aarch64-named dmgs for the x64 job.
-          - platform: macos-latest # Apple Silicon
-          - platform: macos-13 # Intel
-          - platform: ubuntu-22.04
-          - platform: windows-latest
+        include: ${{ fromJSON(needs.setup.outputs.matrix) }}
     runs-on: ${{ matrix.platform }}
     steps:
       - uses: actions/checkout@v4
@@ -35,17 +100,31 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf rpm
 
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
       - name: Install frontend dependencies
         run: npm ci
 
       - uses: dtolnay/rust-toolchain@stable
+
+      # The Rust toolchain + registry + target dir are the bulk of the build
+      # time (tauri/sqlx/reqwest …). Cached across runs on each runner, so a
+      # follow-up release builds in a few minutes instead of 15-30.
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
 
       - name: Build bundles and attach to draft release
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tagName: ${{ github.ref_name }}
+          tagName: ${{ needs.setup.outputs.tag }}
           releaseName: 'Pragma v__VERSION__'
           releaseBody: |
             See the assets below to download and install this version.
@@ -58,3 +137,85 @@ jobs:
             See [CHANGELOG.md](CHANGELOG.md) for this release.
           releaseDraft: true
           prerelease: false
+
+  publish:
+    name: Publish release + npm wrapper
+    needs: [setup, publish-tauri]
+    if: success()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Publish draft release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.setup.outputs.tag }}
+          MANUAL_REVIEW: ${{ vars.MANUAL_RELEASE_REVIEW }}
+        run: |
+          if [ "$MANUAL_REVIEW" = "true" ]; then
+            echo "MANUAL_RELEASE_REVIEW=true — keeping the release as a draft for manual review"
+            exit 0
+          fi
+          if gh release view "$TAG" --json isDraft -q '.isDraft' 2>/dev/null | grep -q true; then
+            gh release edit "$TAG" --draft=false
+            echo "published release $TAG"
+          else
+            echo "release $TAG not found or already published — nothing to do"
+          fi
+
+      - name: Publish pragma-app to npm
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+          TAG: ${{ needs.setup.outputs.tag }}
+          MANUAL_REVIEW: ${{ vars.MANUAL_RELEASE_REVIEW }}
+        run: |
+          if [ "$MANUAL_REVIEW" = "true" ]; then
+            echo "MANUAL_RELEASE_REVIEW=true — skipping npm publish with the release"
+            exit 0
+          fi
+          if [ -z "$NPM_TOKEN" ]; then
+            echo "NPM_TOKEN secret not set — skipping npm publish (publish locally with scripts/publish-app.mjs)"
+            exit 0
+          fi
+          VERSION="${TAG#v}"
+          if npm view pragma-app@"$VERSION" version >/dev/null 2>&1; then
+            echo "pragma-app@$VERSION already on npm — skipping"
+          else
+            printf '//registry.npmjs.org/:_authToken=%s\n' "$NPM_TOKEN" > "$RUNNER_TEMP/.npmrc"
+            (cd packages/pragma-app && npm publish --userconfig "$RUNNER_TEMP/.npmrc" --access public)
+            echo "published pragma-app@$VERSION"
+          fi
+
+  notify:
+    name: Notify build finished
+    needs: [setup, publish-tauri, publish]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Send completion webhook
+        env:
+          NOTIFY_WEBHOOK_URL: ${{ secrets.NOTIFY_WEBHOOK_URL }}
+          BUILD_STATUS: ${{ needs.publish-tauri.result }}
+          PUBLISH_STATUS: ${{ needs.publish.result }}
+          TAG: ${{ needs.setup.outputs.tag }}
+        run: |
+          if [ -z "$NOTIFY_WEBHOOK_URL" ]; then
+            echo "NOTIFY_WEBHOOK_URL not set — skipping notification"
+            exit 0
+          fi
+          URL="https://github.com/${{ github.repository }}/releases/tag/$TAG"
+          if [ "$BUILD_STATUS" = "success" ]; then
+            MSG="Pragma $TAG build succeeded — $URL"
+            if [ "$PUBLISH_STATUS" = "success" ]; then
+              MSG="$MSG (release published, npm wrapper synced)"
+            elif [ "$PUBLISH_STATUS" = "failure" ]; then
+              MSG="$MSG — release/npm publish FAILED, check the run"
+            fi
+          else
+            MSG="Pragma $TAG build $BUILD_STATUS — $URL"
+          fi
+          if [[ "$NOTIFY_WEBHOOK_URL" == *ntfy.sh* ]]; then
+            curl -fsS -H "Title: Pragma release build" -d "$MSG" "$NOTIFY_WEBHOOK_URL"
+          else
+            curl -fsS -H 'Content-Type: application/json' -d "{\"text\":\"$MSG\"}" "$NOTIFY_WEBHOOK_URL"
+          fi
