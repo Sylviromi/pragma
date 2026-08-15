@@ -62,6 +62,14 @@ export interface PluginInfo {
   folder: string
 }
 
+export interface PluginUpdateInfo {
+  id: string
+  source: string | null
+  current: string
+  latest: string | null
+  updateAvailable: boolean
+  pinned: boolean
+}
 
 export interface SkillInfo {
   id: string

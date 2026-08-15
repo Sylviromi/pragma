@@ -277,6 +277,8 @@ pub fn run() {
             commands::plugins::set_plugin_enabled,
             commands::plugins::install_plugin,
             commands::plugins::uninstall_plugin,
+            commands::plugins::check_plugin_updates,
+            commands::plugins::update_plugin,
             commands::plugins::read_plugin_component,
             commands::plugins::read_plugin_skill,
             commands::plugins::list_skills,

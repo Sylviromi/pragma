@@ -89,6 +89,39 @@ pub async fn uninstall_plugin(
     Ok(())
 }
 
+// ── Updates ──────────────────────────────────────────────────────────────────
+
+/// Poll every installed plugin's recorded source (git tags / npm registry)
+/// and report which have newer versions available.
+#[tauri::command]
+pub async fn check_plugin_updates(
+    state: tauri::State<'_, AppState>,
+) -> Result<Vec<crate::plugins::PluginUpdateInfo>, String> {
+    Ok(state.plugins.check_updates())
+}
+
+/// Update one installed plugin to the latest version from its recorded source.
+#[tauri::command]
+pub async fn update_plugin(
+    id: String,
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+) -> Result<(), String> {
+    state.plugins.update_plugin(&id)?;
+
+    let api_keys = state.settings.read().unwrap().api_keys.clone();
+    crate::plugins::provider::unregister_plugin_providers(&state.registry, &state.plugins);
+    crate::plugins::provider::register_plugin_providers(
+        &state.registry,
+        &state.plugins,
+        &api_keys,
+        &app,
+    );
+
+    crate::save_settings(&state);
+    let _ = app.emit("plugin:reload", serde_json::json!({}));
+    Ok(())
+}
 
 #[tauri::command]
 pub async fn read_plugin_component(

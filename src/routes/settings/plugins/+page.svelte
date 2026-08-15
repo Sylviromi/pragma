@@ -1,19 +1,25 @@
 <script lang="ts">
-  import { plugins, loadPlugins, setEnabled, installFromSource, uninstallPlugin } from '../../../stores/plugins.svelte'
+  import { plugins, loadPlugins, setEnabled, installFromSource, uninstallPlugin, checkUpdates, updatePlugin } from '../../../stores/plugins.svelte'
   import { openPluginFolder } from '../../../lib/tauri'
   import { pushToast } from '../../../stores/toast.svelte'
   import { onMount } from 'svelte'
   import Icon from '../../../components/Icon.svelte'
   import { open } from '@tauri-apps/plugin-dialog'
+  import type { PluginUpdateInfo } from '../../../lib/tauri'
 
   let expanded = $state<Record<string, boolean>>({})
   let installing = $state(false)
   let showInstall = $state(false)
   let sourceInput = $state('')
   let confirmUninstall = $state<Record<string, boolean>>({})
+  let checking = $state(false)
+  let updatingId = $state<string | null>(null)
 
   onMount(async () => {
     await loadPlugins()
+    // If the startup check hasn't run yet (or failed), check now so the
+    // badges render — the store dedupes a concurrent in-flight check.
+    if (plugins.checkedAt === null) checkUpdates().catch(() => {})
   })
 
   async function toggle(p: { id: string; name: string; enabled: boolean }) {
@@ -51,6 +57,34 @@
     }
   }
 
+  async function checkForUpdates() {
+    checking = true
+    try {
+      const updates = await checkUpdates()
+      if (!updates.some((u) => u.updateAvailable)) pushToast('All plugins are up to date', 'success')
+    } catch (err) {
+      pushToast(String(err), 'error')
+    } finally {
+      checking = false
+    }
+  }
+
+  const updateFor = (id: string): PluginUpdateInfo | undefined =>
+    plugins.updates?.find((u) => u.id === id && u.updateAvailable)
+
+  async function doUpdate(p: { id: string; name: string }) {
+    updatingId = p.id
+    try {
+      await updatePlugin(p.id)
+      pushToast(`Updated ${p.name}`, 'success')
+      await checkUpdates()
+    } catch (err) {
+      pushToast(String(err), 'error')
+    } finally {
+      updatingId = null
+    }
+  }
+
   async function doUninstall(p: { id: string; name: string }) {
     try {
       await uninstallPlugin(p.id)
@@ -72,6 +106,10 @@
   <div class="title-row">
     <div class="title">Plugins</div>
     <div class="header-actions">
+      <button class="install-btn" onclick={checkForUpdates} disabled={checking}>
+        <Icon name="sync" size={14} />
+        {checking ? 'Checking…' : 'Check for updates'}
+      </button>
       <button class="install-btn" onclick={() => (showInstall = !showInstall)}>
         <Icon name="download" size={14} />
         Install…
@@ -127,6 +165,12 @@
                   <span class="badge first-party" title="Built into Pragma">Pragma</span>
                 {/if}
                 <span class="ver">v{p.version}</span>
+                {#if updateFor(p.id)}
+                  {@const up = updateFor(p.id)!}
+                  <span class="badge update" title="Newer version available from {up.source}">
+                    v{up.current} → v{up.latest}
+                  </span>
+                {/if}
               </div>
               <div class="id">{p.id}</div>
             </div>
@@ -175,6 +219,16 @@
             <button class="btn" class:off={p.enabled} onclick={() => toggle(p)} aria-pressed={p.enabled}>
               {p.enabled ? 'Enabled' : 'Disabled'}
             </button>
+            {#if updateFor(p.id)}
+              {@const up = updateFor(p.id)!}
+              <button
+                class="btn update-btn"
+                onclick={() => doUpdate(p)}
+                disabled={updatingId === p.id}
+              >
+                {updatingId === p.id ? 'Updating…' : `Update to v${up.latest}`}
+              </button>
+            {/if}
             <button
               class="btn danger"
               class:confirm={confirmUninstall[p.id]}
@@ -248,6 +302,22 @@
     color: var(--accent);
     border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
     background: color-mix(in srgb, var(--accent) 12%, transparent);
+  }
+  .badge.update {
+    color: var(--warning);
+    border: 1px solid color-mix(in srgb, var(--warning) 45%, transparent);
+    background: color-mix(in srgb, var(--warning) 12%, transparent);
+  }
+  .btn.update-btn {
+    background: transparent;
+    color: var(--warning);
+    border: 1px solid color-mix(in srgb, var(--warning) 45%, transparent);
+  }
+  .btn.update-btn:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--warning) 12%, transparent);
+  }
+  .btn.update-btn:disabled {
+    opacity: 0.6;
   }
   .install-row {
     display: flex;

@@ -1,6 +1,6 @@
 <script lang="ts">
   import { page } from '$app/stores'
-  import { plugins } from '../../stores/plugins.svelte'
+  import { plugins, updatesAvailable } from '../../stores/plugins.svelte'
   import Icon from '../../components/Icon.svelte'
   let { children } = $props()
 
@@ -15,6 +15,10 @@
   ]
   const isActive = (href: string) =>
     $page.url.pathname === href || ($page.url.pathname.startsWith('/settings/plugin/') && href === '/settings/plugins')
+
+  // Update count from the last check — badges the Plugins nav item so updates
+  // are visible from anywhere in Settings, not just the plugins page.
+  const updateCount = $derived(updatesAvailable().length)
 </script>
 
 <div class="shell">
@@ -36,7 +40,14 @@
           style={`--i:${i}`}
           class:active={isActive(item.href)}
           aria-current={isActive(item.href) ? 'page' : undefined}
-        >{item.label}</a>
+        >
+          {item.label}
+          {#if item.label === 'Plugins' && updateCount > 0}
+            <span class="nav-badge" title={`${updateCount} plugin update${updateCount > 1 ? 's' : ''} available`}>
+              {updateCount}
+            </span>
+          {/if}
+        </a>
       {/each}
 
       {#if plugins.list.length > 0}
@@ -143,6 +154,22 @@
   .item:hover {
     color: var(--text-primary);
     background: var(--surface-hover);
+  }
+  .nav-badge {
+    margin-left: auto;
+    min-width: 17px;
+    height: 17px;
+    padding: 0 5px;
+    border-radius: 9px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    font-weight: 600;
+    color: var(--warning);
+    background: color-mix(in srgb, var(--warning) 14%, transparent);
+    border: 1px solid color-mix(in srgb, var(--warning) 45%, transparent);
   }
   .item.active {
     color: var(--text-primary);

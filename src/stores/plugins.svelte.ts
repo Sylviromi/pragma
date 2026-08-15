@@ -4,9 +4,12 @@ import {
   setPluginEnabled as apiSetEnabled,
   installPlugin as apiInstallPlugin,
   uninstallPlugin as apiUninstallPlugin,
+  checkPluginUpdates as apiCheckUpdates,
+  updatePlugin as apiUpdatePlugin,
   readPluginSkill as apiReadSkill
 } from '../lib/tauri'
-import type { PluginInfo } from '../lib/tauri'
+import type { PluginInfo, PluginUpdateInfo } from '../lib/tauri'
+import { isBrowserMock } from '../lib/mock'
 import { loadProviders, initProviderEvents } from './providers.svelte'
 
 export const plugins = $state({
@@ -14,6 +17,10 @@ export const plugins = $state({
   /** Bump per plugin id (or '*' for all) to force re-import of component modules. */
   cacheKey: {} as Record<string, number>,
   loading: false,
+  /** Last update-check result (per plugin), null until the first check. */
+  updates: null as PluginUpdateInfo[] | null,
+  /** When the last check ran — gates the startup auto-check freshness. */
+  checkedAt: null as number | null
 })
 
 export async function loadPlugins() {
@@ -60,6 +67,49 @@ export async function uninstallPlugin(id: string) {
   await loadProviders()
 }
 
+/** Poll recorded sources for newer versions (git tags / npm registry). Stores
+ *  the result on the store so badges render reactively; dedupes concurrent
+ *  callers (startup auto-check + manual button + page mount). */
+let checkingUpdates = false
+export async function checkUpdates(): Promise<PluginUpdateInfo[]> {
+  if (checkingUpdates) return plugins.updates ?? []
+  checkingUpdates = true
+  try {
+    const updates = await apiCheckUpdates()
+    plugins.updates = updates
+    plugins.checkedAt = Date.now()
+    await loadPlugins()
+    return updates
+  } finally {
+    checkingUpdates = false
+  }
+}
+
+/** Plugins with a newer version available, per the last check. */
+export function updatesAvailable(): PluginUpdateInfo[] {
+  return (plugins.updates ?? []).filter((u) => u.updateAvailable)
+}
+
+/** Re-check at most every 10 minutes; silent (no toast) — startup checks must
+ *  never interrupt, the manual button still reports errors. */
+const AUTO_CHECK_MS = 10 * 60 * 1000
+export async function autoCheckUpdates() {
+  if (isBrowserMock) return
+  if (plugins.checkedAt && Date.now() - plugins.checkedAt < AUTO_CHECK_MS) return
+  try {
+    await checkUpdates()
+  } catch {
+    /* silent — checkedAt stays null so the next startup retries */
+  }
+}
+
+/** Update one plugin to the latest version from its recorded source. */
+export async function updatePlugin(id: string) {
+  await apiUpdatePlugin(id)
+  await loadPlugins()
+  bumpAll()
+  await loadProviders()
+}
 
 export async function skillFor(id: string): Promise<string> {
   try {

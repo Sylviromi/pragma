@@ -61,6 +61,25 @@ pub struct PluginInfo {
     pub folder: String,
 }
 
+/// One installed plugin's update status, as reported by `check_updates`.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PluginUpdateInfo {
+    pub id: String,
+    /// Recorded install source (`git:…` / `npm:…` / path) — None for folders
+    /// dropped in manually.
+    pub source: Option<String>,
+    /// Installed version (from the local manifest).
+    pub current: String,
+    /// Latest version known from the source — None when it can't be
+    /// determined (local paths are live symlinks; git repos with no semver
+    /// tags; unreadable remotes).
+    pub latest: Option<String>,
+    pub update_available: bool,
+    /// Version-pinned source (`git:…@tag` / `npm:pkg@ver`) — updates are
+    /// deliberately skipped, matching pi's pinned-ref semantics.
+    pub pinned: bool,
+}
 
 pub struct PluginManager {
     pub dir: PathBuf,
@@ -594,6 +613,88 @@ impl PluginManager {
         Ok(())
     }
 
+    // ── Updates ──────────────────────────────────────────────────────────────
+
+    /// Poll every installed plugin's recorded source for a newer version
+    /// (git tags via `git ls-remote`, npm registry `latest`). Local-path and
+    /// version-pinned sources report `update_available: false` — local
+    /// folders are live symlinks (always current), pinned refs deliberately
+    /// don't move. Manual/dropped-in folders have no source and are skipped.
+    pub fn check_updates(&self) -> Vec<PluginUpdateInfo> {
+        let sources = self.sources.read().unwrap().clone();
+        let mut out = Vec::new();
+        for (id, spec) in sources {
+            let current = self
+                .manifest(&id)
+                .map(|m| m.version.clone())
+                .unwrap_or_default();
+            let mut info = PluginUpdateInfo {
+                id: id.clone(),
+                source: Some(spec.clone()),
+                current,
+                latest: None,
+                update_available: false,
+                pinned: false,
+            };
+            match PluginSource::parse(&spec) {
+                Ok(PluginSource::Local(_)) => {} // live symlink — always current
+                Ok(PluginSource::Git { url, tag }) => {
+                    if tag.is_some() {
+                        info.pinned = true;
+                    } else if let Ok(Some(latest)) = git_latest_tag(&url) {
+                        info.latest = Some(latest.clone());
+                        info.update_available = compare_versions(&latest, &info.current) > 0;
+                    }
+                }
+                Ok(PluginSource::Npm { package }) => {
+                    let (name, version) = npm_name_version(&package);
+                    if version.is_some() {
+                        info.pinned = true;
+                    } else if let Ok(Some(latest)) = npm_latest_version(&name) {
+                        info.latest = Some(latest.clone());
+                        info.update_available = compare_versions(&latest, &info.current) > 0;
+                    }
+                }
+                Err(_) => {} // unparsable recorded source — nothing to poll
+            }
+            out.push(info);
+        }
+        out.sort_by(|a, b| a.id.cmp(&b.id));
+        out
+    }
+
+    /// Update one installed plugin to the latest version from its recorded
+    /// source — re-installs through the exact same atomic path as a fresh
+    /// install. Version-pinned and local-path sources are left alone.
+    pub fn update_plugin(&self, id: &str) -> Result<PluginInfo, String> {
+        let spec = self.sources.read().unwrap().get(id).cloned().ok_or_else(|| {
+            format!(
+                "plugin '{id}' has no recorded source — dropped-in folders update by editing the folder"
+            )
+        })?;
+        let source = PluginSource::parse(&spec)?;
+        match &source {
+            PluginSource::Local(_) => {
+                return Err(
+                    "local-path plugins are live symlinks — edit the source folder".into(),
+                )
+            }
+            PluginSource::Git { tag, .. } if tag.is_some() => {
+                return Err(
+                    "this plugin is version-pinned (git:…@tag) — drop the @tag to receive updates"
+                        .into(),
+                )
+            }
+            PluginSource::Npm { package } if npm_name_version(package).1.is_some() => {
+                return Err(
+                    "this plugin is version-pinned (npm:pkg@ver) — drop the @version to receive updates"
+                        .into(),
+                )
+            }
+            _ => {}
+        }
+        self.install_from_source(&spec)
+    }
 }
 
 /// A plugin source spec — where an installed plugin came from (mirrors pi /
@@ -881,6 +982,95 @@ fn npm_name_version(package: &str) -> (String, Option<String>) {
     }
 }
 
+/// Latest published version of an npm package (the `latest` dist-tag).
+fn npm_latest_version(name: &str) -> Result<Option<String>, String> {
+    let enc = name.replace('/', "%2F");
+    let url = format!("https://registry.npmjs.org/{enc}/latest");
+    let client = reqwest::blocking::Client::new();
+    let meta: serde_json::Value = client
+        .get(&url)
+        .send()
+        .and_then(|r| r.error_for_status())
+        .map_err(|e| format!("npm registry fetch failed ({url}): {e}"))?
+        .json()
+        .map_err(|e| e.to_string())?;
+    Ok(meta["version"].as_str().map(str::to_string))
+}
+
+/// Highest `vX.Y.Z` tag of a git repo via `git ls-remote --tags` (no clone).
+/// Returns None when the repo has no numeric semver tags (prerelease tags
+/// like `v1.2.3-beta` don't count as update targets).
+fn git_latest_tag(url: &str) -> Result<Option<String>, String> {
+    let out = std::process::Command::new("git")
+        .args(["ls-remote", "--tags", url])
+        .output()
+        .map_err(|e| format!("git is not available on PATH: {e}"))?;
+    if !out.status.success() {
+        let msg = String::from_utf8_lossy(&out.stderr).trim().to_string();
+        return Err(if msg.is_empty() {
+            format!("git ls-remote failed for {url}")
+        } else {
+            msg
+        });
+    }
+    let mut best: Option<String> = None;
+    for line in String::from_utf8_lossy(&out.stdout).lines() {
+        let tag = line.rsplit('\t').next().unwrap_or("");
+        let tag = tag.strip_prefix("refs/tags/").unwrap_or(tag);
+        if tag.ends_with("^{}") || tag.is_empty() {
+            continue; // peeled tag objects
+        }
+        let core = tag.trim_start_matches('v');
+        if core.is_empty()
+            || !core
+                .split('.')
+                .all(|s| !s.is_empty() && s.chars().all(|c| c.is_ascii_digit()))
+        {
+            continue;
+        }
+        match &best {
+            Some(b) if compare_versions(tag, b) > 0 => best = Some(tag.to_string()),
+            None => best = Some(tag.to_string()),
+            _ => {}
+        }
+    }
+    Ok(best)
+}
+
+/// Compare two version strings ("1.2.3", "v1.2.3", "1.2.3-beta.1").
+/// Dotted numeric segments compare numerically (padded to equal length); a
+/// pre-release suffix sorts below the same version without one. Returns <0,
+/// 0, or >0.
+fn compare_versions(a: &str, b: &str) -> i32 {
+    fn parse(v: &str) -> (Vec<u64>, Option<String>) {
+        let v = v.trim_start_matches('v').trim();
+        match v.split_once('-') {
+            Some((core, pre)) => (segments(core), Some(pre.to_string())),
+            None => (segments(v), None),
+        }
+    }
+    fn segments(core: &str) -> Vec<u64> {
+        core.split('.')
+            .map(|s| s.trim().parse::<u64>().unwrap_or(0))
+            .collect()
+    }
+    let (mut ac, ap) = parse(a);
+    let (mut bc, bp) = parse(b);
+    let n = ac.len().max(bc.len());
+    ac.resize(n, 0);
+    bc.resize(n, 0);
+    for (x, y) in ac.iter().zip(bc.iter()) {
+        if x != y {
+            return if x > y { 1 } else { -1 };
+        }
+    }
+    match (&ap, &bp) {
+        (None, None) => 0,
+        (None, Some(_)) => 1, // release > prerelease
+        (Some(_), None) => -1,
+        (Some(x), Some(y)) => x.cmp(y) as i32,
+    }
+}
 
 #[cfg(test)]
 mod tests {
@@ -1509,6 +1699,170 @@ mod tests {
         let pinned = format!("{url}@v1.0.0");
         m.install_from_source(&pinned).unwrap();
         assert_eq!(m.source_of("ghost").as_deref(), Some(pinned.as_str()));
+    }
+
+    #[test]
+    fn compares_versions() {
+        assert_eq!(compare_versions("1.0.0", "1.0.0"), 0);
+        assert!(compare_versions("1.2.0", "1.1.9") > 0);
+        assert!(compare_versions("1.0.0", "1.0.1") < 0);
+        assert!(compare_versions("v2.0.0", "v1.99.99") > 0);
+        assert!(
+            compare_versions("1.0.0", "1.0.0-beta.1") > 0,
+            "release > prerelease"
+        );
+        assert!(compare_versions("1.0.0-alpha", "1.0.0-beta") < 0);
+        assert!(
+            compare_versions("10.0", "9.0.0") > 0,
+            "short versions pad with zeros"
+        );
+    }
+
+    #[test]
+    fn splits_npm_name_and_version() {
+        assert_eq!(npm_name_version("my-plugin"), ("my-plugin".into(), None));
+        assert_eq!(
+            npm_name_version("my-plugin@1.2.3"),
+            ("my-plugin".into(), Some("1.2.3".into()))
+        );
+        assert_eq!(npm_name_version("@scope/pkg"), ("@scope/pkg".into(), None));
+        assert_eq!(
+            npm_name_version("@scope/pkg@1.2.3"),
+            ("@scope/pkg".into(), Some("1.2.3".into()))
+        );
+    }
+
+    #[test]
+    fn git_latest_tag_reads_local_repo() {
+        // Requires git on PATH (skip when absent) — same guard as the clone test.
+        if std::process::Command::new("git")
+            .arg("--version")
+            .output()
+            .is_err()
+        {
+            return;
+        }
+        let repo = tempfile::tempdir().unwrap();
+        let run = |args: &[&str]| {
+            let out = std::process::Command::new("git")
+                .args(args)
+                .current_dir(repo.path())
+                .output()
+                .unwrap();
+            assert!(
+                out.status.success(),
+                "git {args:?}: {}",
+                String::from_utf8_lossy(&out.stderr)
+            );
+        };
+        run(&["init", "-q", "-b", "main"]);
+        run(&["config", "user.email", "t@example.com"]);
+        run(&["config", "user.name", "t"]);
+        std::fs::write(repo.path().join("f"), "x").unwrap();
+        run(&["add", "."]);
+        run(&["commit", "-qm", "one"]);
+        run(&["tag", "v1.0.0"]);
+        run(&["tag", "v2.1.0"]);
+        run(&["tag", "not-a-version"]);
+        run(&["tag", "v1.2.3-beta"]);
+
+        let url = format!("file://{}", repo.path().display());
+        assert_eq!(git_latest_tag(&url).unwrap().as_deref(), Some("v2.1.0"));
+        // No semver tags → None.
+        let empty = tempfile::tempdir().unwrap();
+        let run2 = |args: &[&str]| {
+            std::process::Command::new("git")
+                .args(args)
+                .current_dir(empty.path())
+                .output()
+                .unwrap()
+        };
+        run2(&["init", "-q", "-b", "main"]);
+        run2(&["config", "user.email", "t@example.com"]);
+        run2(&["config", "user.name", "t"]);
+        std::fs::write(empty.path().join("f"), "x").unwrap();
+        run2(&["add", "."]);
+        run2(&["commit", "-qm", "one"]);
+        run2(&["tag", "release-1"]);
+        let url2 = format!("file://{}", empty.path().display());
+        assert_eq!(git_latest_tag(&url2).unwrap(), None);
+    }
+
+    #[test]
+    fn checks_and_applies_git_updates_end_to_end() {
+        // Install from a git repo at v1, publish v2, check → update available,
+        // update → v2 lands. Requires git on PATH.
+        if std::process::Command::new("git")
+            .arg("--version")
+            .output()
+            .is_err()
+        {
+            return;
+        }
+        let repo = tempfile::tempdir().unwrap();
+        let run = |args: &[&str]| {
+            let out = std::process::Command::new("git")
+                .args(args)
+                .current_dir(repo.path())
+                .output()
+                .unwrap();
+            assert!(
+                out.status.success(),
+                "git {args:?}: {}",
+                String::from_utf8_lossy(&out.stderr)
+            );
+        };
+        run(&["init", "-q", "-b", "main"]);
+        run(&["config", "user.email", "t@example.com"]);
+        run(&["config", "user.name", "t"]);
+        std::fs::write(
+            repo.path().join("manifest.json"),
+            r#"{"id":"up","name":"Up","version":"1.0.0"}"#,
+        )
+        .unwrap();
+        run(&["add", "."]);
+        run(&["commit", "-qm", "v1"]);
+        run(&["tag", "v1.0.0"]);
+
+        let (m, _dir) = mk_manager(vec![]);
+        let url = format!("git:file://{}", repo.path().display());
+        m.install_from_source(&url).unwrap();
+        assert_eq!(m.list()[0].version, "1.0.0");
+
+        // No newer tag yet → nothing to update.
+        let updates = m.check_updates();
+        assert_eq!(updates.len(), 1);
+        assert!(!updates[0].update_available);
+        assert!(!updates[0].pinned);
+
+        // Publish v2 → check reports it.
+        std::fs::write(
+            repo.path().join("manifest.json"),
+            r#"{"id":"up","name":"Up","version":"2.0.0"}"#,
+        )
+        .unwrap();
+        run(&["add", "."]);
+        run(&["commit", "-qm", "v2"]);
+        run(&["tag", "v2.0.0"]);
+
+        let updates = m.check_updates();
+        assert_eq!(updates.len(), 1);
+        assert!(updates[0].update_available);
+        assert_eq!(updates[0].latest.as_deref(), Some("v2.0.0"));
+
+        m.update_plugin("up").unwrap();
+        assert_eq!(m.list()[0].version, "2.0.0");
+        // After the update the source is still recorded.
+        assert_eq!(m.source_of("up").as_deref(), Some(url.as_str()));
+
+        // Pinned sources are skipped by checks and refused by update.
+        let pinned_spec = format!("{url}@v1.0.0");
+        let (m2, _dir2) = mk_manager(vec![]);
+        m2.install_from_source(&pinned_spec).unwrap();
+        let updates = m2.check_updates();
+        assert!(updates[0].pinned);
+        assert!(!updates[0].update_available);
+        assert!(m2.update_plugin("up").is_err());
     }
 
     #[test]

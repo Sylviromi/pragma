@@ -22,8 +22,8 @@ function mock<T>(fallback: T, cmd: string): Promise<T> {
 
 // Contributes as serialized by Rust (all camelCase) — shared with the plugin
 // store (which imports from this module for compatibility).
-import type { PluginContributes, PluginInfo, SkillInfo } from './types'
-export type { PluginContributes, PluginInfo } from './types'
+import type { PluginContributes, PluginInfo, PluginUpdateInfo, SkillInfo } from './types'
+export type { PluginContributes, PluginInfo, PluginUpdateInfo } from './types'
 
 export const listSessions = () => mock<Session[]>(mockSessions, 'list_sessions')
 
@@ -94,7 +94,14 @@ export const installPlugin = (spec: string) =>
 /** Remove an installed plugin. */
 export const uninstallPlugin = (id: string) =>
   isBrowserMock ? Promise.resolve() : tauriInvoke<void>('uninstall_plugin', { id })
-
+/** Poll recorded sources (git tags / npm registry) for newer versions. */
+export const checkPluginUpdates = () =>
+  isBrowserMock
+    ? Promise.resolve([])
+    : tauriInvoke<PluginUpdateInfo[]>('check_plugin_updates')
+/** Update one plugin to the latest version from its recorded source. */
+export const updatePlugin = (id: string) =>
+  isBrowserMock ? Promise.resolve() : tauriInvoke<void>('update_plugin', { id })
 export const readPluginComponent = (id: string) =>
   isBrowserMock
     ? // Minimal placeholder component so plugin slots visibly render in mock mode.
