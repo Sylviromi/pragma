@@ -13,19 +13,18 @@ permissions:
 
 jobs:
   publish-tauri:
-    name: Publish (${{ matrix.platform }}${{ matrix.args && format(' {0}', matrix.args) || '' }})
+    name: Publish (${{ matrix.platform }})
     strategy:
       fail-fast: false
       matrix:
         include:
-          - platform: macos-latest
-            args: '--target aarch64-apple-darwin'
-          - platform: macos-latest
-            args: '--target x86_64-apple-darwin'
+          # One job per architecture, HOST build (no --target): tauri derives
+          # the bundle arch/names from the runner, so cross-compiling macOS on
+          # an arm64 runner produced aarch64-named dmgs for the x64 job.
+          - platform: macos-latest # Apple Silicon
+          - platform: macos-13 # Intel
           - platform: ubuntu-22.04
-            args: ''
           - platform: windows-latest
-            args: ''
     runs-on: ${{ matrix.platform }}
     steps:
       - uses: actions/checkout@v4
@@ -40,10 +39,6 @@ jobs:
         run: npm ci
 
       - uses: dtolnay/rust-toolchain@stable
-
-      - name: Add macOS targets
-        if: matrix.platform == 'macos-latest'
-        run: rustup target add aarch64-apple-darwin x86_64-apple-darwin
 
       - name: Build bundles and attach to draft release
         uses: tauri-apps/tauri-action@v0
