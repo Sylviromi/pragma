@@ -86,6 +86,26 @@ jobs:
           echo "matrix=$JSON" >> "$GITHUB_OUTPUT"
           echo "building tag $TAG on: $JSON"
 
+      # Hard fail if the version baked into the files doesn't match the tag we're
+      # building for. This is the drift guard: a repo where someone (or an agent)
+      # bumped the tag but not the code — or vice versa — used to produce a release
+      # tagged vX that contained Y bundles, silently. Now it fails the run with a
+      # clear message before any build or npm publish happens.
+      - name: Verify tag matches app version
+        env:
+          TAG: ${{ steps.resolve.outputs.tag }}
+        run: |
+          VERSION="${TAG#v}"
+          for f in package.json src-tauri/tauri.conf.json; do
+            node -e "const j=JSON.parse(require('fs').readFileSync('$f','utf8')); if(j.version!=='$VERSION'){console.error('$f version '+j.version+' != tag $VERSION'); process.exit(1)}" \
+              || { echo "::error::$f version does not match tag $TAG"; exit 1; }
+          done
+          grep -q "^version = \"$VERSION\"" src-tauri/Cargo.toml \
+            || { echo "::error::src-tauri/Cargo.toml version does not match tag $TAG"; exit 1; }
+          [ "$(awk '/^name = "pragma"/{f=1} f&&/^version = /{print $3;exit}' src-tauri/Cargo.lock)" = "\"$VERSION\"" ] \
+            || { echo "::error::Cargo.lock version does not match tag $TAG"; exit 1; }
+          echo "version $VERSION matches package.json, tauri.conf.json, Cargo.toml, Cargo.lock ✓"
+
       # Release notes = install preamble + THIS version's CHANGELOG.md section
       # (so the changelog is embedded in the notes, not linked). Kept out of
       # tauri-action's releaseBody because it's easier to set it reliably via

@@ -6,6 +6,41 @@ GitHub Release — no manual steps. A manual
 **quick debug** path (workflow_dispatch) builds only the platforms you pick,
 for when you need a fix out in minutes.
 
+## One command: release.sh
+
+Releasing is now a **single command** that can't get the version wrong:
+
+```bash
+./scripts/release.sh 1.0.0
+```
+
+It does the whole job from one version input, so the git tag and the version
+in the code can never drift apart:
+
+1. syncs the version across `package.json`, `tauri.conf.json`, `Cargo.toml`
+   **and** `Cargo.lock` (fast — edits the lockfile directly, no `cargo build`);
+2. lifts whatever is under `## [Unreleased]` in `CHANGELOG.md` into a dated
+   `## [1.0.0] - YYYY-MM-DD` section at the top (newest first, fresh empty
+   `## [Unreleased]` above it), so the release-notes extraction always finds it;
+3. verifies every file agrees and matches the tag (`verify-version.mjs`) —
+   fails loudly on any mismatch;
+4. commits `Release 1.0.0`, tags `v1.0.0`, pushes `main` + the tag.
+
+Flags:
+
+- `--dry-run` — preview every step, **change nothing**, and never commit/tag/push.
+- `--no-push` — bump + changelog + verify + commit + tag, but don't push.
+
+It refuses to reuse an existing tag and refuses to commit with no staged
+changes, so ``release.sh`` *cannot* produce a mislabeled release by accident.
+
+> **Wrapper versioning:** `pragma-app` (the npm installer) versions *independently*
+> of the app — `release.sh` doesn't touch it. The workflow publishes whatever
+> version `packages/pragma-app/package.json` declares (skipping versions already
+> on npm), so wrapper fixes ride along with app releases or stand alone. Do not
+> manually publish wrapper versions between app releases unless you bump it in
+> the repo too.
+
 ## One-time setup
 
 1. **npm token** — the pipeline auto-publishes the `pragma-app` npm wrapper.
@@ -28,44 +63,32 @@ for when you need a fix out in minutes.
 ## Full release (all platforms)
 
 ```bash
-# 1. Decide the version (semver).
-./scripts/bump-version.sh 1.0.0      # syncs package.json, tauri.conf.json,
-                                     # Cargo.toml + lockfile, packages/pragma-app
-
-# 2. Update CHANGELOG.md — move "Unreleased" into a dated section
-#    (keep the format: ## [1.0.0] - 2025-XX-XX).
-
-# 3. Commit and tag. Tags must match v* (workflow trigger).
-git add -A && git commit -m "Release 1.0.0"
-git tag v1.0.0
-git push origin main --tags
+# The one command. Bumps every version home, moves the changelog entry,
+# verifies, then commits + tags v1.0.0 + pushes. Nothing else to remember.
+./scripts/release.sh 1.0.0
 ```
 
 That's it — the pipeline builds and publishes the release. You get a
 notification when it's done.
 
-> **Wrapper versioning:** `pragma-app` (the npm installer) versions *independently*
-> of the app — bumps are separate (`scripts/publish-app.mjs`). The release
-> workflow publishes whatever version `packages/pragma-app/package.json`
-> declares (skipping versions already on npm), so wrapper fixes ride along
-> with app releases or stand alone. Do not manually publish wrapper versions
-> between app releases unless you bump it in the repo too.
+If a version gate fails (tag already exists, files mismatched, nothing
+staged), it tells you exactly why and refuses — never pushes a broken state.
 
 ## Quick debug update (fast, Linux-only by default)
 
-For a hotfix that only needs to be out quickly (e.g. a Linux/GNOME fix), skip
-the multi-platform build:
+For a hotfix that only needs to be out quickly (e.g. a Linux/GNOME fix): make
+the code change and add its line to `## [Unreleased]` in `CHANGELOG.md`, then
+run the **same** one-command release for the new patch version:
 
 ```bash
-./scripts/bump-version.sh 0.1.2      # bump + commit + push as usual
-git add -A && git commit -m "fix: ..."
-git push origin main
+./scripts/release.sh 0.1.3
 ```
 
-Then run the **Release** workflow manually: Actions → Release →
-"Run workflow" → version `0.1.2`, platforms `ubuntu-22.04` (default). Rust
-builds are cached, so a single-platform build takes a few minutes. Release
-and npm are published automatically; you still get the notification.
+That bumps, commits, tags `v0.1.3` and pushes like a normal release. The
+**Release** workflow then builds — pick `ubuntu-22.04` only (default) via
+Actions → Release → "Run workflow" → platforms, and it does a single-platform
+build in a few minutes instead of the full matrix. Rust builds are cached, so
+it's quick.
 
 Don't do both a tag push and a manual run for the same version — they race on
 the same release.

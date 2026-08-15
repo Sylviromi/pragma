@@ -61,9 +61,9 @@ Produces installable bundles in `src-tauri/target/release/bundle/` (`.deb` / `.r
 ## Releasing
 
 Releases are driven by Git tags: push `vX.Y.Z` and GitHub Actions builds every
-platform's installers and attaches them to a draft release. Full runbook —
-including the version-bump script (`scripts/bump-version.sh`), changelog
-conventions, and the smoke-test checklist — lives in
+platform's installers and attaches them to a draft release. The one-command
+runbook — `./scripts/release.sh <version>` (bumps + changelog + tags + pushes),
+validation, and the smoke-test checklist — lives in
 [RELEASING.md](RELEASING.md).
 
 ## Tools available to the agent
