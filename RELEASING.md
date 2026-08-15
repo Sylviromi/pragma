@@ -62,9 +62,9 @@ git push origin main --tags
   input), and point `tauri.conf.json` → `plugins.updater.endpoints` at it. The
   release assets are already produced in the right shape.
 - **Plugin updates**: built in. Settings → Plugins → "Check for updates"
-  polls each installed plugin's recorded source (git tags via `ls-remote`,
-  npm registry `latest`), and updates re-install through the same atomic
-  path. Pinned sources (`@tag`/`@ver`) are skipped by design. See PLUGINS.md.
+  polls each installed plugin's recorded source (npm `latest` dist-tag via
+  `npm view`), and updates re-install through the same path. Pinned sources
+  (`npm:pkg@ver`) are skipped by design. See PLUGINS.md.
 - **CI gates**: every push/PR runs `npm run check`, vitest, `cargo fmt --check`,
   `cargo clippy -D warnings`, and `cargo test` on Linux/macOS/Windows — keep
   those green so a tag push never wastes a release build.

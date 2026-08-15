@@ -50,7 +50,7 @@ export async function setEnabled(id: string, enabled: boolean) {
   bumpPlugin(id)
 }
 
-/** Install from a source spec (git:…, npm:…, local path) — backend fetches,
+/** Install from a source spec (npm:… or a local folder path) — backend fetches,
  *  validates and enables. */
 export async function installFromSource(spec: string) {
   await apiInstallPlugin(spec)
@@ -67,7 +67,7 @@ export async function uninstallPlugin(id: string) {
   await loadProviders()
 }
 
-/** Poll recorded sources for newer versions (git tags / npm registry). Stores
+/** Poll recorded sources for newer versions (npm latest). Stores
  *  the result on the store so badges render reactively; dedupes concurrent
  *  callers (startup auto-check + manual button + page mount). */
 let checkingUpdates = false

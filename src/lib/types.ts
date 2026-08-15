@@ -60,6 +60,8 @@ export interface PluginInfo {
   hasSkill: boolean
   skills: SkillInfo[]
   folder: string
+  /** Recorded install source (npm:… / local path) — null for dropped-in folders. */
+  source: string | null
 }
 
 export interface PluginUpdateInfo {

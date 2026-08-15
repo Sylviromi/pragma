@@ -20,6 +20,7 @@ const mk = (over: Partial<PluginInfo>): PluginInfo => ({
   hasSkill: false,
   skills: [],
   folder: '/tmp/p',
+  source: null,
   ...over,
 })
 

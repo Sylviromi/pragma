@@ -117,7 +117,7 @@
     </div>
   </div>
   <div class="desc-lead">
-    Install from a source — <code>git:…</code>, <code>npm:…</code>, or a local folder — or
+    Install from a source — <code>npm:pragma-plugin-…</code> or a local folder — or
     drop a folder into <code>~/.config/dev.pragma.app/plugins/</code> (both hot-reload instantly).
   </div>
 
@@ -126,7 +126,7 @@
       <input
         class="source-input"
         bind:value={sourceInput}
-        placeholder="git:https://github.com/user/my-plugin  ·  npm:my-plugin  ·  /path/to/folder"
+        placeholder="npm:pragma-plugin-my-plugin  ·  /path/to/folder"
         onkeydown={(e) => {
           if (e.key === 'Enter') install()
           if (e.key === 'Escape') {

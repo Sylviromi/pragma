@@ -96,7 +96,7 @@ export const mockPlugins: PluginInfo[] = [
   {
     id: 'zen-warp', name: 'Zen WARP', version: '2.4.1', description: 'Free and low-cost model routing through the WARP relay.',
     author: 'Pragma Labs', publisher: '', repository: '', homepage: '', updateUrl: '',
-    enabled: true, folder: 'zen-warp', hasComponent: false, hasSkill: false, skills: [],
+    enabled: true, folder: 'zen-warp', hasComponent: false, hasSkill: false, skills: [], source: null,
     contributes: { providers: ['zen-warp'], slots: [], commands: [], skills: [] },
   },
 ]

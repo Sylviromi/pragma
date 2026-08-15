@@ -18,22 +18,22 @@ All notable changes to Pragma are documented here. Format based on
   tags (`v*`). See [RELEASING.md](RELEASING.md).
 - `scripts/bump-version.sh` — syncs the version across `package.json`,
   `tauri.conf.json`, and `Cargo.toml` in one step.
-- **Source-based plugin installs** (the pi/OpenCode model): install plugins
-  from `git:` repos, `npm:` packages, or local folders instead of hand-made
-  archives. Sources are recorded in `plugin_sources.json`; re-installing an
-  id replaces the folder atomically.
+- **npm-only plugin distribution** (the pi/OpenCode model): one plugin = one
+  npm package. `npm:` sources install with a real `npm install` into the
+  shared npm prefix, so sidecar handlers can `require` dependencies; the
+  plugins-dir entry is a symlink to the package. Local folders stay for the
+  dev workflow. Git/zip sources, the single-repo registry (`#subpath`
+  sparse checkout, `index.json` + generator) and the marketplace registry
+  URLs were removed.
+- **Marketplace = npm search**: Settings → Marketplace queries the npm
+  registry search API (`keywords:pragma-plugin`), one-click installs;
+  installed plugins are matched by their recorded source.
 - **Plugin updates**: automatic check at startup (silent, throttled to once
   per 10 min) plus a manual "Check for updates"; badges in the Settings
   sidebar and per-plugin cards with in-place Update. Version-pinned sources
-  are skipped.
+  (`npm:pkg@ver`) are skipped (pi semantics).
 - **Publisher namespacing**: `publisher` field in the manifest — first-party
   plugins (`publisher: "pragma"`) get a Pragma badge in Settings; ids stay
-  flat while the source (npm scope / git owner) namespaces.
-- **Single-repo plugin registry**: `#subpath` git sources install one plugin
-  from a shared repo via sparse checkout, so a singular GitHub repo
-  (`Sylviromi/pragma-plugins`) can serve every plugin; per-plugin tags (`<id>-v…`) keep
-  update checks isolated per plugin. `scripts/generate-plugin-index.js` builds
-  the registry `index.json`; Settings → Plugins → **Browse community
-  plugins** fetches and installs from it.
+  flat while npm scopes namespace at the distribution level.
 - MIT license + attribution metadata (`author`, `publisher`, `repository`,
   `homepage`) shown in Settings → Plugins.

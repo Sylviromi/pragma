@@ -4,166 +4,69 @@
   import { onMount } from 'svelte'
   import Icon from '../../../components/Icon.svelte'
 
-  interface RegistryPlugin {
-    id: string
+  // Plugins are npm packages (one plugin = one package, tagged pragma-plugin).
+  // Discovery is the npm registry search API — no git, no index files.
+  const DEFAULT_QUERY = 'keywords:pragma-plugin'
+  const SEARCH_URL = 'https://registry.npmjs.org/-/v1/search'
+
+  interface NpmPlugin {
     name: string
+    displayName: string
     version: string
     description?: string
     author?: string
-    publisher?: string
-    source: string
-  }
-  interface Registry {
-    url: string
-    label: string
-    plugins: RegistryPlugin[]
-    loading: boolean
-    error: string | null
+    source: string // npm:<name>
   }
 
-  // The official first-party registry: Sylviromi/pragma-plugins hosts all builtin
-  // plugins; any user can add their own repo as another registry.
-  const DEFAULT_REGISTRY = 'https://raw.githubusercontent.com/Sylviromi/pragma-plugins/main/index.json'
-  const STORAGE_KEY = 'pragma.marketplace.registries'
-
-  function labelFor(url: string): string {
-    try {
-      const raw = /raw\.githubusercontent\.com\/([^/]+\/[^/]+)\//.exec(url)
-      if (raw) return raw[1]
-      const gh = /github\.com\/([^/]+\/[^/]+)/.exec(url)
-      if (gh) return gh[1]
-      return new URL(url).hostname
-    } catch {
-      return url.slice(0, 40)
-    }
-  }
-
-  let registries = $state<Registry[]>([])
-  let showAdd = $state(false)
-  let newUrl = $state('')
-  let search = $state('')
+  let query = $state(DEFAULT_QUERY)
+  let results = $state<NpmPlugin[]>([])
+  let searching = $state(false)
+  let searched = $state(false)
   let installingId = $state<string | null>(null)
-  let refreshing = $state(false)
 
   onMount(() => {
     loadPlugins()
-    let saved: string | null = null
-    try {
-      saved = localStorage.getItem(STORAGE_KEY)
-    } catch {
-      /* storage unavailable (e.g. restricted webview) — use the default */
-    }
-    if (saved) {
-      try {
-        const urls: string[] = JSON.parse(saved)
-        if (urls.length > 0) {
-          registries = urls.map((url) => ({
-            url,
-            label: labelFor(url),
-            plugins: [],
-            loading: false,
-            error: null
-          }))
-          refreshAll()
-          return
-        }
-      } catch {
-        /* corrupt storage — fall through to the default */
-      }
-    }
-    registries = [
-      { url: DEFAULT_REGISTRY, label: labelFor(DEFAULT_REGISTRY), plugins: [], loading: false, error: null }
-    ]
-    refreshAll()
+    search()
   })
 
-  function persist() {
+  async function search() {
+    const q = query.trim() || DEFAULT_QUERY
+    searching = true
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(registries.map((r) => r.url)))
-    } catch {
-      /* storage unavailable — registries just won't survive restart */
-    }
-  }
-
-  async function loadRegistry(r: Registry) {
-    r.loading = true
-    r.error = null
-    try {
-      const res = await fetch(r.url)
+      const res = await fetch(`${SEARCH_URL}?text=${encodeURIComponent(q)}&size=50`)
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
       const data = await res.json()
-      r.plugins = Array.isArray(data.plugins) ? data.plugins : []
-      if (r.plugins.length === 0) r.error = 'No plugins found in this index'
+      results = (data.objects ?? []).map((o: { package: any }) => {
+        const p = o.package
+        return {
+          name: p.name,
+          displayName: p.name.replace(/^pragma-plugin-/, ''),
+          version: p.version,
+          description: p.description ?? '',
+          author: typeof p.author === 'string' ? p.author : (p.author?.name ?? ''),
+          source: `npm:${p.name}`
+        }
+      })
+      searched = true
     } catch (err) {
-      r.error = String(err)
-      r.plugins = []
+      pushToast(`Search failed: ${String(err)}`, 'error')
+      searched = true // leave the loading state — empty state with toast explains
     } finally {
-      r.loading = false
+      searching = false
     }
   }
 
-  async function refreshAll() {
-    refreshing = true
-    try {
-      await Promise.all(registries.map(loadRegistry))
-    } finally {
-      refreshing = false
-    }
-  }
+  // Installed detection by recorded source (npm:name) — the manifest id and
+  // the npm package name are separate, so match on the source.
+  const installed = $derived(
+    new Map(plugins.list.filter((p) => p.source).map((p) => [p.source as string, p.version]))
+  )
 
-  function addRegistry() {
-    const url = newUrl.trim()
-    if (!url) return
-    if (registries.some((r) => r.url === url)) {
-      pushToast('That registry is already added', 'info')
-      return
-    }
-    const r: Registry = { url, label: labelFor(url), plugins: [], loading: false, error: null }
-    registries = [...registries, r]
-    persist()
-    newUrl = ''
-    showAdd = false
-    loadRegistry(r)
-  }
-
-  function removeRegistry(url: string) {
-    if (registries.length <= 1) {
-      pushToast("Can't remove the last registry", 'info')
-      return
-    }
-    registries = registries.filter((r) => r.url !== url)
-    persist()
-  }
-
-  // All plugins across every registry, deduped by id (first registry wins).
-  const allPlugins = $derived.by(() => {
-    const seen = new Set<string>()
-    const out: (RegistryPlugin & { registry: string })[] = []
-    for (const r of registries) {
-      for (const p of r.plugins) {
-        if (seen.has(p.id)) continue
-        seen.add(p.id)
-        out.push({ ...p, registry: r.label })
-      }
-    }
-    return out
-  })
-
-  const filtered = $derived.by(() => {
-    const q = search.trim().toLowerCase()
-    if (!q) return allPlugins
-    return allPlugins.filter((p) =>
-      [p.name, p.id, p.description ?? '', p.author ?? ''].join(' ').toLowerCase().includes(q)
-    )
-  })
-
-  const installed = $derived(new Map(plugins.list.map((p) => [p.id, p.version])))
-
-  async function install(p: RegistryPlugin) {
-    installingId = p.id
+  async function install(p: NpmPlugin) {
+    installingId = p.name
     try {
       await installFromSource(p.source)
-      pushToast(`Installed ${p.name} — enabled`, 'success')
+      pushToast(`Installed ${p.displayName} — enabled`, 'success')
     } catch (err) {
       pushToast(`Install failed: ${String(err)}`, 'error')
     } finally {
@@ -175,74 +78,54 @@
 <div class="page">
   <div class="title-row">
     <div class="title">Marketplace</div>
-    <button class="install-btn" onclick={refreshAll} disabled={refreshing}>
-      <Icon name="sync" size={14} />
-      {refreshing ? 'Refreshing…' : 'Refresh'}
-    </button>
+    <span class="hint">npm packages tagged <code>pragma-plugin</code></span>
   </div>
   <div class="desc-lead">
-    Every plugin available across your registries. A registry is any git repo
-    hosting one or more plugins — the official <code>Sylviromi/pragma-plugins</code> repo
-    is pre-added; add your own (or a friend's) with “Add registry”.
+    Every Pragma plugin is an <code>npm</code> package — one plugin per package,
+    publishing with <code>npm publish</code>. Search below, install with one click;
+    updates are checked automatically like any other source.
   </div>
 
-  <div class="registries">
-    {#each registries as r (r.url)}
-      <div class="registry" class:error={!!r.error}>
-        <span class="registry-label">{r.label}</span>
-        <span class="registry-meta">
-          {r.loading ? 'loading…' : (r.error ?? `${r.plugins.length} plugin${r.plugins.length === 1 ? '' : 's'}`)}
-        </span>
-        {#if registries.length > 1}
-          <button class="registry-remove" onclick={() => removeRegistry(r.url)} title="Remove registry">
-            <Icon name="close" size={13} />
-          </button>
-        {/if}
-      </div>
-    {/each}
-    {#if showAdd}
-      <div class="add-row">
-        <input
-          class="source-input"
-          bind:value={newUrl}
-          placeholder="https://raw.githubusercontent.com/you/my-plugins/main/index.json"
-          onkeydown={(e) => {
-            if (e.key === 'Enter') addRegistry()
-          }}
-        />
-        <button class="btn" onclick={addRegistry} disabled={!newUrl.trim()}>Add</button>
-      </div>
-    {/if}
-    <button class="link add-link" onclick={() => (showAdd = !showAdd)}>
-      <Icon name="add" size={14} />
-      {showAdd ? 'Cancel' : 'Add registry'}
+  <div class="search-row">
+    <input
+      class="search"
+      bind:value={query}
+      placeholder="keywords:pragma-plugin — or anything on npm"
+      onkeydown={(e) => {
+        if (e.key === 'Enter') search()
+      }}
+    />
+    <button class="btn" onclick={search} disabled={searching}>
+      {searching ? 'Searching…' : 'Search'}
     </button>
   </div>
 
-  <input class="search" bind:value={search} placeholder="Search plugins…" />
-
-  {#if filtered.length === 0}
+  {#if !searched && !searching}
     <div class="empty">
       <Icon name="extension" size={30} />
-      <p>{search ? 'No plugins match your search.' : 'No plugins loaded — refresh or add a registry.'}</p>
+      <p>Searching npm for plugins…</p>
+    </div>
+  {:else if results.length === 0}
+    <div class="empty">
+      <Icon name="extension" size={30} />
+      <p>No plugins found — try a different query.</p>
     </div>
   {:else}
     <ul class="grid">
-      {#each filtered as p (p.id)}
+      {#each results as p (p.name)}
         <li class="card">
           <div class="card-head">
-            <span class="name">{p.name}</span>
-            {#if p.publisher === 'pragma'}<span class="badge first-party" title="Built into Pragma">Pragma</span>{/if}
+            <span class="name">{p.displayName}</span>
             <span class="ver">v{p.version}</span>
           </div>
-          <div class="card-id">{p.id} · {p.registry}</div>
+          <div class="card-id">{p.name}{p.author ? ` · by ${p.author}` : ''}</div>
           {#if p.description}<p class="desc">{p.description}</p>{/if}
           <div class="card-foot">
-            {#if installed.has(p.id)}
-              <span class="installed-tag"><Icon name="check" size={13} /> Installed v{installed.get(p.id)}</span>
+            {#if installed.has(p.source)}
+              <span class="installed-tag"><Icon name="check" size={13} /> Installed v{installed.get(p.source)}</span>
             {:else}
-              <button class="btn" onclick={() => install(p)} disabled={installingId === p.id}>
-                {installingId === p.id ? 'Installing…' : 'Install'}
+              <button class="btn" onclick={() => install(p)} disabled={installingId === p.name}>
+                {installingId === p.name ? 'Installing…' : 'Install'}
               </button>
             {/if}
           </div>
@@ -265,31 +148,20 @@
   }
   .title-row {
     display: flex;
-    align-items: center;
+    align-items: baseline;
     justify-content: space-between;
-    margin-bottom: 2px;
+    gap: 10px;
   }
-  .install-btn {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    background: var(--bg-elevated);
-    color: var(--text-primary);
-    border: 1px solid var(--border-default);
-    border-radius: var(--radius-sm);
-    padding: 5px 12px;
-    font-size: 12px;
-    font-family: var(--font-heading);
-    font-weight: 600;
-    cursor: pointer;
+  .hint {
+    font-size: 11px;
+    color: var(--text-muted);
   }
-  .install-btn:hover:not(:disabled) {
-    border-color: var(--accent);
-    color: var(--accent);
-  }
-  .install-btn:disabled {
-    opacity: 0.6;
-    cursor: default;
+  .hint code {
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    background: var(--bg-overlay);
+    padding: 1px 5px;
+    border-radius: 2px;
   }
   .desc-lead {
     color: var(--text-muted);
@@ -304,87 +176,20 @@
     padding: 1px 5px;
     border-radius: 2px;
   }
-  .registries {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 8px;
-    margin-bottom: 14px;
-  }
-  .registry {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    background: var(--bg-elevated);
-    border: 1px solid var(--border-default);
-    border-radius: 4px;
-    padding: 5px 10px;
-    font-size: 12px;
-  }
-  .registry.error {
-    border-color: color-mix(in srgb, var(--danger, #e5484d) 45%, transparent);
-  }
-  .registry-label {
-    font-family: var(--font-mono);
-    font-weight: 600;
-    color: var(--text-primary);
-  }
-  .registry-meta {
-    color: var(--text-muted);
-    font-size: 11px;
-  }
-  .registry-remove {
-    display: flex;
-    align-items: center;
-    background: none;
-    border: none;
-    color: var(--text-muted);
-    cursor: pointer;
-    padding: 2px;
-    border-radius: 2px;
-  }
-  .registry-remove:hover {
-    color: var(--danger, #e5484d);
-    background: color-mix(in srgb, var(--danger, #e5484d) 10%, transparent);
-  }
-  .add-link {
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-    font-size: 12px;
-    color: var(--accent);
-    cursor: pointer;
-  }
-  .add-row {
+  .search-row {
     display: flex;
     gap: 8px;
-    flex: 1 1 100%;
-  }
-  .source-input {
-    flex: 1;
-    min-width: 0;
-    font-family: var(--font-mono);
-    font-size: 12px;
-    color: var(--text-primary);
-    background: var(--bg-base);
-    border: 1px solid var(--border-default);
-    border-radius: var(--radius-sm);
-    padding: 7px 10px;
-  }
-  .source-input:focus {
-    outline: none;
-    border-color: var(--accent);
+    margin-bottom: 16px;
   }
   .search {
-    width: 100%;
-    max-width: 420px;
+    flex: 1;
+    min-width: 0;
     font-size: 13px;
     color: var(--text-primary);
     background: var(--bg-base);
     border: 1px solid var(--border-default);
     border-radius: var(--radius-sm);
     padding: 7px 12px;
-    margin-bottom: 16px;
   }
   .search:focus {
     outline: none;
@@ -438,20 +243,6 @@
     color: var(--text-muted);
     font-family: var(--font-mono);
     margin-left: auto;
-  }
-  .badge {
-    font-family: var(--font-mono);
-    font-size: 9.5px;
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
-    border-radius: 2px;
-    padding: 1px 6px;
-    flex: none;
-  }
-  .badge.first-party {
-    color: var(--accent);
-    border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
-    background: color-mix(in srgb, var(--accent) 12%, transparent);
   }
   .card-id {
     font-family: var(--font-mono);

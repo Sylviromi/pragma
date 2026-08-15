@@ -87,14 +87,14 @@ export const getNotificationsEnabled = () =>
 export const listPlugins = () => mock<PluginInfo[]>(mockPlugins, 'list_plugins')
 export const setPluginEnabled = (id: string, enabled: boolean) =>
   isBrowserMock ? Promise.resolve() : tauriInvoke<void>('set_plugin_enabled', { id, enabled })
-/** Install a plugin from a source spec: `git:…`, `npm:…`, a local folder
+/** Install a plugin from a source spec: `npm:…` or a local folder path
  *  path, or a `.zip` file (validated + enabled by the backend). */
 export const installPlugin = (spec: string) =>
   isBrowserMock ? Promise.resolve() : tauriInvoke<void>('install_plugin', { spec })
 /** Remove an installed plugin. */
 export const uninstallPlugin = (id: string) =>
   isBrowserMock ? Promise.resolve() : tauriInvoke<void>('uninstall_plugin', { id })
-/** Poll recorded sources (git tags / npm registry) for newer versions. */
+/** Poll recorded sources (npm latest) for newer versions. */
 export const checkPluginUpdates = () =>
   isBrowserMock
     ? Promise.resolve([])

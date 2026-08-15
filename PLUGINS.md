@@ -25,28 +25,29 @@ building plugins. A plugin is a folder at `~/.config/dev.pragma.app/plugins/<id>
 Every plugin is a **folder** under the app's plugin directory:
 `~/.config/dev.pragma.app/plugins/<id>/`. The folder name must match the `id`
 in `manifest.json`. What's on disk is the source of truth — the app never
-creates or copies plugin folders, it reads them (and hot-reloads on change).
+copies plugin folders, it reads them (and hot-reloads on change). npm
+packages are installed into the shared npm prefix (`~/.config/dev.pragma.app/npm/`)
+and the plugins-dir entry is a symlink to them, so sidecars keep their
+`node_modules`.
 
 ### Installing
 
-Install by **source**, not by archive — the same model pi and OpenCode use.
-Settings → Plugins → **Install…** accepts:
+Two ways:
 
-- `git:https://github.com/user/repo` — shallow-cloned with git. A tag is
-  supported: `git:github.com/user/repo@v1.0.0` (bare `https://…`/`ssh://…`
-  URLs work too).
-- `npm:my-plugin` — fetched from the npm registry
-  (`npm:@scope/pkg`, `npm:pkg@1.2.3`).
-- a **local folder** path — installed as a symlink, so edits to the source
-  folder hot-reload live (the dev workflow).
-- a local **`.zip`** — still accepted for file drops.
+1. **Settings → Marketplace** — searches npm (packages tagged
+   `pragma-plugin`) and installs with one click.
+2. **Settings → Plugins → Install…** — a source spec:
+   - `npm:pragma-plugin-<id>` (or any npm package containing a plugin) —
+     installed with a real `npm install`, so plugin sidecars can `require`
+     dependencies
+   - a **local folder** path — installed as a symlink, so edits to the
+     source folder hot-reload live (the dev workflow)
 
-The backend fetches the source, validates the manifest, and swaps the folder
-in atomically — a bad package can never leave a half-installed plugin. The
-plugin is **enabled** on install, and its source spec is recorded in
-`plugin_sources.json` (app config dir) so a future update checker knows where
-each plugin came from. Re-installing an existing id replaces the old folder —
-which is how updates land.
+The package is validated before anything touches the plugins dir; a bad
+package can never leave a half-installed plugin. The plugin is **enabled**
+on install, and its source spec is recorded in `plugin_sources.json` (app
+config dir) — the origin record update checks poll. Re-installing an
+existing id replaces the old folder — which is how updates land.
 
 Alternatively, **drop a folder** into `plugins/` manually — the file watcher
 picks it up and hot-reloads. A dropped-in folder starts *disabled* (first-time
@@ -54,14 +55,23 @@ plugins need an explicit enable in Settings → Plugins).
 
 ### Publishing
 
-Publishing a plugin = putting it **somewhere fetchable** and telling people
-where. Two first-class options, matching how pi/OpenCode plugins are shipped:
+Plugins are **npm packages** — one plugin per package, each handling its own
+resources. The source repo
+[`Sylviromi/pragma-plugins`](https://github.com/Sylviromi/pragma-plugins)
+holds the package folders; `scripts/publish.mjs` syncs `package.json` version
+from the manifest and runs `npm publish`:
 
-1. **A git repository** — the plugin folder (with `manifest.json` at the root,
-   or under a `plugins/<id>/` subfolder) in any repo. Users install it with
-   `git:<url>`; tag releases with `vX.Y.Z` for version pinning.
-2. **An npm package** — publish the plugin folder as a package containing
-   `manifest.json`. Users install it with `npm:<name>`.
+```bash
+node scripts/publish.mjs            # all plugins
+node scripts/publish.mjs convo      # one plugin
+```
+
+Requirements for a plugin package:
+
+- `package.json` with `name` starting `pragma-plugin-` and
+  `keywords: ["pragma-plugin"]` — that keyword is what the marketplace
+  searches for.
+- `manifest.json` at the package root (the plugin's own schema).
 
 The manifest's optional metadata makes a plugin findable and attributable:
 
@@ -80,12 +90,10 @@ The manifest's optional metadata makes a plugin findable and attributable:
 
 - `author` / `repository` / `homepage` are shown in Settings → Plugins.
 - **`publisher` namespaces plugins** without touching the flat id scheme:
-  first-party plugins use `"publisher": "pragma"` and get a **Pragma** badge
-  in Settings → Plugins; third parties use their own handle. Ecosystem-level
-  namespacing comes from the **source** itself — an npm scope
-  (`npm:@you/my-plugin`), a git owner (`git:github.com/you/repo`) — exactly
-  like pi packages and npm scopes; the id stays a clean identifier because it
-  maps 1:1 to folder names and skill ids (`<plugin>/<skill>`).
+  first-party plugins use `"publisher": "pragma"` and get a **Pragma** badge;
+  third parties use their own handle. Ecosystem-level namespacing comes from
+  npm scopes (`npm:@you/pragma-plugin-x`) — the id stays a clean identifier
+  because it maps 1:1 to folder names and skill ids (`<plugin>/<skill>`).
 
 ### Updates
 
@@ -99,63 +107,13 @@ places:
 
 How versions are found:
 
-- **git sources**: `git ls-remote --tags` picks the highest `vX.Y.Z` tag.
-- **npm sources**: the registry's `latest` dist-tag.
+- **npm sources**: the registry's `latest` dist-tag (`npm view`).
 - **local folders** are live symlinks — always current, no polling.
-- **version-pinned sources** (`git:…@tag`, `npm:pkg@ver`) are deliberately
-  skipped, matching pi's pinned-ref semantics: unpin (drop the `@tag`/
-  `@version`) to receive updates.
+- **version-pinned sources** (`npm:pkg@ver`) are deliberately skipped,
+  matching pi's pinned-ref semantics: unpin (drop the `@version`) to receive
+  updates.
 
 Manual/dropped-in folders have no recorded source and are skipped.
-
-### The plugin registry (single-repo marketplace)
-
-Every Pragma plugin can be served from **one GitHub repo** —
-[`Sylviromi/pragma-plugins`](https://github.com/Sylviromi/pragma-plugins) — which
-doubles as both the storefront and the archive:
-
-```
-Sylviromi/pragma-plugins
-  <id>/                    one folder per plugin, at the repo root (source of truth)
-    manifest.json
-    …
-  index.json               generated registry — what the app fetches
-  scripts/generate-plugin-index.js
-```
-
-(Pragma's own repo uses the same convention under `plugins/` — e.g.
-`plugins/pragma-dev` — and the installer + generator handle both layouts.)
-
-**How it works:**
-
-1. Plugin authors add a folder (or a `plugins/<id>/` subfolder — both work)
-   and tag releases **per plugin** — `git tag <id>-v1.2.3` (tags are
-   repo-wide, so they're prefixed to stay unambiguous).
-2. A tiny script scans the folder and generates `index.json`:
-   `node scripts/generate-plugin-index.js . Sylviromi/pragma-plugins index.json`
-   (wire it into CI so the index is always fresh — the pragma-plugins repo
-   has a workflow for exactly this).
-3. The app's **Settings → Marketplace** fetches
-   `https://raw.githubusercontent.com/Sylviromi/pragma-plugins/main/index.json`
-   (pre-added as the official registry) and shows every plugin across all
-   added registries as searchable cards with Install buttons.
-4. Each entry's `source` encodes the whole install recipe — the `#<id>`
-   subpath (or `#plugins/<id>` for subfolder layouts) makes the installer
-   **sparse-checkout** only that folder from the shared repo, so a monorepo
-   can serve individual plugins:
-
-   ```
-   git:https://github.com/Sylviromi/pragma-plugins@<id>-v1.2.3#<id>
-   ```
-
-5. Update checks work the same as any git source: tags are filtered to the
-   plugin's own prefix (`<id>-v…`), so updating one plugin never crosses
-   into another's versions.
-
-**Install by hand** without the marketplace, from the same repo:
-`git:https://github.com/Sylviromi/pragma-plugins#<id>` (unpinned = latest
-release tag) or with an explicit tag. The subpath syntax works for any
-git source, not just the official registry.
 
 ## Plugin Directory Structure
 

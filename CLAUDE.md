@@ -126,19 +126,22 @@ skills/<id>/    optional — modern layout: one folder per skill
 ```
 
 ### Developing plugins outside the repo
-Plugin code is **not** part of this source tree. The example plugins (`demo`, the
-`frontend-dev` developer plugin) live as plain folders at
-`/mnt/Projects/pragma-plugins/` (untracked, outside the git repo) and are linked
-into the config dir manually:
+Plugin code is **not** part of this source tree. Plugins are **npm packages**
+(one plugin per package, `pragma-plugin-<id>`); the source folders live at
+`/mnt/Projects/pragma-plugins/` (its own git repo) and are linked into the
+config dir for development:
 
 ```bash
 ln -s /mnt/Projects/pragma-plugins/frontend-dev ~/.config/dev.pragma.app/plugins/frontend-dev
 ```
 
-The app resolves plugins through the symlink (manifests, skills, sidecars all
-work) and the watcher explicitly watches symlink targets, so edits to the
-untracked folder hot-reload like any other plugin. The Rust side never creates
-or copies plugin folders — what's in the plugin dir is the source of truth.
+Publishing = `node scripts/publish.mjs` in pragma-plugins (syncs the version
+and runs `npm publish`); installing = `npm:pragma-plugin-<id>` or the
+Marketplace (npm search on `keywords:pragma-plugin`). The app resolves
+plugins through the symlink (manifests, skills, sidecars all work) and the
+watcher explicitly watches symlink targets, so edits to the untracked folder
+hot-reload like any other plugin. The Rust side never creates or copies
+plugin folders — what's in the plugin dir is the source of truth.
 
 **First-party exception — `pragma-dev`:** this plugin is committed IN the repo at
 `plugins/pragma-dev/` and symlinked into the config dir, because its content is

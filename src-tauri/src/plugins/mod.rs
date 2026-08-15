@@ -59,6 +59,9 @@ pub struct PluginInfo {
     pub has_skill: bool,
     pub skills: Vec<SkillInfo>,
     pub folder: String,
+    /// Recorded install source (`npm:…` / local path) — None for manually
+    /// dropped-in folders. Used by the marketplace to mark installed plugins.
+    pub source: Option<String>,
 }
 
 /// One installed plugin's update status, as reported by `check_updates`.
@@ -440,6 +443,7 @@ impl PluginManager {
                 has_skill: dir.join("skill.md").is_file(),
                 skills: Vec::new(), // filled below without recursion
                 folder: dir.display().to_string(),
+                source: self.sources.read().unwrap().get(&m.id).cloned(),
             });
         }
         // Second pass: fill each plugin's skill list (skills_for_plugin does
@@ -471,114 +475,82 @@ impl PluginManager {
 
     // ── Install / uninstall ──────────────────────────────────────────────────
 
-    /// Install a plugin from a **source spec** — the same model pi / OpenCode
-    /// use: install by *reference*, never by hand-made archive.
+    /// Install a plugin from a **source spec**:
+    /// - `npm:name[@version]` — installed with a real `npm install` into the
+    ///   shared npm prefix, so plugin sidecars can `require` dependencies.
+    ///   This is the distribution layer (one plugin = one npm package).
+    /// - a local **folder** path — symlinked, so edits hot-reload live (the
+    ///   dev workflow).
     ///
-    /// Accepted specs:
-    /// - `git:https://github.com/user/repo` or `git:github.com/user/repo@v1.0.0`
-    ///   (also bare `https://…`, `ssh://…` URLs) — shallow-cloned with git
-    /// - `npm:some-plugin` / `npm:@scope/pkg` / `npm:pkg@1.2.3` — fetched from
-    ///   the npm registry
-    /// - a local **folder** path — symlinked, so edits stay live (dev workflow)
-    /// - a local **.zip** path — extracted (for self-hosted file drops)
-    ///
-    /// The package is staged, validated, and swapped in atomically; the spec
-    /// is recorded (`plugin_sources.json`) so a future update checker knows
-    /// where each plugin came from. Re-installing an existing id replaces the
-    /// folder — which is how updates land. An explicit install is consent:
-    /// the plugin is marked seen AND enabled.
+    /// The package is validated before anything touches the plugins dir, then
+    /// `plugins/<id>` becomes a symlink to it (npm packages stay in place so
+    /// their `node_modules` resolves from the sidecar's cwd). Every install
+    /// records its source (`plugin_sources.json`) and enables the plugin.
     pub fn install_from_source(&self, spec: &str) -> Result<PluginInfo, String> {
         let source = PluginSource::parse(spec)?;
         std::fs::create_dir_all(&self.dir)
             .map_err(|e| format!("cannot create plugins dir: {e}"))?;
         let staging = self.dir.join(format!(".install-{}", uuid::Uuid::new_v4()));
 
-        let staged = (|| -> Result<(), String> {
+        let prepared = (|| -> Result<PathBuf, String> {
             match &source {
-                PluginSource::Git { url, tag, subpath } => {
-                    fetch_git(&staging, url, tag.as_deref(), subpath.as_deref())
-                }
-                PluginSource::Npm { package } => fetch_npm(&staging, package),
+                PluginSource::Npm { package } => install_npm(&self.npm_dir(), package),
                 PluginSource::Local(path) => {
                     let p = Path::new(path);
-                    if p.is_dir() {
-                        // Symlink the plugin root so later edits to the source
-                        // folder hot-reload live (same as the dev workflow).
-                        let root = locate_plugin_root(p)?;
-                        symlink_dir(&root, &staging)
-                    } else if p.is_file() && p.extension().map(|e| e == "zip").unwrap_or(false) {
-                        extract_zip_to(&staging, p)
-                    } else {
-                        Err(format!("local source not found or unsupported: {path}"))
+                    if !p.is_dir() {
+                        return Err(format!("local source is not a folder: {path}"));
                     }
+                    let root = locate_plugin_root(p)?;
+                    symlink_dir(&root, &staging)?;
+                    Ok(staging.clone())
                 }
             }
         })();
-        if let Err(e) = staged {
-            let _ = std::fs::remove_dir_all(&staging);
-            return Err(e);
-        }
-
-        self.install_staging(&staging, Some(spec))
-    }
-
-    /// Back-compat wrapper: install a `.zip` file by path.
-    pub fn install_from_zip(&self, zip_path: &Path) -> Result<PluginInfo, String> {
-        self.install_from_source(&format!("file:{}", zip_path.display()))
-    }
-
-    /// Validate a fully staged plugin folder and commit it. `staging` is
-    /// either the plugin root itself or a parent holding one plugin subfolder
-    /// (git repos / npm packages often wrap the plugin). Never leaves a
-    /// half-installed folder behind: the swap is rename-based, keeping the old
-    /// folder as a backup until the new one is in place.
-    fn install_staging(&self, staging: &Path, source: Option<&str>) -> Result<PluginInfo, String> {
-        // Locate + validate BEFORE anything touches the real plugins dir.
-        let root = match locate_plugin_root(staging) {
-            Ok(r) => r,
+        let pkg = match prepared {
+            Ok(p) => p,
             Err(e) => {
-                let _ = std::fs::remove_dir_all(staging);
+                let _ = std::fs::remove_dir_all(&staging);
                 return Err(e);
             }
         };
-        let manifest = match load_manifest_from_dir(&root) {
-            Ok(m) => m,
-            Err(e) => {
-                let _ = std::fs::remove_dir_all(staging);
-                return Err(format!("invalid plugin package: {e}"));
-            }
-        };
+        self.install_package_dir(&pkg, Some(spec))
+    }
+
+    /// Shared npm prefix (config_dir/npm) — npm packages install here with
+    /// their node_modules, mirroring pi's `~/.pi/agent/npm/`.
+    fn npm_dir(&self) -> PathBuf {
+        self.dir
+            .parent()
+            .map(|p| p.join("npm"))
+            .unwrap_or_else(|| self.dir.join("npm"))
+    }
+
+    /// Validate a prepared package folder and register it: locate the plugin
+    /// root (manifest at the package root or in one subfolder), validate, then
+    /// symlink `plugins/<id>` → the root (canonicalized, so npm packages keep
+    /// their real location and local dev folders point at their true path).
+    fn install_package_dir(&self, pkg: &Path, source: Option<&str>) -> Result<PluginInfo, String> {
+        std::fs::create_dir_all(&self.dir).map_err(|e| e.to_string())?;
+        let found = locate_plugin_root(pkg).map_err(|e| format!("invalid plugin package: {e}"))?;
+        let root = std::fs::canonicalize(&found).map_err(|e| e.to_string())?;
+        let manifest =
+            load_manifest_from_dir(&root).map_err(|e| format!("invalid plugin package: {e}"))?;
         let id = manifest.id.clone();
         let target = self.plugin_dir(&id);
 
-        // Commit: swap root → target, keeping the old folder as a backup.
-        let swap = (|| -> Result<(), String> {
-            if target.exists() {
-                let backup = self
-                    .dir
-                    .join(format!(".old-{}-{}", id, uuid::Uuid::new_v4()));
-                std::fs::rename(&target, &backup).map_err(|e| e.to_string())?;
-                if let Err(e) = std::fs::rename(&root, &target) {
-                    let _ = std::fs::rename(&backup, &target); // roll back
-                    return Err(e.to_string());
-                }
-                let _ = std::fs::remove_dir_all(&backup);
+        // Swap: remove any existing entry, then symlink in the new one.
+        if let Ok(meta) = std::fs::symlink_metadata(&target) {
+            if meta.file_type().is_symlink() {
+                std::fs::remove_file(&target).map_err(|e| e.to_string())?;
+            } else if meta.is_dir() {
+                std::fs::remove_dir_all(&target).map_err(|e| e.to_string())?;
             } else {
-                std::fs::rename(&root, &target).map_err(|e| e.to_string())?;
+                std::fs::remove_file(&target).map_err(|e| e.to_string())?;
             }
-            Ok(())
-        })();
-        if let Err(e) = swap {
-            let _ = std::fs::remove_dir_all(staging);
-            return Err(format!("install failed: {e}"));
         }
-        // root was a subfolder of staging → drop the leftover shell.
-        if root != staging {
-            let _ = std::fs::remove_dir_all(staging);
-        }
+        symlink_dir(&root, &target)?;
 
-        // Consent: the user chose to install it — record the source, mark it
-        // seen, and enable (skips the first-time-disabled path).
+        // Consent: record the source, mark seen, enable.
         if let Some(spec) = source {
             self.sources
                 .write()
@@ -595,8 +567,8 @@ impl PluginManager {
             .ok_or_else(|| format!("plugin '{id}' installed but not discoverable"))
     }
 
-    /// Remove a plugin. Dev-symlinked plugins (see PLUGINS.md) remove just the
-    /// link — the real folder is left untouched.
+    /// Remove a plugin. Dev-symlinked / npm plugins remove just the link (and
+    /// the npm package from the shared prefix); the source record is dropped.
     pub fn uninstall(&self, id: &str) -> Result<(), String> {
         let dir = self.plugin_dir(id);
         let meta =
@@ -609,6 +581,16 @@ impl PluginManager {
         } else {
             std::fs::remove_file(&dir).map_err(|e| format!("cannot remove plugin: {e}"))?;
         }
+        // npm-installed plugins: also drop the package from the shared prefix.
+        if let Some(spec) = self.sources.read().unwrap().get(id).cloned() {
+            if let Ok(PluginSource::Npm { package }) = PluginSource::parse(&spec) {
+                let (name, _) = npm_name_version(&package);
+                let pkg_dir = self.npm_dir().join("node_modules").join(name);
+                if pkg_dir.exists() {
+                    let _ = std::fs::remove_dir_all(pkg_dir);
+                }
+            }
+        }
         if self.sources.write().unwrap().remove(id).is_some() {
             self.persist_sources();
         }
@@ -618,10 +600,9 @@ impl PluginManager {
     // ── Updates ──────────────────────────────────────────────────────────────
 
     /// Poll every installed plugin's recorded source for a newer version
-    /// (git tags via `git ls-remote`, npm registry `latest`). Local-path and
-    /// version-pinned sources report `update_available: false` — local
-    /// folders are live symlinks (always current), pinned refs deliberately
-    /// don't move. Manual/dropped-in folders have no source and are skipped.
+    /// (npm registry `latest` via `npm view`). Local-path plugins are live
+    /// symlinks (always current); version-pinned sources (`npm:pkg@ver`)
+    /// deliberately don't move (pi semantics). No recorded source → skipped.
     pub fn check_updates(&self) -> Vec<PluginUpdateInfo> {
         let sources = self.sources.read().unwrap().clone();
         let mut out = Vec::new();
@@ -640,26 +621,6 @@ impl PluginManager {
             };
             match PluginSource::parse(&spec) {
                 Ok(PluginSource::Local(_)) => {} // live symlink — always current
-                Ok(PluginSource::Git { url, tag, subpath }) => {
-                    if tag.is_some() {
-                        info.pinned = true;
-                    } else {
-                        // Multi-plugin repo (single-repo registry): tags are
-                        // prefixed per plugin (`<id>-vX.Y.Z`), so only the
-                        // ones for THIS plugin count as update targets.
-                        let prefix = subpath.as_deref().and_then(plugin_id_from_subpath);
-                        if let Ok(Some(latest_tag)) = git_latest_tag(&url, prefix) {
-                            // Report the bare version ("2.0.0"), not the tag
-                            // ("v2.0.0" / "alpha-v2.0.0") — the UI renders
-                            // "v{latest}" and comparison needs a plain version.
-                            if let Some(version) = tag_to_version(&latest_tag, prefix) {
-                                info.latest = Some(version.clone());
-                                info.update_available =
-                                    compare_versions(&version, &info.current) > 0;
-                            }
-                        }
-                    }
-                }
                 Ok(PluginSource::Npm { package }) => {
                     let (name, version) = npm_name_version(&package);
                     if version.is_some() {
@@ -678,8 +639,9 @@ impl PluginManager {
     }
 
     /// Update one installed plugin to the latest version from its recorded
-    /// source — re-installs through the exact same atomic path as a fresh
-    /// install. Version-pinned and local-path sources are left alone.
+    /// source — re-installs through the exact same path as a fresh install
+    /// (`npm install` fetches `latest`). Pinned and local-path sources are
+    /// left alone.
     pub fn update_plugin(&self, id: &str) -> Result<PluginInfo, String> {
         let spec = self.sources.read().unwrap().get(id).cloned().ok_or_else(|| {
             format!(
@@ -693,37 +655,6 @@ impl PluginManager {
                     "local-path plugins are live symlinks — edit the source folder".into(),
                 )
             }
-            PluginSource::Git {
-                url, tag, subpath
-            } if tag.is_some() => {
-                return Err(
-                    "this plugin is version-pinned (git:…@tag) — drop the @tag to receive updates"
-                        .into(),
-                )
-            }
-            PluginSource::Git { url, tag: None, subpath } => {
-                // Unpinned: update to the latest tag for THIS plugin (tags in
-                // a shared repo are prefixed per plugin).
-                let prefix = subpath.as_deref().and_then(plugin_id_from_subpath);
-                let latest = git_latest_tag(url, prefix)?.ok_or_else(|| {
-                    format!("no version tags found for '{id}' in {url}")
-                })?;
-                let frag = subpath
-                    .as_deref()
-                    .map(|s| format!("#{s}"))
-                    .unwrap_or_default();
-                let installed =
-                    self.install_from_source(&format!("git:{url}@{latest}{frag}"))?;
-                // Keep the RECORDED source as the user's unpinned spec — an
-                // internal tag resolution must not pin the plugin, or future
-                // update checks would skip it.
-                self.sources
-                    .write()
-                    .unwrap()
-                    .insert(id.to_string(), spec.clone());
-                self.persist_sources();
-                return Ok(installed);
-            }
             PluginSource::Npm { package } if npm_name_version(package).1.is_some() => {
                 return Err(
                     "this plugin is version-pinned (npm:pkg@ver) — drop the @version to receive updates"
@@ -736,56 +667,23 @@ impl PluginManager {
     }
 }
 
-/// The plugin folder name implied by a `#subpath` source (`plugins/foo` →
-/// `foo`) — used to filter per-plugin tags in a shared repo (`foo-v1.2.3`).
-fn plugin_id_from_subpath(subpath: &str) -> Option<&str> {
-    subpath.rsplit('/').next().filter(|s| !s.is_empty())
-}
-
-/// Strip a tag down to its bare version for display/comparison:
-/// `v2.0.0` → `2.0.0`; with a prefix, `alpha-v2.0.0` → `2.0.0`.
-fn tag_to_version(tag: &str, prefix: Option<&str>) -> Option<String> {
-    let rest = match prefix {
-        Some(p) => tag.strip_prefix(&format!("{p}-"))?,
-        None => tag,
-    };
-    let v = rest.trim_start_matches('v');
-    (!v.is_empty()).then(|| v.to_string())
-}
-
-/// A plugin source spec — where an installed plugin came from (mirrors pi /
-/// OpenCode: git, npm, or a local path; no hand-made archives).
+/// A plugin source spec — where an installed plugin came from. npm packages
+/// are the distribution layer; local folders are the dev workflow. Git and
+/// zip sources were removed with the move to npm-only.
 #[derive(Debug, Clone, PartialEq)]
 pub enum PluginSource {
-    /// `git:…[@tag][#subpath]` — subpath selects one plugin inside a
-    /// multi-plugin repo (sparse checkout), enabling a single-repo registry.
-    Git {
-        url: String,
-        tag: Option<String>,
-        subpath: Option<String>,
-    },
-    Npm {
-        package: String,
-    },
+    /// `npm:name` / `npm:name@version` / `npm:@scope/name`
+    Npm { package: String },
+    /// Local folder path (symlinked — the dev workflow).
     Local(String),
 }
 
 impl PluginSource {
     /// Parse a source spec string:
-    /// - `git:…` / `git:…@tag` / any bare `http(s)://`, `ssh://`, `git://` URL
     /// - `npm:name` / `npm:name@version` / `npm:@scope/name`
-    /// - `file:path` or a plain local path that exists on disk
+    /// - `file:path` or a plain local folder path that exists on disk
     pub fn parse(spec: &str) -> Result<Self, String> {
         let s = spec.trim();
-        if let Some(rest) = s.strip_prefix("git:") {
-            let (base, subpath) = split_fragment(rest)?;
-            let (url, tag) = split_tag(&base);
-            return Ok(PluginSource::Git {
-                url: normalize_git_url(&url),
-                tag,
-                subpath,
-            });
-        }
         if let Some(pkg) = s.strip_prefix("npm:") {
             if pkg.is_empty() {
                 return Err("npm source needs a package name (npm:my-plugin)".into());
@@ -800,78 +698,33 @@ impl PluginSource {
             }
             return Ok(PluginSource::Local(path.to_string()));
         }
-        if s.starts_with("http://")
+        if Path::new(s).exists() {
+            return Ok(PluginSource::Local(s.to_string()));
+        }
+        if s.starts_with("git:")
+            || s.starts_with("http://")
             || s.starts_with("https://")
             || s.starts_with("ssh://")
             || s.starts_with("git://")
         {
-            let (base, subpath) = split_fragment(s)?;
-            let (url, tag) = split_tag(&base);
-            return Ok(PluginSource::Git { url, tag, subpath });
-        }
-        if Path::new(s).exists() {
-            return Ok(PluginSource::Local(s.to_string()));
+            return Err(
+                "git sources are no longer supported — plugins are distributed via npm (npm:<package>) or installed from a local folder"
+                    .into(),
+            );
         }
         Err(format!(
-            "unknown plugin source: {spec:?} — use git:<url>[@tag][#subpath], npm:<package>[@version], a local path, or a URL"
+            "unknown plugin source: {spec:?} — use npm:<package>[@version] or a local folder path"
         ))
     }
 }
 
-/// Split a trailing `@tag` off a git reference. `git@github.com:user/repo`
-/// (ssh shorthand) keeps its `@` — a tag is only recognized when the part
-/// after the last `@` has no `/` or `:` (so URLs and host:path stay intact).
-fn split_tag(s: &str) -> (String, Option<String>) {
-    match s.rfind('@') {
-        Some(i) => {
-            let after = &s[i + 1..];
-            if !after.contains('/') && !after.contains(':') && !after.is_empty() {
-                (s[..i].to_string(), Some(after.to_string()))
-            } else {
-                (s.to_string(), None)
-            }
-        }
-        None => (s.to_string(), None),
-    }
-}
-
-/// Split a `#subpath` fragment off a git source. The fragment must be a
-/// safe relative path (no `..`, no absolute, no empty segments) — it becomes
-/// the sparse-checkout cone inside the repo.
-fn split_fragment(s: &str) -> Result<(String, Option<String>), String> {
-    match s.split_once('#') {
-        None => Ok((s.to_string(), None)),
-        Some((base, frag)) => {
-            let frag = frag.trim_matches('/');
-            if frag.is_empty()
-                || frag
-                    .split('/')
-                    .any(|p| p.is_empty() || p == "." || p == ".." || p.contains('\\'))
-            {
-                return Err(format!("unsafe subpath in source: #{frag}"));
-            }
-            Ok((base.to_string(), Some(frag.to_string())))
-        }
-    }
-}
-
-/// `github.com/user/repo` → `https://github.com/user/repo`; anything with a
-/// scheme (or ssh shorthand `git@host:path`) passes through untouched.
-fn normalize_git_url(url: &str) -> String {
-    if url.contains("://") || url.starts_with("git@") {
-        url.to_string()
-    } else {
-        format!("https://{url}")
-    }
-}
-
-/// Find the plugin root inside a staged package: `manifest.json` at the root
-/// or inside at most a few levels down (git repos / npm packages wrap the
-/// plugin in folders like `<id>/` or `plugins/<id>/`). Requires EXACTLY one
-/// candidate — a package must contain a single plugin.
-fn locate_plugin_root(staging: &Path) -> Result<PathBuf, String> {
+/// Find the plugin root inside a prepared package: `manifest.json` at the
+/// root or inside at most a few levels down (npm packages may nest the
+/// plugin). Requires EXACTLY one candidate — a package must contain one
+/// plugin.
+fn locate_plugin_root(pkg: &Path) -> Result<PathBuf, String> {
     let mut found = Vec::new();
-    walk_for_manifest(staging, 0, &mut found);
+    walk_for_manifest(pkg, 0, &mut found);
     match found.len() {
         1 => Ok(found.remove(0)),
         0 => Err(
@@ -902,179 +755,52 @@ fn walk_for_manifest(dir: &Path, depth: usize, found: &mut Vec<PathBuf>) {
     }
 }
 
-/// Shallow-clone a git repo into `staging` (requires `git` on PATH, like pi
-/// does for git sources). The `.git` dir is stripped — the plugin folder
-/// shouldn't carry repo internals, and updates re-clone from the source.
-fn fetch_git(
-    staging: &Path,
-    url: &str,
-    tag: Option<&str>,
-    subpath: Option<&str>,
-) -> Result<(), String> {
-    let mut cmd = std::process::Command::new("git");
-    cmd.arg("clone").arg("--depth").arg("1");
-    if subpath.is_some() {
-        // Sparse + partial clone: only blobs inside the cone are fetched
-        // (filter falls back gracefully on transports without protocol v2).
-        cmd.arg("--filter=blob:none").arg("--sparse");
+/// Install an npm package with a real `npm install` into the shared npm prefix
+/// (config_dir/npm) — `node_modules` lands next to the package, so plugin
+/// sidecars can `require` dependencies. Returns the installed package folder.
+fn install_npm(npm_dir: &Path, package: &str) -> Result<PathBuf, String> {
+    std::fs::create_dir_all(npm_dir).map_err(|e| e.to_string())?;
+    // A minimal package.json keeps npm from mutating a shared manifest; the
+    // prefix holds every npm-installed plugin (like pi's ~/.pi/agent/npm/).
+    let manifest_path = npm_dir.join("package.json");
+    if !manifest_path.exists() {
+        std::fs::write(&manifest_path, "{}\n").map_err(|e| e.to_string())?;
     }
-    if let Some(t) = tag {
-        cmd.arg("--branch").arg(t);
-    }
-    cmd.arg(url).arg(staging);
-    let out = cmd
+    let out = std::process::Command::new("npm")
+        .args(["install", "--no-audit", "--no-fund", "--prefix"])
+        .arg(npm_dir)
+        .arg(package)
         .output()
-        .map_err(|e| format!("git is not available on PATH: {e}"))?;
+        .map_err(|e| format!("npm is not available on PATH: {e}"))?;
     if !out.status.success() {
         let msg = String::from_utf8_lossy(&out.stderr).trim().to_string();
         return Err(if msg.is_empty() {
-            format!("git clone of {url} failed")
+            format!("npm install of {package} failed")
         } else {
             msg
         });
     }
-    if let Some(sub) = subpath {
-        let out = std::process::Command::new("git")
-            .args(["sparse-checkout", "set", sub])
-            .current_dir(staging)
-            .output()
-            .map_err(|e| format!("git is not available on PATH: {e}"))?;
-        if !out.status.success() {
-            let msg = String::from_utf8_lossy(&out.stderr).trim().to_string();
-            let _ = std::fs::remove_dir_all(staging);
-            return Err(if msg.is_empty() {
-                format!("sparse checkout of {sub} failed")
-            } else {
-                msg
-            });
-        }
+    Ok(npm_dir
+        .join("node_modules")
+        .join(resolve_package_name(package)?))
+}
+
+/// The package folder name for an npm spec: local path specs carry their own
+/// package.json (read its `name`); plain specs split `name[@version]`.
+fn resolve_package_name(spec: &str) -> Result<String, String> {
+    let path = spec.strip_prefix("file:").unwrap_or(spec);
+    if Path::new(path).is_dir() {
+        let text = std::fs::read_to_string(Path::new(path).join("package.json"))
+            .map_err(|e| format!("cannot read {path}/package.json: {e}"))?;
+        let v: serde_json::Value =
+            serde_json::from_str(&text).map_err(|e| format!("invalid package.json: {e}"))?;
+        return v["name"]
+            .as_str()
+            .map(str::to_string)
+            .ok_or_else(|| format!("{path}/package.json has no name"));
     }
-    let _ = std::fs::remove_dir_all(staging.join(".git"));
-    Ok(())
-}
-
-/// Fetch an npm package from the registry and extract it into `staging`
-/// (name[@version]; scoped names supported). The package root or a single
-/// subfolder with `manifest.json` becomes the plugin.
-fn fetch_npm(staging: &Path, package: &str) -> Result<(), String> {
-    let (name, version) = npm_name_version(package);
-    let enc = name.replace('/', "%2F");
-    let meta_url = match &version {
-        Some(v) => format!("https://registry.npmjs.org/{enc}/{v}"),
-        None => format!("https://registry.npmjs.org/{enc}/latest"),
-    };
-    let client = reqwest::blocking::Client::new();
-    let meta: serde_json::Value = client
-        .get(&meta_url)
-        .send()
-        .and_then(|r| r.error_for_status())
-        .map_err(|e| format!("npm registry fetch failed ({meta_url}): {e}"))?
-        .json()
-        .map_err(|e| e.to_string())?;
-    let tarball = meta["dist"]["tarball"]
-        .as_str()
-        .ok_or_else(|| format!("npm package {name} has no downloadable tarball"))?;
-    let bytes = client
-        .get(tarball)
-        .send()
-        .and_then(|r| r.error_for_status())
-        .map_err(|e| format!("npm tarball download failed: {e}"))?
-        .bytes()
-        .map_err(|e| e.to_string())?;
-    extract_tgz(&bytes, staging)
-}
-
-/// Extract a `.tgz` (gzipped tar — the npm tarball format) into `staging`.
-/// The tar crate's `unpack` refuses absolute paths and `..` traversal.
-fn extract_tgz(bytes: &[u8], staging: &Path) -> Result<(), String> {
-    let gz = flate2::read::GzDecoder::new(bytes);
-    let mut ar = tar::Archive::new(gz);
-    ar.unpack(staging)
-        .map_err(|e| format!("cannot extract npm package: {e}"))
-}
-
-/// Extract a `.zip` into `staging`, sanitizing every entry (zip-slip guard:
-/// absolute paths, `..` traversal, drive letters → reject the whole package).
-fn extract_zip_to(staging: &Path, zip_path: &Path) -> Result<(), String> {
-    let file = std::fs::File::open(zip_path)
-        .map_err(|e| format!("cannot open {}: {e}", zip_path.display()))?;
-    let mut archive =
-        zip::ZipArchive::new(file).map_err(|e| format!("not a valid zip archive: {e}"))?;
-    for i in 0..archive.len() {
-        // Scope the ZipFile so its borrow of the archive ends before the
-        // second by_index below (NLL can't see through the error closure).
-        let name = {
-            let entry = archive.by_index(i).map_err(|e| e.to_string())?;
-            if entry.is_dir() {
-                continue;
-            }
-            normalize_zip_name(entry.name())
-                .ok_or_else(|| format!("unsafe path in zip: {}", entry.name()))?
-        };
-        if name.is_empty() {
-            continue;
-        }
-        let out = staging.join(&name);
-        if let Some(parent) = out.parent() {
-            std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
-        }
-        let mut src = archive.by_index(i).map_err(|e| e.to_string())?;
-        let mut dst = std::fs::File::create(&out)
-            .map_err(|e| format!("cannot write {}: {e}", out.display()))?;
-        std::io::copy(&mut src, &mut dst).map_err(|e| e.to_string())?;
-    }
-    Ok(())
-}
-
-/// Create a directory symlink (Unix) or a directory junction-free copy fallback.
-#[cfg(unix)]
-fn symlink_dir(target: &Path, link: &Path) -> Result<(), String> {
-    std::os::unix::fs::symlink(target, link).map_err(|e| e.to_string())
-}
-
-#[cfg(not(unix))]
-fn symlink_dir(target: &Path, link: &Path) -> Result<(), String> {
-    // Windows: directory junctions. std doesn't expose them directly; fall
-    // back to a copy so local-path installs still work.
-    copy_dir(target, link)
-}
-
-#[cfg(not(unix))]
-fn copy_dir(src: &Path, dst: &Path) -> Result<(), String> {
-    fn cp(from: &Path, to: &Path) -> Result<(), String> {
-        std::fs::create_dir_all(to).map_err(|e| e.to_string())?;
-        for e in std::fs::read_dir(from).map_err(|e| e.to_string())? {
-            let e = e.map_err(|e| e.to_string())?;
-            let f = e.path();
-            let t = to.join(e.file_name());
-            if e.file_type().map_err(|e| e.to_string())?.is_dir() {
-                cp(&f, &t)?;
-            } else {
-                std::fs::copy(&f, &t).map_err(|e| e.to_string())?;
-            }
-        }
-        Ok(())
-    }
-    cp(src, dst)
-}
-
-/// Normalize a zip entry name to a forward-slash relative path. Returns None
-/// for anything unsafe: absolute paths, `..` traversal, or drive-letter
-/// segments — the zip-slip family of attacks.
-fn normalize_zip_name(raw: &str) -> Option<String> {
-    let norm = raw.replace('\\', "/");
-    let norm = norm.trim_start_matches('/');
-    let norm = norm.trim_start_matches("./");
-    let norm = norm.trim_end_matches('/');
-    if norm.is_empty() {
-        return None;
-    }
-    for part in norm.split('/') {
-        if part.is_empty() || part == "." || part == ".." || part.contains(':') {
-            return None;
-        }
-    }
-    Some(norm.to_string())
+    let (name, _) = npm_name_version(spec);
+    Ok(name)
 }
 
 /// Split an npm package spec into `(name, version)`. `@scope/pkg` keeps its
@@ -1095,67 +821,22 @@ fn npm_name_version(package: &str) -> (String, Option<String>) {
     }
 }
 
-/// Latest published version of an npm package (the `latest` dist-tag).
+/// Latest published version of an npm package via `npm view <name> version`.
 fn npm_latest_version(name: &str) -> Result<Option<String>, String> {
-    let enc = name.replace('/', "%2F");
-    let url = format!("https://registry.npmjs.org/{enc}/latest");
-    let client = reqwest::blocking::Client::new();
-    let meta: serde_json::Value = client
-        .get(&url)
-        .send()
-        .and_then(|r| r.error_for_status())
-        .map_err(|e| format!("npm registry fetch failed ({url}): {e}"))?
-        .json()
-        .map_err(|e| e.to_string())?;
-    Ok(meta["version"].as_str().map(str::to_string))
-}
-
-/// Highest `vX.Y.Z` tag of a git repo via `git ls-remote --tags` (no clone).
-/// Returns None when the repo has no numeric semver tags (prerelease tags
-/// like `v1.2.3-beta` don't count as update targets).
-fn git_latest_tag(url: &str, plugin_prefix: Option<&str>) -> Result<Option<String>, String> {
-    let out = std::process::Command::new("git")
-        .args(["ls-remote", "--tags", url])
+    let out = std::process::Command::new("npm")
+        .args(["view", name, "version"])
         .output()
-        .map_err(|e| format!("git is not available on PATH: {e}"))?;
+        .map_err(|e| format!("npm is not available on PATH: {e}"))?;
     if !out.status.success() {
         let msg = String::from_utf8_lossy(&out.stderr).trim().to_string();
         return Err(if msg.is_empty() {
-            format!("git ls-remote failed for {url}")
+            format!("npm view {name} version failed")
         } else {
             msg
         });
     }
-    let mut best: Option<String> = None;
-    for line in String::from_utf8_lossy(&out.stdout).lines() {
-        let tag = line.rsplit('\t').next().unwrap_or("");
-        let tag = tag.strip_prefix("refs/tags/").unwrap_or(tag);
-        if tag.ends_with("^{}") || tag.is_empty() {
-            continue; // peeled tag objects
-        }
-        // Shared-repo tags are prefixed per plugin (`<id>-vX.Y.Z`); without a
-        // prefix only bare `vX.Y.Z` tags count.
-        let core = match plugin_prefix {
-            Some(prefix) => match tag.strip_prefix(&format!("{prefix}-")) {
-                Some(rest) => rest.trim_start_matches('v'),
-                None => continue,
-            },
-            None => tag.trim_start_matches('v'),
-        };
-        if core.is_empty()
-            || !core
-                .split('.')
-                .all(|s| !s.is_empty() && s.chars().all(|c| c.is_ascii_digit()))
-        {
-            continue;
-        }
-        match &best {
-            Some(b) if compare_versions(tag, b) > 0 => best = Some(tag.to_string()),
-            None => best = Some(tag.to_string()),
-            _ => {}
-        }
-    }
-    Ok(best)
+    let v = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    Ok((!v.is_empty()).then_some(v))
 }
 
 /// Compare two version strings ("1.2.3", "v1.2.3", "1.2.3-beta.1").
@@ -1191,6 +872,37 @@ fn compare_versions(a: &str, b: &str) -> i32 {
         (Some(_), None) => -1,
         (Some(x), Some(y)) => x.cmp(y) as i32,
     }
+}
+
+/// Create a directory symlink (Unix); copy fallback on Windows (junctions
+/// aren't exposed by std).
+#[cfg(unix)]
+fn symlink_dir(target: &Path, link: &Path) -> Result<(), String> {
+    std::os::unix::fs::symlink(target, link).map_err(|e| e.to_string())
+}
+
+#[cfg(not(unix))]
+fn symlink_dir(target: &Path, link: &Path) -> Result<(), String> {
+    copy_dir(target, link)
+}
+
+#[cfg(not(unix))]
+fn copy_dir(src: &Path, dst: &Path) -> Result<(), String> {
+    fn cp(from: &Path, to: &Path) -> Result<(), String> {
+        std::fs::create_dir_all(to).map_err(|e| e.to_string())?;
+        for e in std::fs::read_dir(from).map_err(|e| e.to_string())? {
+            let e = e.map_err(|e| e.to_string())?;
+            let f = e.path();
+            let t = to.join(e.file_name());
+            if e.file_type().map_err(|e| e.to_string())?.is_dir() {
+                cp(&f, &t)?;
+            } else {
+                std::fs::copy(&f, &t).map_err(|e| e.to_string())?;
+            }
+        }
+        Ok(())
+    }
+    cp(src, dst)
 }
 
 #[cfg(test)]
@@ -1460,142 +1172,6 @@ mod tests {
 
     // ── install_from_zip / uninstall ────────────────────────────────────────
 
-    fn write_zip(path: &std::path::Path, files: &[(&str, &str)]) {
-        use std::io::Write;
-        let f = std::fs::File::create(path).unwrap();
-        let mut zw = zip::ZipWriter::new(f);
-        let opts = zip::write::SimpleFileOptions::default()
-            .compression_method(zip::CompressionMethod::Deflated);
-        for (name, content) in files {
-            zw.start_file(*name, opts).unwrap();
-            zw.write_all(content.as_bytes()).unwrap();
-        }
-        zw.finish().unwrap();
-    }
-
-    #[test]
-    fn installs_zip_with_wrapping_folder_and_enables() {
-        let tmp = tempfile::tempdir().unwrap();
-        let (m, _dir) = mk_manager(vec![]);
-        let zip_path = tmp.path().join("my-plugin.zip");
-        write_zip(
-            &zip_path,
-            &[
-                (
-                    "my-plugin/manifest.json",
-                    r#"{"id":"my-plugin","name":"My Plugin","version":"1.0.0","author":"Ada","updateUrl":"https://ada.dev/my-plugin/latest.zip"}"#,
-                ),
-                ("my-plugin/component.js", "export default class {}"),
-            ],
-        );
-
-        let info = m.install_from_zip(&zip_path).unwrap();
-        assert_eq!(info.id, "my-plugin");
-        assert_eq!(info.author, "Ada");
-        assert_eq!(info.update_url, "https://ada.dev/my-plugin/latest.zip");
-        assert!(info.enabled, "explicit install must enable the plugin");
-        assert!(info.has_component);
-        assert!(m.plugin_dir("my-plugin").join("component.js").is_file());
-        assert!(m.seen_ids().contains(&"my-plugin".to_string()));
-        assert!(!m.disabled_ids().contains(&"my-plugin".to_string()));
-        // The wrapping folder must not leak inside the plugin dir.
-        assert!(!m.plugin_dir("my-plugin").join("my-plugin").exists());
-    }
-
-    #[test]
-    fn installs_zip_with_manifest_at_root() {
-        let tmp = tempfile::tempdir().unwrap();
-        let (m, _dir) = mk_manager(vec![]);
-        let zip_path = tmp.path().join("root.zip");
-        write_zip(
-            &zip_path,
-            &[(
-                "manifest.json",
-                r#"{"id":"root","name":"Root","version":"1"}"#,
-            )],
-        );
-        m.install_from_zip(&zip_path).unwrap();
-        assert!(m.plugin_dir("root").join("manifest.json").is_file());
-    }
-
-    #[test]
-    fn reinstall_replaces_previous_version() {
-        let tmp = tempfile::tempdir().unwrap();
-        let (m, _dir) = mk_manager(vec![]);
-        let zip_path = tmp.path().join("v.zip");
-        write_zip(
-            &zip_path,
-            &[(
-                "manifest.json",
-                r#"{"id":"demo","name":"Demo","version":"1.0.0"}"#,
-            )],
-        );
-        m.install_from_zip(&zip_path).unwrap();
-        assert_eq!(m.list()[0].version, "1.0.0");
-        // Same id, newer version — install replaces the folder (update path).
-        write_zip(
-            &zip_path,
-            &[(
-                "manifest.json",
-                r#"{"id":"demo","name":"Demo","version":"2.0.0"}"#,
-            )],
-        );
-        m.install_from_zip(&zip_path).unwrap();
-        assert_eq!(m.list().len(), 1, "reinstall must not duplicate");
-        assert_eq!(m.list()[0].version, "2.0.0");
-        assert!(m.list()[0].enabled);
-    }
-
-    #[test]
-    fn rejects_zip_without_single_plugin_root() {
-        let tmp = tempfile::tempdir().unwrap();
-        let (m, _dir) = mk_manager(vec![]);
-        let zip_path = tmp.path().join("multi.zip");
-        // Two top-level folders → ambiguous root → rejected.
-        write_zip(
-            &zip_path,
-            &[
-                ("a/manifest.json", r#"{"id":"a","name":"A","version":"1"}"#),
-                ("b/manifest.json", r#"{"id":"b","name":"B","version":"1"}"#),
-            ],
-        );
-        assert!(m.install_from_zip(&zip_path).is_err());
-    }
-
-    #[test]
-    fn rejects_zip_with_invalid_manifest() {
-        let tmp = tempfile::tempdir().unwrap();
-        let (m, _dir) = mk_manager(vec![]);
-        let zip_path = tmp.path().join("bad.zip");
-        // Manifest id must match folder name and be valid — this one is fine
-        // structurally, so instead ship a manifest missing required fields.
-        write_zip(&zip_path, &[("manifest.json", r#"{"id":"x"}"#)]);
-        assert!(m.install_from_zip(&zip_path).is_err());
-        // Nothing must be left behind.
-        assert!(std::fs::read_dir(&m.dir).unwrap().next().is_none());
-    }
-
-    #[test]
-    fn rejects_zip_slip_entries() {
-        let tmp = tempfile::tempdir().unwrap();
-        let (m, _dir) = mk_manager(vec![]);
-        let zip_path = tmp.path().join("evil.zip");
-        write_zip(
-            &zip_path,
-            &[
-                (
-                    "manifest.json",
-                    r#"{"id":"evil","name":"Evil","version":"1"}"#,
-                ),
-                ("../escaped.txt", "pwned"),
-            ],
-        );
-        assert!(m.install_from_zip(&zip_path).is_err());
-        // Neither the plugin nor anything outside must exist.
-        assert!(!m.plugin_dir("evil").exists());
-        assert!(!tmp.path().parent().unwrap().join("escaped.txt").exists());
-    }
-
     #[test]
     fn uninstall_removes_folder_and_keeps_seen_state() {
         let (m, _dir) = mk_manager(vec![(
@@ -1612,43 +1188,11 @@ mod tests {
         assert!(!m.register_new_plugins());
         assert!(m.list().is_empty());
     }
-
     #[test]
     fn uninstall_of_missing_plugin_errors() {
         let (m, _dir) = mk_manager(vec![]);
         assert!(m.uninstall("nope").is_err());
     }
-
-    // ── source specs (git / npm / local) ────────────────────────────────────
-
-    #[test]
-    fn parses_git_sources() {
-        // explicit git: with shorthand + tag
-        match PluginSource::parse("git:github.com/user/repo@v1.0.0").unwrap() {
-            PluginSource::Git { url, tag, .. } => {
-                assert_eq!(url, "https://github.com/user/repo");
-                assert_eq!(tag.as_deref(), Some("v1.0.0"));
-            }
-            other => panic!("expected Git, got {other:?}"),
-        }
-        // bare https URL with a tag
-        match PluginSource::parse("https://github.com/user/repo.git@main").unwrap() {
-            PluginSource::Git { url, tag, .. } => {
-                assert_eq!(url, "https://github.com/user/repo.git");
-                assert_eq!(tag.as_deref(), Some("main"));
-            }
-            other => panic!("expected Git, got {other:?}"),
-        }
-        // ssh shorthand keeps its @ (not a tag)
-        match PluginSource::parse("git:git@github.com:user/repo").unwrap() {
-            PluginSource::Git { url, tag, .. } => {
-                assert_eq!(url, "git@github.com:user/repo");
-                assert!(tag.is_none(), "ssh userinfo must not be parsed as a tag");
-            }
-            other => panic!("expected Git, got {other:?}"),
-        }
-    }
-
     #[test]
     fn parses_npm_sources() {
         match PluginSource::parse("npm:my-plugin").unwrap() {
@@ -1660,13 +1204,11 @@ mod tests {
             other => panic!("expected Npm, got {other:?}"),
         }
     }
-
     #[test]
     fn rejects_unknown_sources() {
         assert!(PluginSource::parse("not-a-real-source").is_err());
         assert!(PluginSource::parse("npm:").is_err());
     }
-
     #[test]
     fn installs_local_folder_as_symlink() {
         // Local folder source: the plugin dir must be a symlink to the source,
@@ -1708,7 +1250,6 @@ mod tests {
         assert!(source.path().join("manifest.json").is_file());
         assert_eq!(m.source_of("local"), None);
     }
-
     #[test]
     fn installs_local_folder_inside_subfolder() {
         // A local folder whose plugin lives one level down (repo-style layout).
@@ -1724,104 +1265,6 @@ mod tests {
             .unwrap();
         assert!(m.plugin_dir("my-plugin").join("manifest.json").is_file());
     }
-
-    #[test]
-    fn install_from_zip_records_source_and_clears_on_uninstall() {
-        let tmp = tempfile::tempdir().unwrap();
-        let (m, _dir) = mk_manager(vec![]);
-        let zip_path = tmp.path().join("p.zip");
-        write_zip(
-            &zip_path,
-            &[("manifest.json", r#"{"id":"p","name":"P","version":"1"}"#)],
-        );
-        let spec = format!("file:{}", zip_path.display());
-        m.install_from_source(&spec).unwrap();
-        assert_eq!(m.source_of("p").as_deref(), Some(spec.as_str()));
-        // The sources record persists to disk next to the plugins dir.
-        let record = m.sources_path();
-        assert!(record.is_file());
-        let persisted: std::collections::HashMap<String, String> =
-            serde_json::from_str(&std::fs::read_to_string(&record).unwrap()).unwrap();
-        assert_eq!(persisted.get("p").map(String::as_str), Some(spec.as_str()));
-        // Uninstall drops the record entry.
-        m.uninstall("p").unwrap();
-        let persisted: std::collections::HashMap<String, String> =
-            serde_json::from_str(&std::fs::read_to_string(&record).unwrap()).unwrap();
-        assert!(!persisted.contains_key("p"));
-    }
-
-    #[test]
-    fn extracts_npm_tarball() {
-        // The npm fetch path ends in tgz extraction — exercise it directly
-        // (registry fetch itself needs network; this covers the archive half).
-        let tmp = tempfile::tempdir().unwrap();
-        let mut gz = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
-        {
-            let mut ar = tar::Builder::new(&mut gz);
-            let data = br#"{"id":"np","name":"NP","version":"1"}"#;
-            let mut header = tar::Header::new_gnu();
-            header.set_size(data.len() as u64);
-            header.set_mode(0o644);
-            header.set_cksum();
-            ar.append_data(&mut header, "package/manifest.json", &data[..])
-                .unwrap();
-            ar.finish().unwrap();
-        }
-        let bytes = gz.finish().unwrap();
-        extract_tgz(&bytes, tmp.path()).unwrap();
-        assert!(tmp.path().join("package/manifest.json").is_file());
-    }
-
-    #[test]
-    fn installs_from_git_repo() {
-        // End-to-end git source: requires `git` on PATH (skip when absent).
-        if std::process::Command::new("git")
-            .arg("--version")
-            .output()
-            .is_err()
-        {
-            return;
-        }
-        let repo = tempfile::tempdir().unwrap();
-        let run = |args: &[&str]| {
-            let out = std::process::Command::new("git")
-                .args(args)
-                .current_dir(repo.path())
-                .output()
-                .unwrap();
-            assert!(
-                out.status.success(),
-                "git {args:?}: {}",
-                String::from_utf8_lossy(&out.stderr)
-            );
-        };
-        run(&["init", "-q", "-b", "main"]);
-        run(&["config", "user.email", "t@example.com"]);
-        run(&["config", "user.name", "t"]);
-        std::fs::create_dir_all(repo.path().join("plugins/ghost")).unwrap();
-        std::fs::write(
-            repo.path().join("plugins/ghost/manifest.json"),
-            r#"{"id":"ghost","name":"Ghost","version":"1.0.0","author":"Me"}"#,
-        )
-        .unwrap();
-        run(&["add", "."]);
-        run(&["commit", "-qm", "init"]);
-        run(&["tag", "v1.0.0"]);
-
-        let (m, _dir) = mk_manager(vec![]);
-        let url = format!("git:file://{}", repo.path().display());
-        m.install_from_source(&url).unwrap();
-        let p = m.plugin_dir("ghost");
-        assert!(p.join("manifest.json").is_file());
-        assert_eq!(m.source_of("ghost").as_deref(), Some(url.as_str()));
-        // the cloned .git dir must not leak into the plugin folder
-        assert!(!p.join(".git").exists());
-        // tag-pinned spec resolves too
-        let pinned = format!("{url}@v1.0.0");
-        m.install_from_source(&pinned).unwrap();
-        assert_eq!(m.source_of("ghost").as_deref(), Some(pinned.as_str()));
-    }
-
     #[test]
     fn compares_versions() {
         assert_eq!(compare_versions("1.0.0", "1.0.0"), 0);
@@ -1838,7 +1281,6 @@ mod tests {
             "short versions pad with zeros"
         );
     }
-
     #[test]
     fn splits_npm_name_and_version() {
         assert_eq!(npm_name_version("my-plugin"), ("my-plugin".into(), None));
@@ -1854,345 +1296,141 @@ mod tests {
     }
 
     #[test]
-    fn git_latest_tag_reads_local_repo() {
-        // Requires git on PATH (skip when absent) — same guard as the clone test.
-        if std::process::Command::new("git")
-            .arg("--version")
-            .output()
-            .is_err()
-        {
-            return;
-        }
-        let repo = tempfile::tempdir().unwrap();
-        let run = |args: &[&str]| {
-            let out = std::process::Command::new("git")
-                .args(args)
-                .current_dir(repo.path())
-                .output()
-                .unwrap();
-            assert!(
-                out.status.success(),
-                "git {args:?}: {}",
-                String::from_utf8_lossy(&out.stderr)
-            );
-        };
-        run(&["init", "-q", "-b", "main"]);
-        run(&["config", "user.email", "t@example.com"]);
-        run(&["config", "user.name", "t"]);
-        std::fs::write(repo.path().join("f"), "x").unwrap();
-        run(&["add", "."]);
-        run(&["commit", "-qm", "one"]);
-        run(&["tag", "v1.0.0"]);
-        run(&["tag", "v2.1.0"]);
-        run(&["tag", "not-a-version"]);
-        run(&["tag", "v1.2.3-beta"]);
-
-        let url = format!("file://{}", repo.path().display());
-        assert_eq!(
-            git_latest_tag(&url, None).unwrap().as_deref(),
-            Some("v2.1.0")
-        );
-        // No semver tags → None.
-        let empty = tempfile::tempdir().unwrap();
-        let run2 = |args: &[&str]| {
-            std::process::Command::new("git")
-                .args(args)
-                .current_dir(empty.path())
-                .output()
-                .unwrap()
-        };
-        run2(&["init", "-q", "-b", "main"]);
-        run2(&["config", "user.email", "t@example.com"]);
-        run2(&["config", "user.name", "t"]);
-        std::fs::write(empty.path().join("f"), "x").unwrap();
-        run2(&["add", "."]);
-        run2(&["commit", "-qm", "one"]);
-        run2(&["tag", "release-1"]);
-        let url2 = format!("file://{}", empty.path().display());
-        assert_eq!(git_latest_tag(&url2, None).unwrap(), None);
-    }
-
-    #[test]
-    fn parses_subpath_sources() {
-        // #subpath on a git spec (single-repo registry install)
-        match PluginSource::parse("git:github.com/pragma/plugins#plugins/foo").unwrap() {
-            PluginSource::Git { url, tag, subpath } => {
-                assert_eq!(url, "https://github.com/pragma/plugins");
-                assert!(tag.is_none());
-                assert_eq!(subpath.as_deref(), Some("plugins/foo"));
-            }
-            other => panic!("expected Git, got {other:?}"),
-        }
-        // tag + subpath together, bare URL form
-        match PluginSource::parse("https://github.com/pragma/plugins@foo-v1.2.3#plugins/foo")
-            .unwrap()
-        {
-            PluginSource::Git { url, tag, subpath } => {
-                assert_eq!(url, "https://github.com/pragma/plugins");
-                assert_eq!(tag.as_deref(), Some("foo-v1.2.3"));
-                assert_eq!(subpath.as_deref(), Some("plugins/foo"));
-            }
-            other => panic!("expected Git, got {other:?}"),
-        }
-        // unsafe subpaths are rejected
-        assert!(PluginSource::parse("git:github.com/pragma/plugins#../escape").is_err());
-        assert!(PluginSource::parse("git:github.com/pragma/plugins#").is_err());
-    }
-
-    #[test]
-    fn installs_single_plugin_from_a_monorepo() {
-        // A multi-plugin repo (the single-repo registry layout) must install
-        // only the requested #subpath — sparse checkout does the isolation.
-        if std::process::Command::new("git")
-            .arg("--version")
-            .output()
-            .is_err()
-        {
-            return;
-        }
-        let repo = tempfile::tempdir().unwrap();
-        let run = |args: &[&str]| {
-            let out = std::process::Command::new("git")
-                .args(args)
-                .current_dir(repo.path())
-                .output()
-                .unwrap();
-            assert!(
-                out.status.success(),
-                "git {args:?}: {}",
-                String::from_utf8_lossy(&out.stderr)
-            );
-        };
-        run(&["init", "-q", "-b", "main"]);
-        run(&["config", "user.email", "t@example.com"]);
-        run(&["config", "user.name", "t"]);
-        for id in ["alpha", "beta"] {
-            std::fs::create_dir_all(repo.path().join("plugins").join(id)).unwrap();
-            std::fs::write(
-                repo.path().join("plugins").join(id).join("manifest.json"),
-                format!(r#"{{"id":"{id}","name":"{id}","version":"1.0.0"}}"#),
-            )
-            .unwrap();
-        }
-        run(&["add", "."]);
-        run(&["commit", "-qm", "init"]);
-        run(&["tag", "alpha-v1.0.0"]);
-        run(&["tag", "beta-v1.0.0"]);
-
-        let (m, _dir) = mk_manager(vec![]);
-        let url = format!("git:file://{}#plugins/alpha", repo.path().display());
-        m.install_from_source(&url).unwrap();
-        assert!(
-            m.plugin_dir("alpha").join("manifest.json").is_file(),
-            "alpha must install"
-        );
-        assert!(
-            !m.plugin_dir("beta").exists(),
-            "beta must NOT install from the shared repo"
-        );
-        assert_eq!(m.source_of("alpha").as_deref(), Some(url.as_str()));
-    }
-
-    #[test]
-    fn shared_repo_tags_are_filtered_per_plugin() {
-        // Latest-tag lookup with a prefix must ignore other plugins' tags.
-        if std::process::Command::new("git")
-            .arg("--version")
-            .output()
-            .is_err()
-        {
-            return;
-        }
-        let repo = tempfile::tempdir().unwrap();
-        let run = |args: &[&str]| {
-            std::process::Command::new("git")
-                .args(args)
-                .current_dir(repo.path())
-                .output()
-                .unwrap()
-        };
-        run(&["init", "-q", "-b", "main"]);
-        run(&["config", "user.email", "t@example.com"]);
-        run(&["config", "user.name", "t"]);
-        std::fs::write(repo.path().join("f"), "x").unwrap();
-        run(&["add", "."]);
-        run(&["commit", "-qm", "one"]);
-        for t in [
-            "alpha-v1.0.0",
-            "alpha-v2.0.0",
-            "beta-v9.9.9",
-            "shared-v3.3.3",
-        ] {
-            run(&["tag", t]);
-        }
-        let url = format!("file://{}", repo.path().display());
-        assert_eq!(
-            git_latest_tag(&url, Some("alpha")).unwrap().as_deref(),
-            Some("alpha-v2.0.0")
-        );
-        // Unprefixed: only bare vX.Y.Z tags count — none here.
-        assert_eq!(git_latest_tag(&url, None).unwrap(), None);
-    }
-
-    #[test]
-    fn updates_monorepo_plugin_to_its_own_latest_tag() {
-        // Install alpha@v1 from a shared repo, tag alpha-v2 + beta-v9,
-        // update → alpha goes to v2 (never beta's version), and the recorded
-        // source stays unpinned so future checks keep working.
-        if std::process::Command::new("git")
-            .arg("--version")
-            .output()
-            .is_err()
-        {
-            return;
-        }
-        let repo = tempfile::tempdir().unwrap();
-        let run = |args: &[&str]| {
-            let out = std::process::Command::new("git")
-                .args(args)
-                .current_dir(repo.path())
-                .output()
-                .unwrap();
-            assert!(
-                out.status.success(),
-                "git {args:?}: {}",
-                String::from_utf8_lossy(&out.stderr)
-            );
-        };
-        run(&["init", "-q", "-b", "main"]);
-        run(&["config", "user.email", "t@example.com"]);
-        run(&["config", "user.name", "t"]);
-        std::fs::create_dir_all(repo.path().join("plugins/alpha")).unwrap();
-        std::fs::write(
-            repo.path().join("plugins/alpha/manifest.json"),
-            r#"{"id":"alpha","name":"Alpha","version":"1.0.0"}"#,
-        )
-        .unwrap();
-        run(&["add", "."]);
-        run(&["commit", "-qm", "v1"]);
-        run(&["tag", "alpha-v1.0.0"]);
-
-        let (m, _dir) = mk_manager(vec![]);
-        let url = format!("git:file://{}#plugins/alpha", repo.path().display());
-        m.install_from_source(&url).unwrap();
-        assert_eq!(m.list()[0].version, "1.0.0");
-
-        // publish alpha v2 + an unrelated beta v9
-        std::fs::write(
-            repo.path().join("plugins/alpha/manifest.json"),
-            r#"{"id":"alpha","name":"Alpha","version":"2.0.0"}"#,
-        )
-        .unwrap();
-        run(&["add", "."]);
-        run(&["commit", "-qm", "v2"]);
-        run(&["tag", "alpha-v2.0.0"]);
-        run(&["tag", "beta-v9.9.9"]);
-
-        let updates = m.check_updates();
-        assert_eq!(updates.len(), 1);
-        assert!(updates[0].update_available);
-        assert_eq!(updates[0].latest.as_deref(), Some("2.0.0"));
-
-        m.update_plugin("alpha").unwrap();
-        assert_eq!(m.list()[0].version, "2.0.0");
-        // Source record stays unpinned → next check still works.
-        assert_eq!(m.source_of("alpha").as_deref(), Some(url.as_str()));
-        assert!(!m.check_updates()[0].pinned);
-    }
-
-    #[test]
-    fn checks_and_applies_git_updates_end_to_end() {
-        // Install from a git repo at v1, publish v2, check → update available,
-        // update → v2 lands. Requires git on PATH.
-        if std::process::Command::new("git")
-            .arg("--version")
-            .output()
-            .is_err()
-        {
-            return;
-        }
-        let repo = tempfile::tempdir().unwrap();
-        let run = |args: &[&str]| {
-            let out = std::process::Command::new("git")
-                .args(args)
-                .current_dir(repo.path())
-                .output()
-                .unwrap();
-            assert!(
-                out.status.success(),
-                "git {args:?}: {}",
-                String::from_utf8_lossy(&out.stderr)
-            );
-        };
-        run(&["init", "-q", "-b", "main"]);
-        run(&["config", "user.email", "t@example.com"]);
-        run(&["config", "user.name", "t"]);
-        std::fs::write(
-            repo.path().join("manifest.json"),
-            r#"{"id":"up","name":"Up","version":"1.0.0"}"#,
-        )
-        .unwrap();
-        run(&["add", "."]);
-        run(&["commit", "-qm", "v1"]);
-        run(&["tag", "v1.0.0"]);
-
-        let (m, _dir) = mk_manager(vec![]);
-        let url = format!("git:file://{}", repo.path().display());
-        m.install_from_source(&url).unwrap();
-        assert_eq!(m.list()[0].version, "1.0.0");
-
-        // No newer tag yet → nothing to update.
-        let updates = m.check_updates();
-        assert_eq!(updates.len(), 1);
-        assert!(!updates[0].update_available);
-        assert!(!updates[0].pinned);
-
-        // Publish v2 → check reports it.
-        std::fs::write(
-            repo.path().join("manifest.json"),
-            r#"{"id":"up","name":"Up","version":"2.0.0"}"#,
-        )
-        .unwrap();
-        run(&["add", "."]);
-        run(&["commit", "-qm", "v2"]);
-        run(&["tag", "v2.0.0"]);
-
-        let updates = m.check_updates();
-        assert_eq!(updates.len(), 1);
-        assert!(updates[0].update_available);
-        assert_eq!(updates[0].latest.as_deref(), Some("2.0.0"));
-
-        m.update_plugin("up").unwrap();
-        assert_eq!(m.list()[0].version, "2.0.0");
-        // After the update the source is still recorded.
-        assert_eq!(m.source_of("up").as_deref(), Some(url.as_str()));
-
-        // Pinned sources are skipped by checks and refused by update.
-        let pinned_spec = format!("{url}@v1.0.0");
-        let (m2, _dir2) = mk_manager(vec![]);
-        m2.install_from_source(&pinned_spec).unwrap();
-        let updates = m2.check_updates();
-        assert!(updates[0].pinned);
-        assert!(!updates[0].update_available);
-        assert!(m2.update_plugin("up").is_err());
-    }
-
-    #[test]
     fn sources_survive_manager_reload() {
-        let tmp = tempfile::tempdir().unwrap();
-        let zip_path = tmp.path().join("p.zip");
-        write_zip(
-            &zip_path,
-            &[("manifest.json", r#"{"id":"p","name":"P","version":"1"}"#)],
-        );
-        let (m, _dir) = mk_manager(vec![]);
-        m.install_from_source(&format!("file:{}", zip_path.display()))
-            .unwrap();
         // A fresh manager over the same dir sees the recorded source.
+        let pkg = tempfile::tempdir().unwrap();
+        std::fs::write(
+            pkg.path().join("package.json"),
+            r#"{"name":"pragma-plugin-reload","version":"1.0.0"}"#,
+        )
+        .unwrap();
+        std::fs::write(
+            pkg.path().join("manifest.json"),
+            r#"{"id":"reload","name":"Reload","version":"1.0.0"}"#,
+        )
+        .unwrap();
+        let (m, _dir) = mk_manager(vec![]);
+        let installed = install_npm(&m.npm_dir(), &pkg.path().display().to_string()).unwrap();
+        m.install_package_dir(&installed, Some("npm:pragma-plugin-reload"))
+            .unwrap();
         let m2 = PluginManager::new(m.dir.clone(), vec![], vec![]);
         assert_eq!(
-            m2.source_of("p").as_deref(),
-            Some(format!("file:{}", zip_path.display()).as_str())
+            m2.source_of("reload").as_deref(),
+            Some("npm:pragma-plugin-reload")
         );
+    }
+
+    // ── npm-only install / update ────────────────────────────────────────────
+
+    /// Build a local folder shaped like a published plugin package.
+    fn make_pkg(version: &str) -> tempfile::TempDir {
+        let pkg = tempfile::tempdir().unwrap();
+        std::fs::write(
+            pkg.path().join("package.json"),
+            format!(
+                r#"{{"name":"pragma-plugin-npmtest","version":"{version}","keywords":["pragma-plugin"]}}"#
+            ),
+        )
+        .unwrap();
+        std::fs::write(
+            pkg.path().join("manifest.json"),
+            format!(r#"{{"id":"npmtest","name":"Npm Test","version":"{version}"}}"#),
+        )
+        .unwrap();
+        pkg
+    }
+
+    #[test]
+    fn installs_npm_package_with_real_npm_install() {
+        // npm install from a local folder (offline) — the package lands in the
+        // shared npm prefix with node_modules, and plugins/<id> becomes a
+        // symlink to it.
+        let pkg = make_pkg("1.0.0");
+        let (m, _dir) = mk_manager(vec![]);
+        let installed = install_npm(&m.npm_dir(), &pkg.path().display().to_string()).unwrap();
+        assert!(installed.join("manifest.json").is_file());
+        assert!(
+            installed.join("node_modules").exists() || !pkg.path().join("node_modules").exists()
+        );
+
+        let info = m
+            .install_package_dir(&installed, Some("npm:pragma-plugin-npmtest"))
+            .unwrap();
+        assert_eq!(info.id, "npmtest");
+        assert!(info.enabled);
+        assert_eq!(info.source.as_deref(), Some("npm:pragma-plugin-npmtest"));
+        assert_eq!(m.list()[0].version, "1.0.0");
+
+        let link = m.plugin_dir("npmtest");
+        assert!(link.join("manifest.json").is_file());
+        #[cfg(unix)]
+        assert!(std::fs::symlink_metadata(&link)
+            .map(|md| md.file_type().is_symlink())
+            .unwrap_or(false));
+        // Uninstall drops the symlink AND the package from the npm prefix.
+        m.uninstall("npmtest").unwrap();
+        assert!(!link.exists());
+        assert!(!installed.exists());
+        assert_eq!(m.source_of("npmtest"), None);
+    }
+
+    #[test]
+    fn reinstalling_npm_package_replaces_the_previous_version() {
+        let (m, _dir) = mk_manager(vec![]);
+        // v1
+        let pkg = make_pkg("1.0.0");
+        let installed = install_npm(&m.npm_dir(), &pkg.path().display().to_string()).unwrap();
+        m.install_package_dir(&installed, Some("npm:pragma-plugin-npmtest"))
+            .unwrap();
+        assert_eq!(m.list()[0].version, "1.0.0");
+        // bump to v2 and reinstall — same id, newer version, single entry
+        let pkg2 = make_pkg("2.0.0");
+        let installed2 = install_npm(&m.npm_dir(), &pkg2.path().display().to_string()).unwrap();
+        m.install_package_dir(&installed2, Some("npm:pragma-plugin-npmtest"))
+            .unwrap();
+        assert_eq!(m.list().len(), 1, "reinstall must not duplicate");
+        assert_eq!(m.list()[0].version, "2.0.0");
+        assert!(m.list()[0].enabled);
+    }
+
+    #[test]
+    fn pinned_and_local_sources_are_handled_by_updates() {
+        let (m, _dir) = mk_manager(vec![(
+            "demo/manifest.json",
+            r#"{"id":"demo","name":"Demo","version":"1.0.0"}"#,
+        )]);
+        // Pinned npm source: reported as pinned, update refuses.
+        m.sources
+            .write()
+            .unwrap()
+            .insert("demo".into(), "npm:demo@1.0.0".into());
+        m.persist_sources();
+        let u = m.check_updates();
+        assert_eq!(u.len(), 1);
+        assert!(u[0].pinned);
+        assert!(!u[0].update_available);
+        assert!(m.update_plugin("demo").is_err());
+        // Local path source: live symlink, never an update target.
+        m.sources
+            .write()
+            .unwrap()
+            .insert("demo".into(), "/some/dev/folder".into());
+        m.persist_sources();
+        let u = m.check_updates();
+        assert!(!u[0].pinned);
+        assert!(!u[0].update_available);
+        assert!(m.update_plugin("demo").is_err());
+    }
+
+    #[test]
+    fn parse_rejects_git_sources_with_guidance() {
+        let err = PluginSource::parse("git:https://github.com/user/repo").unwrap_err();
+        assert!(err.contains("npm"), "error should point at npm: {err}");
+        assert!(PluginSource::parse("https://github.com/user/repo").is_err());
+        // npm + local still parse
+        assert!(matches!(
+            PluginSource::parse("npm:pragma-plugin-x").unwrap(),
+            PluginSource::Npm { .. }
+        ));
     }
 }
