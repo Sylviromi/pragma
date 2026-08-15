@@ -112,6 +112,8 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
             // Wayland compositors that draw their own window frame (Hyprland,
             // Sway, …) shouldn't render the GTK client-side header bar there.
