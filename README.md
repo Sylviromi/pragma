@@ -28,6 +28,16 @@ On virtualized displays WebKitGTK can render a black window. If that happens, ru
 WEBKIT_DISABLE_COMPOSITING_MODE=1 WEBKIT_DISABLE_DMABUF_RENDERER=1 npm run tauri dev
 ```
 
+### Adding routes while the dev server is running
+
+New route files (`src/routes/...`) require a **dev-server restart** to reach the
+app: `svelte-kit sync` regenerates `.svelte-kit/generated`, but vite's watcher
+deliberately ignores that directory (to avoid HMR storms from agent edits), so
+the running server keeps serving a stale client route manifest — navigation to
+the new route falls back to a hard reload and can surface `hydration_mismatch`
+(server renders the route, the stale client doesn't). Restart `npm run dev`
+(or `npm run tauri`) after adding a route.
+
 ## Building from source
 
 ```bash

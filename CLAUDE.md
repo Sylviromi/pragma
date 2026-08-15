@@ -13,6 +13,11 @@ cd src-tauri && cargo check   # Rust
 cd src-tauri && cargo test    # Rust tests
 ```
 
+**After adding a new route (`src/routes/...`): restart the dev server.**
+Vite's watcher ignores `.svelte-kit/**` (to avoid HMR storms from agent
+edits), so the running server keeps a stale client route manifest — navigating
+to a brand-new route hard-reloads and can throw `hydration_mismatch`.
+
 App config dir on Linux: `~/.config/dev.pragma.app/`
 Plugins live at: `~/.config/dev.pragma.app/plugins/<id>/`
 
