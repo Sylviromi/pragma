@@ -75,3 +75,13 @@ All notable changes to Pragma are documented here. Format based on
   `homepage`) shown in Settings → Plugins.
 
 ## [Unreleased]
+
+### Removed
+
+- **`pragma-app` npm wrapper** — the package that installed a `pragma` launcher
+  CLI (`npm install -g pragma-app && pragma`) to download and run the latest
+  release. It duplicated the download page / GitHub release assets and forced a
+  second version to track plus an npm publish step and its token lifecycle. All
+  distribution now flows through the release assets and the
+  [download page](https://sylviromi.github.io/pragma/); Linux desktop integration
+  is provided natively by the `.deb` / `.rpm` bundles.

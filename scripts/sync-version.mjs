@@ -2,15 +2,14 @@
 // Read or set the APP version across its four home locations:
 //   package.json, src-tauri/tauri.conf.json, src-tauri/Cargo.toml,
 //   src-tauri/Cargo.lock (the pragma [[package]] block).
-// The pragma-app npm wrapper keeps its own independent version (see RELEASING.md).
 //
 // This syncs the lockfile directly (a precise text edit of the `pragma`
 // [[package]] block) instead of running a full `cargo check` just to refresh
 // the version stamp — so bumping takes milliseconds, not minutes.
 //
 // Usage:
-//   node sync-version.mjs --get            # print current version (from Cargo.toml)
-//   node sync-version.mjs --set 1.2.3      # write the version to all four files
+//   node sync-version.mjs --get        # print current version (from Cargo.toml)
+//   node sync-version.mjs --set 1.2.3  # write the version to the 4 app files
 import { readFileSync, writeFileSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -61,6 +60,6 @@ if (flag === '--get') {
     .forEach((f) => setVersion(f, value))
   console.log(`✓ app version set to ${value} (package.json, tauri.conf.json, Cargo.toml, Cargo.lock)`)
 } else {
-  console.error('usage: sync-version.mjs --get | --set <major.minor.patch>')
+  console.error('usage: sync-version.mjs --get | --set <ver>')
   process.exit(1)
 }

@@ -1,15 +1,11 @@
 name: Release
 
 # Builds installable bundles for Linux (deb/rpm/AppImage), macOS (arm64 +
-# x64) and Windows, attaches them to a GitHub Release, auto-publishes it, and
-# publishes the pragma-app npm wrapper. Triggered by a version tag (full
-# release, all platforms) or manually (quick debug build — pick only the
-# platforms you need).
+# x64) and Windows, attaches them to a GitHub Release, and auto-publishes it.
+# Triggered by a version tag (full release, all platforms) or manually (quick
+# debug build — pick only the platforms you need).
 #
 # Configure once (Settings → Secrets and variables → Actions):
-#   NPM_TOKEN            (secret)   npm auth token — enables auto-publishing
-#                                   the pragma-app wrapper. Until set, publish
-#                                   it locally with scripts/publish-app.mjs.
 #   NOTIFY_WEBHOOK_URL   (secret)   optional — ntfy.sh topic or a Slack /
 #                                   Discord webhook; a completion message is
 #                                   POSTed when the run finishes.
@@ -90,7 +86,7 @@ jobs:
       # building for. This is the drift guard: a repo where someone (or an agent)
       # bumped the tag but not the code — or vice versa — used to produce a release
       # tagged vX that contained Y bundles, silently. Now it fails the run with a
-      # clear message before any build or npm publish happens.
+      # clear message before any build happens.
       - name: Verify tag matches app version
         env:
           TAG: ${{ steps.resolve.outputs.tag }}
@@ -193,7 +189,7 @@ jobs:
           prerelease: false
 
   publish:
-    name: Publish release + npm wrapper
+    name: Publish release
     needs: [setup, publish-tauri]
     if: success()
     runs-on: ubuntu-latest
@@ -222,30 +218,6 @@ jobs:
             echo "release $TAG already published — notes updated"
           fi
 
-      - name: Publish pragma-app to npm
-        env:
-          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
-          MANUAL_REVIEW: ${{ vars.MANUAL_RELEASE_REVIEW }}
-        run: |
-          if [ "$MANUAL_REVIEW" = "true" ]; then
-            echo "MANUAL_RELEASE_REVIEW=true — skipping npm publish with the release"
-            exit 0
-          fi
-          if [ -z "$NPM_TOKEN" ]; then
-            echo "NPM_TOKEN secret not set — skipping npm publish (publish locally with scripts/publish-app.mjs)"
-            exit 0
-          fi
-          # The wrapper versions independently of the app (see RELEASING.md);
-          # publish whatever version the repo currently declares.
-          VERSION="$(node -p "require('./packages/pragma-app/package.json').version")"
-          if npm view pragma-app@"$VERSION" version >/dev/null 2>&1; then
-            echo "pragma-app@$VERSION already on npm — skipping"
-          else
-            printf '//registry.npmjs.org/:_authToken=%s\n' "$NPM_TOKEN" > "$RUNNER_TEMP/.npmrc"
-            (cd packages/pragma-app && npm publish --userconfig "$RUNNER_TEMP/.npmrc" --access public)
-            echo "published pragma-app@$VERSION"
-          fi
-
   notify:
     name: Notify build finished
     needs: [setup, publish-tauri, publish]
@@ -267,9 +239,9 @@ jobs:
           if [ "$BUILD_STATUS" = "success" ]; then
             MSG="Pragma $TAG build succeeded — $URL"
             if [ "$PUBLISH_STATUS" = "success" ]; then
-              MSG="$MSG (release published, npm wrapper synced)"
+              MSG="$MSG (release published)"
             elif [ "$PUBLISH_STATUS" = "failure" ]; then
-              MSG="$MSG — release/npm publish FAILED, check the run"
+              MSG="$MSG — release publish FAILED, check the run"
             fi
           else
             MSG="Pragma $TAG build $BUILD_STATUS — $URL"

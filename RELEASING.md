@@ -34,31 +34,18 @@ Flags:
 It refuses to reuse an existing tag and refuses to commit with no staged
 changes, so ``release.sh`` *cannot* produce a mislabeled release by accident.
 
-> **Wrapper versioning:** `pragma-app` (the npm installer) versions *independently*
-> of the app — `release.sh` doesn't touch it. The workflow publishes whatever
-> version `packages/pragma-app/package.json` declares (skipping versions already
-> on npm), so wrapper fixes ride along with app releases or stand alone. Do not
-> manually publish wrapper versions between app releases unless you bump it in
-> the repo too.
-
 ## One-time setup
 
-1. **npm token** — the pipeline auto-publishes the `pragma-app` npm wrapper.
-   Add the npm token as a GitHub secret: Settings → Secrets and variables →
-   Actions → **`NPM_TOKEN`** (same token that lives in `pragma-plugins/.env`).
-   Until it's set, the workflow skips npm and you publish locally with
-   `node scripts/publish-app.mjs`.
-2. **Build-finished notifications** (optional) — GitHub emails you about
+1. **Build-finished notifications** (optional) — GitHub emails you about
    workflow runs if you watch the repo (Settings → Notification settings →
    enable "Actions"). For a push notification / chat message, add a secret
    **`NOTIFY_WEBHOOK_URL`**: an `https://ntfy.sh/<topic>` URL (zero-setup
    push notifications, free) or any Slack / Discord webhook. A completion
    message is posted automatically when the run finishes.
-3. **Manual review** (optional) — by default the release is auto-published.
+2. **Manual review** (optional) — by default the release is auto-published.
    If you want to smoke-test the draft before it goes live, set the repo
    **variable** `MANUAL_RELEASE_REVIEW=true`; the workflow then keeps the
-   release as a draft and skips npm (the wrapper resolves `releases/latest`,
-   which only counts published releases).
+   release as a draft for you to review before publishing.
 
 ## Full release (all platforms)
 
@@ -105,8 +92,6 @@ the same release.
     entries fall back to a placeholder;
   - attaches them to the release, then **auto-publishes** it (unless
     `MANUAL_RELEASE_REVIEW=true`);
-  - publishes the `pragma-app` npm wrapper (at its own repo version, only if
-    not already on npm);
   - posts a completion message to `NOTIFY_WEBHOOK_URL` (if configured) —
     including a link to the release.
 - The **Pages** workflow keeps the download page in sync on every push.
@@ -121,7 +106,6 @@ the same release.
 - [ ] Windows `.msi`: installs, app launches
 - [ ] In-app: create a session, run an agentic loop against a provider, click
       an agent link → opens in the system browser
-- [ ] `npm install -g pragma-app && pragma` downloads and launches the app
 
 With `MANUAL_RELEASE_REVIEW=true` the release waits as a draft so you can
 run this checklist before hitting **Publish**; otherwise it's already live.
@@ -140,13 +124,10 @@ run this checklist before hitting **Publish**; otherwise it's already live.
   polls each installed plugin's recorded source (npm `latest` dist-tag via
   `npm view`), and updates re-install through the same path. Pinned sources
   (`npm:pkg@ver`) are skipped by design. See PLUGINS.md.
-- **npm publish tokens expire after 90 days** (npm's security cap, no way to
-  extend). The token lives in `pragma-plugins/.env` (`NPM_TOKEN=…`, gitignored
-  — the single source of truth for local publishes) and as the `NPM_TOKEN`
-  GitHub secret for the pipeline. Change both with
-  `node scripts/publish.mjs --token npm_<new>` (plugins) — the wrapper publish
-  (`node scripts/publish-app.mjs`) reads the same .env. Both scripts use a
-  temp userconfig so the token never lands in an npmrc.
+- **Plugin publish token**: the plugin registry publishes to npm; its token
+  lives in `pragma-plugins/.env` (`NPM_TOKEN=…`, gitignored) and is rotated
+  with `node scripts/publish.mjs --token npm_<new>`. It has no bearing on app
+  releases (the app no longer publishes to npm).
 - **CI gates**: every push/PR runs `npm run check`, vitest, `cargo fmt --check`,
   `cargo clippy -D warnings`, and `cargo test` on Linux/macOS/Windows — keep
   those green so a tag push never wastes a release build.

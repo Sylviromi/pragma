@@ -9,9 +9,6 @@
 #   4. commits, tags v<version> and pushes — all with the version as a single
 #      input, so the tag and the code version can never be out of sync.
 #
-# The pragma-app npm wrapper keeps its own independent version (RELEASING.md);
-# it is published separately and this script does not touch it.
-#
 # Usage:
 #   ./scripts/release.sh 1.2.3            # bump + changelog + commit + tag + push
 #   ./scripts/release.sh 1.2.3 --dry-run  # preview everything, change nothing
