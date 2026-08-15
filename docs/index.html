@@ -3,119 +3,217 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Download Pragma</title>
+  <title>Pragma — Download</title>
   <meta name="description" content="Pragma — an agentic AI coding harness. Download for Linux, macOS and Windows." />
   <style>
     :root {
-      --bg: #0f1419;
-      --panel: #171d24;
-      --border: #26303b;
-      --text: #e8edf2;
-      --muted: #8b9aa8;
+      --bg: #0b0f14;
+      --bg-soft: #10161d;
+      --panel: #151d26;
+      --panel-2: #1a232e;
+      --border: #24303c;
+      --border-soft: #1c2630;
+      --text: #e8edf3;
+      --muted: #8494a3;
+      --faint: #5b6a78;
       --accent: #5b8cff;
-      --accent-on: #0b1020;
-      --mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+      --accent-2: #7a5bff;
+      --accent-soft: rgba(91, 140, 255, 0.12);
+      --success: #4ade80;
+      --radius: 14px;
+      --mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      --sans: -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Inter, Arial, sans-serif;
     }
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
-      background: var(--bg);
+      background:
+        radial-gradient(1000px 500px at 15% -10%, rgba(91, 140, 255, 0.14), transparent 60%),
+        radial-gradient(800px 400px at 90% 0%, rgba(122, 91, 255, 0.12), transparent 55%),
+        var(--bg);
       color: var(--text);
-      font: 15px/1.6 -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      font: 15px/1.65 var(--sans);
       min-height: 100vh;
       display: flex;
       flex-direction: column;
       align-items: center;
-      padding: 48px 20px 64px;
+      padding: 56px 20px 48px;
+      -webkit-font-smoothing: antialiased;
     }
+    .wrap { width: 100%; max-width: 960px; display: flex; flex-direction: column; align-items: center; }
+
     .logo {
-      width: 56px; height: 56px; border-radius: 14px;
-      background: linear-gradient(135deg, var(--accent), #7a5bff);
-      color: var(--accent-on);
+      width: 64px; height: 64px; border-radius: 16px;
+      background: linear-gradient(135deg, var(--accent), var(--accent-2));
+      box-shadow: 0 8px 32px rgba(91, 140, 255, 0.35);
       display: flex; align-items: center; justify-content: center;
-      font: 800 28px var(--mono); margin-bottom: 18px;
+      margin-bottom: 20px;
     }
-    h1 { font-size: 30px; font-weight: 700; letter-spacing: -0.02em; }
-    .tag { color: var(--muted); margin: 6px 0 34px; text-align: center; max-width: 560px; }
-    .tag code { font-family: var(--mono); font-size: 13px; background: var(--panel); border: 1px solid var(--border); padding: 2px 7px; border-radius: 5px; }
+    .logo svg { width: 38px; height: 38px; }
+
+    h1 { font-size: 34px; font-weight: 750; letter-spacing: -0.03em; }
+    .version {
+      display: inline-flex; align-items: center; gap: 6px;
+      margin-top: 10px; padding: 3px 12px;
+      border: 1px solid var(--border); border-radius: 999px;
+      background: var(--panel); color: var(--muted);
+      font: 500 12.5px var(--mono);
+    }
+    .version .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--success); }
+
+    .tag { color: var(--muted); margin: 18px 0 36px; text-align: center; max-width: 600px; font-size: 15px; }
+    .tag a { color: var(--accent); text-decoration: none; }
+    .tag a:hover { text-decoration: underline; }
+
     .grid {
-      display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-      gap: 14px; width: 100%; max-width: 900px;
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 16px; width: 100%;
     }
     .card {
-      background: var(--panel); border: 1px solid var(--border); border-radius: 14px;
-      padding: 20px; display: flex; flex-direction: column; gap: 8px;
+      background: linear-gradient(180deg, var(--panel-2), var(--panel));
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 22px 22px 20px;
+      display: flex; flex-direction: column; gap: 10px;
+      transition: border-color 160ms ease, transform 160ms ease;
     }
-    .os { font-weight: 700; font-size: 17px; }
-    .os .icon { margin-right: 8px; }
-    .desc { color: var(--muted); font-size: 12.5px; min-height: 36px; }
-    .links { display: flex; flex-direction: column; gap: 6px; margin-top: auto; padding-top: 10px; }
+    .card:hover { border-color: var(--accent); transform: translateY(-2px); }
+    .os { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 16px; }
+    .os svg { width: 20px; height: 20px; flex: none; }
+    .desc { color: var(--muted); font-size: 13px; min-height: 40px; }
+    .links { display: flex; flex-direction: column; gap: 7px; margin-top: auto; padding-top: 12px; }
     .links a {
-      color: var(--accent); text-decoration: none; font-size: 13.5px;
+      color: var(--accent); text-decoration: none; font-size: 13.5px; font-weight: 500;
       display: flex; align-items: center; gap: 8px;
+      padding: 8px 12px; border-radius: 8px;
+      background: var(--accent-soft); border: 1px solid transparent;
+      transition: background 140ms ease, border-color 140ms ease;
     }
-    .links a:hover { text-decoration: underline; }
-    .links .alt { color: var(--muted); font-size: 12px; }
+    .links a:hover { border-color: rgba(91, 140, 255, 0.45); background: rgba(91, 140, 255, 0.18); }
+    .links a svg { width: 15px; height: 15px; flex: none; opacity: 0.85; }
+    .links .alt {
+      background: transparent; color: var(--muted); font-weight: 400;
+      border: 1px solid var(--border-soft); padding: 7px 12px;
+    }
+    .links .alt:hover { border-color: var(--border); color: var(--text); background: transparent; }
+    .links .soon { color: var(--faint); font-size: 12.5px; padding: 4px 12px; }
+
     .note {
-      margin-top: 28px; max-width: 640px; color: var(--muted); font-size: 12.5px;
-      background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
-      padding: 14px 16px;
+      margin-top: 28px; max-width: 640px; color: var(--muted); font-size: 13px;
+      background: var(--panel); border: 1px solid var(--border); border-radius: 12px;
+      padding: 16px 18px;
     }
-    .note code { font-family: var(--mono); font-size: 12px; background: var(--bg); padding: 1px 5px; border-radius: 4px; }
-    footer { margin-top: 40px; color: var(--muted); font-size: 12px; }
-    footer a { color: var(--muted); }
+    .note strong { color: var(--text); font-weight: 600; }
+    .note code { font-family: var(--mono); font-size: 12px; background: var(--bg-soft); padding: 2px 6px; border-radius: 5px; color: var(--text); }
+
+    footer { margin-top: 44px; color: var(--faint); font-size: 12.5px; display: flex; gap: 18px; flex-wrap: wrap; justify-content: center; }
+    footer a { color: var(--muted); text-decoration: none; }
+    footer a:hover { color: var(--accent); }
   </style>
 </head>
 <body>
-  <div class="logo">P</div>
-  <h1>Download Pragma</h1>
-  <p class="tag">An agentic AI coding harness — a Rust agentic loop with 13 core tools,
-    multi-provider streaming, SQLite persistence, and browser-style tabs.
-    Installers are built per release and hosted on
-    <a href="https://github.com/Sylviromi/pragma/releases" style="color:var(--accent)">GitHub Releases</a>.</p>
+  <div class="wrap">
+    <div class="logo" aria-hidden="true">
+      <svg viewBox="0 0 32 32" fill="none">
+        <rect x="4" y="4" width="24" height="24" stroke="#0b1020" stroke-width="1.6"/>
+        <path d="M10.6 24V8h5.75a5 5 0 0 1 0 10H10.6" stroke="#0b1020" stroke-width="2"/>
+        <path d="M1 4h2M4 1v2M29 28h2M28 29v2" stroke="#0b1020" stroke-width="1" opacity="0.7"/>
+      </svg>
+    </div>
 
-  <div class="grid">
-    <div class="card">
-      <div class="os"><span class="icon">🐧</span>Linux</div>
-      <div class="desc">Debian/Ubuntu (deb), any distro (AppImage), or Fedora/RHEL (rpm).</div>
-      <div class="links">
-        <a href="https://github.com/Sylviromi/pragma/releases/latest/download/Pragma_0.1.0_amd64.AppImage">AppImage — run without installing</a>
-        <a href="https://github.com/Sylviromi/pragma/releases/latest/download/Pragma_0.1.0_amd64.deb">.deb — Debian / Ubuntu / Mint</a>
-        <a href="https://github.com/Sylviromi/pragma/releases/latest/download/Pragma-0.1.0-1.x86_64.rpm" class="alt">.rpm — Fedora / RHEL / openSUSE</a>
+    <h1>Pragma</h1>
+    <span class="version"><span class="dot"></span>v0.1.0 · latest release</span>
+    <p class="tag">An agentic AI coding harness — a Rust agentic loop with 13 core tools,
+      multi-provider streaming, SQLite persistence, and browser-style tabs.
+      Installers are built per release and hosted on
+      <a href="https://github.com/Sylviromi/pragma/releases">GitHub Releases</a>.</p>
+
+    <div class="grid">
+      <div class="card">
+        <div class="os">
+          <svg viewBox="0 0 24 24" fill="none">
+            <circle cx="12" cy="12" r="9" stroke="#8494a3" stroke-width="1.6"/>
+            <path d="M12 3c-2 2.4-2 15.6 0 18M12 3c2 2.4 2 15.6 0 18" stroke="#8494a3" stroke-width="1.6"/>
+            <path d="M3 12h18" stroke="#8494a3" stroke-width="1.6"/>
+          </svg>
+          Linux
+        </div>
+        <div class="desc">Debian/Ubuntu (deb), any distro (AppImage), or Fedora/RHEL (rpm).</div>
+        <div class="links">
+          <a href="https://github.com/Sylviromi/pragma/releases/latest/download/Pragma_0.1.0_amd64.AppImage">
+            <svg viewBox="0 0 24 24" fill="none"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 19h14" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            AppImage — run without installing
+          </a>
+          <a href="https://github.com/Sylviromi/pragma/releases/latest/download/Pragma_0.1.0_amd64.deb">
+            <svg viewBox="0 0 24 24" fill="none"><path d="M4 8h16v12H4zM4 8 8 3h8l4 5M9 13h6" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
+            .deb — Debian / Ubuntu / Mint
+          </a>
+          <a class="alt" href="https://github.com/Sylviromi/pragma/releases/latest/download/Pragma-0.1.0-1.x86_64.rpm">
+            <svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="8" stroke="currentColor" stroke-width="1.6"/><path d="M12 4v8l5 5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+            .rpm — Fedora / RHEL / openSUSE
+          </a>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="os">
+          <svg viewBox="0 0 24 24" fill="none">
+            <path d="M16.5 4.5c-2.4.2-4.3 1.3-5.3 3-1-1.7-2.9-2.8-5.3-3C5.3 6.4 5 8 6 10.6c.7 1.9 2.3 4.4 4.3 6.7.9 1 1.9 2.2 3.1 2.2h-.1c1.2 0 2.2-1.2 3.1-2.2 1-1.2 2-2.6 2.8-3.7-2.6-1.7-3.6-4.9-2.7-8.1Z" stroke="#8494a3" stroke-width="1.6" stroke-linejoin="round"/>
+            <path d="M15 3.5c.5 1.6.2 3.1-.8 4.5" stroke="#8494a3" stroke-width="1.5" stroke-linecap="round"/>
+          </svg>
+          macOS
+        </div>
+        <div class="desc">Apple Silicon (M-series) and Intel. Unsigned — see the note below.</div>
+        <div class="links">
+          <a href="https://github.com/Sylviromi/pragma/releases/latest/download/Pragma_0.1.0_aarch64.dmg">
+            <svg viewBox="0 0 24 24" fill="none"><path d="M5 12h14m-4-4 4 4-4 4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            .dmg — Apple Silicon
+          </a>
+          <a class="alt" href="https://github.com/Sylviromi/pragma/releases/latest/download/Pragma_aarch64.app.tar.gz">
+            <svg viewBox="0 0 24 24" fill="none"><path d="M5 12h14m-4-4 4 4-4 4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            .app.tar.gz — Apple Silicon (no installer)
+          </a>
+          <span class="soon">Intel Mac — in the follow-up release (CI runner was backlogged)</span>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="os">
+          <svg viewBox="0 0 24 24" fill="none">
+            <rect x="3" y="4" width="18" height="16" rx="1.5" stroke="#8494a3" stroke-width="1.6"/>
+            <path d="M3 8.5h18M6 12h.01M9 12h.01M6 15h.01M9 15h.01" stroke="#8494a3" stroke-width="1.8" stroke-linecap="round"/>
+          </svg>
+          Windows
+        </div>
+        <div class="desc">Windows 10/11. Pick the installer or the portable executable.</div>
+        <div class="links">
+          <a href="https://github.com/Sylviromi/pragma/releases/latest/download/Pragma_0.1.0_x64_en-US.msi">
+            <svg viewBox="0 0 24 24" fill="none"><path d="M4 8h16v12H4zM4 8 8 3h8l4 5M9 13h6" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
+            .msi installer
+          </a>
+          <a class="alt" href="https://github.com/Sylviromi/pragma/releases/latest/download/Pragma_0.1.0_x64-setup.exe">
+            <svg viewBox="0 0 24 24" fill="none"><path d="M4 8h16v12H4zM4 8 8 3h8l4 5M9 13h6" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
+            .exe (NSIS) installer
+          </a>
+        </div>
       </div>
     </div>
 
-    <div class="card">
-      <div class="os"><span class="icon">🍎</span>macOS</div>
-      <div class="desc">Apple Silicon (M-series) and Intel. Unsigned — see the note below.</div>
-      <div class="links">
-        <a href="https://github.com/Sylviromi/pragma/releases/latest/download/Pragma_0.1.0_aarch64.dmg">.dmg — Apple Silicon</a>
-        <a href="https://github.com/Sylviromi/pragma/releases/latest/download/Pragma_aarch64.app.tar.gz" class="alt">.app.tar.gz — Apple Silicon (no installer)</a>
-        <span class="alt">Intel Mac — in the follow-up release (CI runner was backlogged)</span>
-      </div>
+    <div class="note">
+      <strong>First release notes:</strong> builds are <strong>unsigned</strong> — macOS will warn
+      “unidentified developer” (right-click → Open, or <code>xattr -dr com.apple.quarantine</code> on the app),
+      and Windows SmartScreen will prompt. Code-signing is on the roadmap.
+      <br /><br />
+      After installing, head to <strong>Settings → Marketplace</strong> in the app to install plugins —
+      they ship as npm packages (<code>pragma-plugin-*</code>) with one-click installs.
+      <code>npm i -g pragma-app</code> is also an install path.
     </div>
 
-    <div class="card">
-      <div class="os"><span class="icon">🪟</span>Windows</div>
-      <div class="desc">Windows 10/11. Pick the installer or the portable executable.</div>
-      <div class="links">
-        <a href="https://github.com/Sylviromi/pragma/releases/latest/download/Pragma_0.1.0_x64_en-US.msi">.msi installer</a>
-        <a href="https://github.com/Sylviromi/pragma/releases/latest/download/Pragma_0.1.0_x64-setup.exe">.exe (NSIS) installer</a>
-      </div>
-    </div>
+    <footer>
+      <a href="https://github.com/Sylviromi/pragma">Source</a>
+      <a href="https://github.com/Sylviromi/pragma/releases">Releases</a>
+      <a href="https://github.com/Sylviromi/pragma-plugins">Plugins</a>
+      <a href="https://sylviromi.github.io/pragma/"><span style="font-family:var(--mono)">MIT licensed</span></a>
+    </footer>
   </div>
-
-  <div class="note">
-    <strong>First release notes:</strong> builds are <strong>unsigned</strong> — macOS will warn
-    “unidentified developer” (right-click → Open, or <code>xattr -dr com.apple.quarantine</code> on the app),
-    and Windows SmartScreen will prompt. Notifications for these are on the roadmap.
-    <br /><br />
-    After downloading, head to <strong>Settings → Marketplace</strong> in the app to install plugins
-    (they ship as npm packages — one-click from the marketplace).
-  </div>
-
-  <footer>
-    Open source · <a href="https://github.com/Sylviromi/pragma">Sylviromi/pragma</a> ·
-    plugins at <a href="https://github.com/Sylviromi/pragma-plugins">Sylviromi/pragma-plugins</a>
-  </footer>
 </body>
 </html>
