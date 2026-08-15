@@ -21,9 +21,9 @@
     error: string | null
   }
 
-  // The official first-party registry: pragma/plugins hosts all builtin
+  // The official first-party registry: Sylviromi/plugins hosts all builtin
   // plugins; any user can add their own repo as another registry.
-  const DEFAULT_REGISTRY = 'https://raw.githubusercontent.com/pragma/plugins/main/index.json'
+  const DEFAULT_REGISTRY = 'https://raw.githubusercontent.com/Sylviromi/plugins/main/index.json'
   const STORAGE_KEY = 'pragma.marketplace.registries'
 
   function labelFor(url: string): string {
@@ -182,7 +182,7 @@
   </div>
   <div class="desc-lead">
     Every plugin available across your registries. A registry is any git repo
-    hosting one or more plugins — the official <code>pragma/plugins</code> repo
+    hosting one or more plugins — the official <code>Sylviromi/plugins</code> repo
     is pre-added; add your own (or a friend's) with “Add registry”.
   </div>
 

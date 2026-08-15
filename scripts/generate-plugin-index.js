@@ -5,25 +5,25 @@
 // can fetch to discover + install every plugin. Each entry's `source` encodes
 // everything the installer needs: git URL + per-plugin tag + subpath, e.g.
 //
-//   git:https://github.com/pragma/plugins@alpha-v1.2.3#plugins/alpha
+//   git:https://github.com/Sylviromi/plugins@alpha-v1.2.3#plugins/alpha
 //
 // Usage:
 //   node scripts/generate-plugin-index.js [pluginsDir] [owner/repo] [outFile]
 //
-// Defaults: plugins/  pragma/plugins  index.json
+// Defaults: plugins/  Sylviromi/plugins  index.json
 //
 // In the plugins repo, wire this into CI so index.json is always fresh:
 //
 //   on: { push: { branches: [main] } }
 //   jobs: { index: { runs-on: ubuntu-latest, steps:
 //     - uses: actions/checkout@v4
-//     - run: node scripts/generate-plugin-index.js . plugins pragma/plugins index.json
+//     - run: node scripts/generate-plugin-index.js . plugins Sylviromi/plugins index.json
 //     - uses: stefanzweifel/git-auto-commit-action@v5 } }
 
 import { readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 
-const [pluginsDir = 'plugins', repo = 'pragma/plugins', outFile = 'index.json'] = process.argv.slice(2)
+const [pluginsDir = 'plugins', repo = 'Sylviromi/plugins', outFile = 'index.json'] = process.argv.slice(2)
 
 function readManifest(dir) {
   try {

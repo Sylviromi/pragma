@@ -62,8 +62,8 @@ describe('Marketplace', () => {
         expect(target.textContent).toContain('Alpha')
         expect(target.textContent).toContain('Zen WARP')
       })
-      // Default registry label (pragma/plugins) is shown.
-      expect(target.textContent).toContain('pragma/plugins')
+      // Default registry label (Sylviromi/plugins) is shown.
+      expect(target.textContent).toContain('Sylviromi/plugins')
       // Not installed → Install button; installed id → flagged with version.
       expect(target.textContent).toContain('Installed v2.4.1')
       const installButtons = [...target.querySelectorAll('button')].filter((b) =>
