@@ -7,12 +7,25 @@
 
   let host = $state<HTMLElement | null>(null)
 
-  // Module-level caches (keyed by plugin id) so we don't re-read the file on every mount.
+  // Module-level cache (keyed by plugin id) so we don't re-read the file on
+  // every mount. The version tracks the store's cache key — a moved key
+  // means the code changed (plugin hot reload) and we must import it fresh.
   const codeCache = new Map<string, { code: string; version: number }>()
-  const elementRegistry = new Set<string>()
 
-  function sanitizeId(id: string): string {
-    return 'pragma-plugin-' + id.replace(/[^a-z0-9-]/g, '-')
+  /** Import a plugin's component code and return its default-export class.
+   *  Always imports a fresh module for the given code (blob URL is unique per
+   *  read), so hot-reloaded code actually replaces the previous class — a
+   *  plain `customElements.define` would keep reusing the FIRST class ever
+   *  loaded (the registry never redefines). */
+  async function loadClass(code: string): Promise<typeof HTMLElement | null> {
+    const blobUrl = URL.createObjectURL(new Blob([code], { type: 'text/javascript' }))
+    try {
+      const mod = await import(/* @vite-ignore */ blobUrl)
+      const Ctor = (mod as { default?: typeof HTMLElement }).default
+      return typeof Ctor === 'function' ? Ctor : null
+    } finally {
+      URL.revokeObjectURL(blobUrl)
+    }
   }
 
   $effect(() => {
@@ -40,37 +53,23 @@
       const entry = codeCache.get(pluginId)
       if (!entry || cancelled) return
 
-      const name = sanitizeId(pluginId)
       try {
-        if (!elementRegistry.has(name) && !customElements.get(name)) {
-          const blobUrl = URL.createObjectURL(
-            new Blob([entry.code], { type: 'text/javascript' })
-          )
-          try {
-            const mod = await import(/* @vite-ignore */ blobUrl)
-            const Ctor = (mod as { default?: typeof HTMLElement }).default
-            if (typeof Ctor !== 'function') {
-              const msg = `[${pluginId}] component.js must export a class`
-              console.warn(msg)
-              pushToast(msg, 'error')
-              return
-            }
-            customElements.define(name, Ctor)
-            elementRegistry.add(name)
-          } finally {
-            URL.revokeObjectURL(blobUrl)
-          }
+        const Ctor = await loadClass(entry.code)
+        if (!Ctor) {
+          const msg = `[${pluginId}] component.js must export a class`
+          console.warn(msg)
+          pushToast(msg, 'error')
+          return
         }
+        // Instantiate directly — no global registry, so every mount (incl.
+        // hot reload) uses the CURRENT code.
+        const el = new Ctor()
+        el.setAttribute('data-slot', slot)
+        if (context) el.setAttribute('data-context', context)
+        host.replaceChildren(el)
       } catch (err) {
-        console.warn('[plugin] failed to define element for', pluginId, err)
-        return
+        console.warn('[plugin] failed to load component for', pluginId, err)
       }
-
-      // Mount an instance into the host.
-      const el = document.createElement(name)
-      el.setAttribute('data-slot', slot)
-      if (context) el.setAttribute('data-context', context)
-      host.replaceChildren(el)
     }
 
     mount()
