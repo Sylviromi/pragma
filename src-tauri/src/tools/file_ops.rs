@@ -1234,28 +1234,17 @@ mod tests {
     }
 
     #[test]
+    #[cfg(not(target_os = "macos"))]
     fn test_spelling_repair_nfd() {
         let dir = tempdir().unwrap();
-        // NFC "café.txt" written; the model requests the NFD spelling — the
-        // bytes differ on screen in no way the model can see. macOS
-        // (APFS/HFS+) stores filenames NFD-normalized, so on-disk may already
-        // be the decomposed form — request whichever form the disk does NOT
-        // hold, so the repair bridges NFC ↔ NFD in either direction.
+        // NFC "café.txt" on disk; the model requests the NFD spelling — the
+        // bytes differ on screen in no way the model can see. macOS is
+        // excluded: APFS/HFS+ stores and resolves names NFD-normalized, so an
+        // NFC request matches transparently and the explicit repair is never
+        // reached — this exercises the repair path used by case-sensitive
+        // filesystems (Linux, NTFS).
         fs::write(dir.path().join("caf\u{e9}.txt"), "espresso\n").unwrap();
-        let on_disk = fs::read_dir(dir.path())
-            .unwrap()
-            .next()
-            .unwrap()
-            .unwrap()
-            .file_name()
-            .to_string_lossy()
-            .to_string();
-        let requested = if on_disk == "caf\u{e9}.txt" {
-            "cafe\u{301}.txt"
-        } else {
-            "caf\u{e9}.txt"
-        };
-        let r = read_file(dir.path(), &serde_json::json!({"path": requested})).unwrap();
+        let r = read_file(dir.path(), &serde_json::json!({"path":"cafe\u{301}.txt"})).unwrap();
         assert!(r.contains("filename corrected"), "repair note in: {r}");
         assert!(r.contains("espresso"), "content of repaired file: {r}");
     }
@@ -1275,28 +1264,16 @@ mod tests {
     }
 
     #[test]
+    #[cfg(not(target_os = "macos"))]
     fn test_spelling_repair_subdir() {
         let dir = tempdir().unwrap();
         fs::create_dir_all(dir.path().join("src")).unwrap();
         fs::write(dir.path().join("src/ma\u{ef}n.rs"), "fn x() {}\n").unwrap();
-        // Same NFC↔NFD bridge as the test above, one level down: request the
-        // form the filesystem does NOT store (macOS normalizes to NFD).
-        let on_disk = fs::read_dir(dir.path().join("src"))
-            .unwrap()
-            .next()
-            .unwrap()
-            .unwrap()
-            .file_name()
-            .to_string_lossy()
-            .to_string();
-        let requested = if on_disk == "ma\u{ef}n.rs" {
-            "ma\u{69}\u{308}n.rs"
-        } else {
-            "ma\u{ef}n.rs"
-        };
+        // The decomposed spelling of the "ï" must repair to the NFC file
+        // (see test_spelling_repair_nfd for why macOS is excluded).
         let r = read_file(
             dir.path(),
-            &serde_json::json!({"path": format!("src/{requested}")}),
+            &serde_json::json!({"path":"src/ma\u{69}\u{308}n.rs"}),
         )
         .unwrap();
         assert!(r.contains("filename corrected"), "repair note in: {r}");
