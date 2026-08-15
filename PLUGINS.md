@@ -110,52 +110,52 @@ Manual/dropped-in folders have no recorded source and are skipped.
 
 ### The plugin registry (single-repo marketplace)
 
-Every Pragma plugin can be served from **one GitHub repo** — e.g.
-`Sylviromi/plugins` — which doubles as both the storefront and the archive:
+Every Pragma plugin can be served from **one GitHub repo** —
+[`Sylviromi/pragma-plugins`](https://github.com/Sylviromi/pragma-plugins) — which
+doubles as both the storefront and the archive:
 
 ```
-Sylviromi/plugins
-  plugins/<id>/            one folder per plugin (the source of truth)
+Sylviromi/pragma-plugins
+  <id>/                    one folder per plugin, at the repo root (source of truth)
     manifest.json
     …
   index.json               generated registry — what the app fetches
   scripts/generate-plugin-index.js
 ```
 
+(Pragma's own repo uses the same convention under `plugins/` — e.g.
+`plugins/pragma-dev` — and the installer + generator handle both layouts.)
+
 **How it works:**
 
-1. Plugin authors add a folder under `plugins/<id>/` and tag releases
-   **per plugin** — `git tag <id>-v1.2.3` (tags are repo-wide, so they're
-   prefixed to stay unambiguous).
+1. Plugin authors add a folder (or a `plugins/<id>/` subfolder — both work)
+   and tag releases **per plugin** — `git tag <id>-v1.2.3` (tags are
+   repo-wide, so they're prefixed to stay unambiguous).
 2. A tiny script scans the folder and generates `index.json`:
-   `node scripts/generate-plugin-index.js plugins Sylviromi/plugins index.json`
-   (wire it into CI so the index is always fresh).
-3. The app's Settings → Plugins → **Browse community plugins** fetches
-   `https://raw.githubusercontent.com/Sylviromi/plugins/main/index.json` and
-   lists every plugin with an Install button.
-4. Each entry's `source` encodes the whole install recipe — the
-   `#plugins/<id>` subpath makes the installer **sparse-checkout** only that
-   folder from the shared repo, so a monorepo can serve individual plugins:
+   `node scripts/generate-plugin-index.js . Sylviromi/pragma-plugins index.json`
+   (wire it into CI so the index is always fresh — the pragma-plugins repo
+   has a workflow for exactly this).
+3. The app's **Settings → Marketplace** fetches
+   `https://raw.githubusercontent.com/Sylviromi/pragma-plugins/main/index.json`
+   (pre-added as the official registry) and shows every plugin across all
+   added registries as searchable cards with Install buttons.
+4. Each entry's `source` encodes the whole install recipe — the `#<id>`
+   subpath (or `#plugins/<id>` for subfolder layouts) makes the installer
+   **sparse-checkout** only that folder from the shared repo, so a monorepo
+   can serve individual plugins:
 
    ```
-   git:https://github.com/Sylviromi/plugins@<id>-v1.2.3#plugins/<id>
+   git:https://github.com/Sylviromi/pragma-plugins@<id>-v1.2.3#<id>
    ```
 
 5. Update checks work the same as any git source: tags are filtered to the
    plugin's own prefix (`<id>-v…`), so updating one plugin never crosses
    into another's versions.
 
-**Install by hand** without the browse screen, from the same repo:
-`git:https://github.com/Sylviromi/plugins#plugins/<id>` (unpinned = latest
+**Install by hand** without the marketplace, from the same repo:
+`git:https://github.com/Sylviromi/pragma-plugins#<id>` (unpinned = latest
 release tag) or with an explicit tag. The subpath syntax works for any
 git source, not just the official registry.
-
-A future **plugin registry** — a static JSON index hosted anywhere (a GitHub
-repo, GitHub Pages, any CDN) listing `{ id, name, version, description,
-  author, downloadUrl }` — will let the app show a “Browse plugins” screen:
-installing from the registry reuses the exact same validated install path as
-manual sources. Roadmap item; the installer and source records are already in
-place for it.
 
 ## Plugin Directory Structure
 
