@@ -517,258 +517,6 @@ mod tests {
     use super::*;
     use std::path::Path;
 
-    /// Test-fixture snapshot of the frontend-dev plugin (the live copy
-    /// lives OUTSIDE the repo at /mnt/Projects/pragma-plugins; tests must
-    /// be self-contained so the plugin content is pinned here).
-    #[allow(dead_code)]
-    const FRONTEND_DEV_MANIFEST_JSON: &str = r#"
-{
-  "id": "frontend-dev",
-  "name": "Frontend Developer",
-  "version": "1.0.0",
-  "description": "Frontend Developer skill: serves the working directory on a live localhost server with tool control",
-  "contributes": {
-    "providers": [],
-    "slots": [],
-    "commands": [],
-    "skills": []
-  }
-}
-"#;
-    const FRONTEND_DEV_SKILL_MD: &str = r#"
-# Frontend Developer skill
-
-You work on frontend web code in the session's working directory. This skill
-ships a live localhost static server whose tools let you control it.
-
-## Workflow
-
-1. **Serve**: call `fe_serve_start` to serve the session's working directory
-   (pass `dir` to serve something else). The handler IS the server — one
-   process, both the tool API and the thing the tools control. It's idempotent:
-   a second start reports `alreadyRunning` with the existing port.
-2. **Iterate**: edit files, then use `fe_serve_status` (port, state) and
-   `fe_serve_logs` (recent requests) to verify the server is picking up your
-   changes. You cannot browse the page yourself — verify by reading files and
-   checking the log.
-3. **Stop**: `fe_serve_stop` when the server is no longer needed.
-
-## Rules
-
-- Ports are ephemeral and reported by the tools — read them, never assume
-  a fixed port.
-- If no working directory is set, run `change_directory` first: the server
-  serves the session's working directory.
-- Localhost only, static files only — this is a preview server, not a
-  production deployment.
-"#;
-    const FRONTEND_DEV_TOOLS_JSON: &str = r#"
-[
-  {
-    "name": "fe_serve_start",
-    "description": "Start a static file server for the session working directory (or `dir`) on an ephemeral localhost port. Returns the port and serving directory. Use this when the task involves previewing or iterating on frontend code — the handler IS the server.",
-    "inputSchema": {
-      "type": "object",
-      "properties": {
-        "dir": {
-          "type": "string",
-          "description": "Directory to serve (defaults to the session working directory)"
-        }
-      }
-    }
-  },
-  {
-    "name": "fe_serve_status",
-    "description": "List running servers: directory, port, started time. Also reports the session working directory.",
-    "inputSchema": { "type": "object", "properties": {} }
-  },
-  {
-    "name": "fe_serve_stop",
-    "description": "Stop the server serving `dir` (defaults to the session working directory).",
-    "inputSchema": {
-      "type": "object",
-      "properties": {
-        "dir": {
-          "type": "string",
-          "description": "Directory whose server to stop (defaults to the session working directory)"
-        }
-      }
-    }
-  },
-  {
-    "name": "fe_serve_logs",
-    "description": "Return the last `limit` log lines of the static server (requests served, errors).",
-    "inputSchema": {
-      "type": "object",
-      "properties": {
-        "limit": {
-          "type": "integer",
-          "description": "Number of recent log lines, default 50, max 200."
-        }
-      }
-    }
-  }
-]
-"#;
-    const FRONTEND_DEV_HANDLER_JS: &str = r#"
-// Frontend Developer skill sidecar — a tiny static file server that also
-// answers the skill's tool calls over JSON-RPC 2.0 (newline-delimited JSON on
-// stdin/stdout). One process, two roles: the tool API AND the thing the tools
-// control. Depends only on Node's built-ins.
-'use strict'
-
-const http = require('http')
-const fs = require('fs')
-const path = require('path')
-const readline = require('readline')
-
-const servers = new Map() // abs dir -> { server, port, startedAt }
-const logs = []           // ring buffer of recent access/status lines
-const LOG_CAP = 200
-
-function log(line) {
-  logs.push(`[${new Date().toISOString()}] ${line}`)
-  if (logs.length > LOG_CAP) logs.shift()
-  console.error('[fe] ' + line) // host stderr — keeps stdout JSON-clean
-}
-
-const MIME = {
-  '.html': 'text/html', '.js': 'text/javascript', '.mjs': 'text/javascript',
-  '.css': 'text/css', '.json': 'application/json', '.svg': 'image/svg+xml',
-  '.png': 'image/png', '.jpg': 'image/jpeg', '.gif': 'image/gif',
-  '.webp': 'image/webp', '.ico': 'image/x-icon', '.txt': 'text/plain',
-  '.md': 'text/markdown', '.map': 'application/json', '.wasm': 'application/wasm',
-}
-
-// Set by the initialize handshake — the session working directory.
-let sessionDir = null
-
-function startServer(dir) {
-  const abs = path.resolve(dir)
-  if (!fs.existsSync(abs)) {
-    return Promise.resolve({ ok: false, error: `no such directory: ${abs}` })
-  }
-  if (servers.has(abs)) {
-    const s = servers.get(abs)
-    log(`reused server for ${abs}:${s.port}`)
-    return Promise.resolve({ ok: true, alreadyRunning: true, port: s.port, dir: abs })
-  }
-  return new Promise((resolve) => {
-    const server = http.createServer((req, res) => {
-      const urlPath = decodeURIComponent((req.url || '/').split('?')[0])
-      let file = path.join(abs, urlPath)
-      if (!file.startsWith(abs)) {
-        res.writeHead(403); res.end('forbidden'); return
-      }
-      fs.stat(file, (err, st) => {
-        if (!err && st.isDirectory()) file = path.join(file, 'index.html')
-        fs.readFile(file, (e2, data) => {
-          if (e2) {
-            res.writeHead(404); res.end('not found')
-            log(`404 ${req.method} ${req.url}`)
-            return
-          }
-          const ext = path.extname(file).toLowerCase()
-          res.writeHead(200, { 'Content-Type': MIME[ext] || 'application/octet-stream' })
-          res.end(data)
-          log(`200 ${req.method} ${req.url} (${data.length}b)`)
-        })
-      })
-    })
-    server.on('error', (e) => {
-      log(`server error: ${e.message}`)
-      resolve({ ok: false, error: e.message })
-    })
-    server.listen(0, '127.0.0.1', () => {
-      const port = server.address().port
-      servers.set(abs, { server, port, startedAt: new Date().toISOString() })
-      log(`serving ${abs} on http://127.0.0.1:${port}`)
-      resolve({ ok: true, port, dir: abs })
-    })
-  })
-}
-
-function stopServer(dir) {
-  const abs = path.resolve(dir)
-  const entry = servers.get(abs)
-  if (!entry) return { ok: true, alreadyStopped: true, dir: abs }
-  entry.server.close()
-  servers.delete(abs)
-  log(`stopped ${abs}`)
-  return { ok: true, dir: abs }
-}
-
-function status() {
-  return {
-    ok: true,
-    sessionDir,
-    servers: [...servers.entries()].map(([dir, s]) => ({
-      dir, port: s.port, startedAt: s.startedAt,
-    })),
-  }
-}
-
-// ── JSON-RPC plumbing ──────────────────────────────────────────────────────
-function reply(id, payload, isError) {
-  const result = {
-    content: [
-      { type: 'text', text: typeof payload === 'string' ? payload : JSON.stringify(payload, null, 2) },
-    ],
-    isError: !!isError,
-  }
-  process.stdout.write(JSON.stringify({ jsonrpc: '2.0', id, result }) + '\n')
-}
-
-function replyErr(id, message) {
-  process.stdout.write(JSON.stringify({ jsonrpc: '2.0', id, error: { code: -1, message } }) + '\n')
-}
-
-const rl = readline.createInterface({ input: process.stdin })
-rl.on('line', (line) => {
-  let msg
-  try { msg = JSON.parse(line) } catch { return }
-  const { id } = msg
-  if (msg.method === 'initialize') {
-    sessionDir = (msg.params && msg.params.workingDir) || null
-    log(`initialized (workingDir=${sessionDir || 'none'})`)
-    reply(id, { protocolVersion: 1, tools: require('./tools.json') }, false)
-  } else if (msg.method === 'tools/call') {
-    const { name, arguments: args } = msg.params
-    const a = args || {}
-    try {
-      if (name === 'fe_serve_start') {
-        const dir = a.dir || sessionDir
-        if (!dir) {
-          reply(id, { ok: false, error: 'no working directory — call change_directory first, or pass "dir"' }, true)
-          return
-        }
-        startServer(dir).then((r) => reply(id, r, !r.ok))
-      } else if (name === 'fe_serve_status') {
-        reply(id, status(), false)
-      } else if (name === 'fe_serve_stop') {
-        const dir = a.dir || sessionDir
-        if (!dir) {
-          reply(id, { ok: false, error: 'specify "dir" or set a working directory first' }, true)
-          return
-        }
-        reply(id, stopServer(dir), false)
-      } else if (name === 'fe_serve_logs') {
-        const n = Math.max(1, Math.min(LOG_CAP, (a.limit || 50) | 0))
-        reply(id, { ok: true, logs: logs.slice(-n) }, false)
-      } else {
-        replyErr(id, `unknown tool: ${name}`)
-      }
-    } catch (e) {
-      replyErr(id, `handler error: ${e.message}`)
-    }
-  }
-})
-
-process.on('exit', () => {
-  for (const [, s] of servers) s.server.close()
-})
-"#;
-
     const ECHO_HANDLER: &str = r#"
 const readline = require('readline');
 const rl = readline.createInterface({ input: process.stdin });
@@ -899,15 +647,16 @@ rl.on('line', (line) => {
         assert!(parse_tools(None).is_empty());
     }
 
-    /// Copy the shipped frontend-dev demo plugin into a temp dir.
-    fn write_frontend_dev_plugin(dir: &Path) {
-        let plugin = dir.join("frontend-dev");
-        let sk = plugin.join("skills/frontend-dev");
-        std::fs::create_dir_all(&sk).unwrap();
-        std::fs::write(plugin.join("manifest.json"), FRONTEND_DEV_MANIFEST_JSON).unwrap();
-        std::fs::write(sk.join("skill.md"), FRONTEND_DEV_SKILL_MD).unwrap();
-        std::fs::write(sk.join("tools.json"), FRONTEND_DEV_TOOLS_JSON).unwrap();
-        std::fs::write(sk.join("handler.js"), FRONTEND_DEV_HANDLER_JS).unwrap();
+    /// Resolve the frontend-dev plugin folder. The plugin lives OUTSIDE this
+    /// repo — its own plugin folder (/mnt/Projects/pragma-plugins/frontend-dev,
+    /// symlinked into the app's plugins dir) — so its content is never pinned
+    /// in the source tree. Tests exercise the real tree when it's present and
+    /// skip otherwise. PRAGMA_PLUGINS_DIR overrides the base path.
+    fn frontend_dev_plugin_dir() -> Option<std::path::PathBuf> {
+        let base = std::env::var("PRAGMA_PLUGINS_DIR")
+            .unwrap_or_else(|_| "/mnt/Projects/pragma-plugins".to_string());
+        let dir = std::path::Path::new(&base).join("frontend-dev");
+        dir.join("manifest.json").is_file().then_some(dir)
     }
 
     #[tokio::test]
@@ -916,18 +665,34 @@ rl.on('line', (line) => {
             eprintln!("node not found — skipping frontend-dev e2e test");
             return;
         }
-        let dir = tempfile::tempdir().unwrap();
-        write_frontend_dev_plugin(dir.path());
-        let mgr = PluginManager::new(dir.path().to_path_buf(), vec![], vec![]);
+        let Some(plugin_dir) = frontend_dev_plugin_dir() else {
+            eprintln!(
+                "frontend-dev plugin folder not found — skipping e2e (install it at \
+                 /mnt/Projects/pragma-plugins/frontend-dev or set PRAGMA_PLUGINS_DIR)"
+            );
+            return;
+        };
+        // Scan the real plugins dir so the manager discovers the live plugin.
+        let plugins_dir = plugin_dir.parent().expect("plugins dir");
+        let mgr = PluginManager::new(plugins_dir.to_path_buf(), vec![], vec![]);
 
         let skill = mgr
             .skill("frontend-dev/frontend-dev")
             .expect("skill discovered");
         assert!(skill.has_handler && skill.has_tools);
 
-        // A work dir with one file to serve.
+        // A work dir with several artifacts to serve (root page, a named
+        // file, and a viz/ gallery folder).
         let work = tempfile::tempdir().unwrap();
         std::fs::write(work.path().join("index.html"), "<h1>hello</h1>").unwrap();
+        std::fs::write(
+            work.path().join("my-awesome-project.html"),
+            "<h1>my awesome project</h1>",
+        )
+        .unwrap();
+        std::fs::create_dir_all(work.path().join("viz")).unwrap();
+        std::fs::write(work.path().join("viz/01.html"), "<h1>one</h1>").unwrap();
+        std::fs::write(work.path().join("viz/02.html"), "<h1>two</h1>").unwrap();
 
         let reg = SkillSidecarRegistry::new();
         reg.ensure(
@@ -956,7 +721,7 @@ rl.on('line', (line) => {
         let v: serde_json::Value = serde_json::from_str(&out).expect("json result");
         let port = v["port"].as_u64().expect("port in start result");
 
-        // Status reports the session dir + running server.
+        // Status reports the session dir + running server (+ activeFile).
         let st = reg
             .call_tool(
                 "frontend-dev/frontend-dev",
@@ -970,30 +735,118 @@ rl.on('line', (line) => {
             "status: {st}"
         );
 
-        // Fetch through the LIVE server.
-        let body = tokio::task::spawn_blocking(move || {
-            use std::io::{Read, Write};
-            let mut s = std::net::TcpStream::connect(("127.0.0.1", port as u16)).unwrap();
-            s.write_all(b"GET / HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n")
-                .unwrap();
-            let mut buf = String::new();
-            s.read_to_string(&mut buf).unwrap();
-            buf
-        })
-        .await
-        .unwrap();
-        assert!(body.contains("<h1>hello</h1>"), "served content: {body}");
+        // fe_serve_list enumerates every HTML artifact (recursively) and
+        // reports what the preview shows.
+        let ls = reg
+            .call_tool(
+                "frontend-dev/frontend-dev",
+                "fe_serve_list",
+                &serde_json::json!({}),
+            )
+            .await
+            .unwrap();
+        let lj: serde_json::Value = serde_json::from_str(&ls).expect("list json");
+        assert_eq!(lj["htmlFiles"].as_array().map(|a| a.len()).unwrap_or(0), 4, "list: {ls}");
+        assert!(
+            lj["htmlFiles"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|f| f["name"] == "viz/02.html" && f["url"] == "/viz/02.html"),
+            "viz files listed with urls: {ls}"
+        );
+        assert!(lj["activeFile"].is_null(), "nothing shown yet: {ls}");
 
-        // The GET landed in the handler's log ring.
+        // fe_serve_show points the preview at an artifact; list reflects it.
+        let sh = reg
+            .call_tool(
+                "frontend-dev/frontend-dev",
+                "fe_serve_show",
+                &serde_json::json!({ "file": "viz/02.html" }),
+            )
+            .await
+            .unwrap();
+        assert!(sh.contains("\"activeFile\": \"viz/02.html\""), "show: {sh}");
+        let ls2 = reg
+            .call_tool(
+                "frontend-dev/frontend-dev",
+                "fe_serve_list",
+                &serde_json::json!({}),
+            )
+            .await
+            .unwrap();
+        assert!(
+            ls2.contains("\"activeFile\": \"viz/02.html\""),
+            "list after show: {ls2}"
+        );
+        // Showing a missing file is an error, not a silent no-op.
+        let sh_bad = reg
+            .call_tool(
+                "frontend-dev/frontend-dev",
+                "fe_serve_show",
+                &serde_json::json!({ "file": "nope.html" }),
+            )
+            .await;
+        assert!(
+            sh_bad.as_ref().is_err_and(|e| e.contains("no such file")),
+            "bad show should error: {sh_bad:?}"
+        );
+
+        // HTTP helper returning (status line + headers, body).
+        let http_get = |port: u64, path: String| async move {
+            tokio::task::spawn_blocking(move || {
+                use std::io::{Read, Write};
+                let mut s = std::net::TcpStream::connect(("127.0.0.1", port as u16)).unwrap();
+                s.write_all(
+                    format!("GET {path} HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n")
+                        .as_bytes(),
+                )
+                .unwrap();
+                let mut buf = String::new();
+                s.read_to_string(&mut buf).unwrap();
+                let (head, body) = buf
+                    .split_once("\r\n\r\n")
+                    .map(|(h, b)| (h.to_string(), b.to_string()))
+                    .unwrap_or((buf.clone(), String::new()));
+                (head, body)
+            })
+            .await
+            .unwrap()
+        };
+
+        // Root serves index.html and — critically for hot reload — no-store.
+        let (head, body) = http_get(port, "/".to_string()).await;
+        assert!(body.contains("<h1>hello</h1>"), "served content: {body}");
+        assert!(
+            head.to_lowercase().contains("cache-control: no-store"),
+            "preview must not cache: {head}"
+        );
+
+        // Any file, not just index.html.
+        let (_, body2) = http_get(port, "/my-awesome-project.html".to_string()).await;
+        assert!(
+            body2.contains("my awesome project"),
+            "named file served: {body2}"
+        );
+
+        // Folder without index.html → generated gallery page ("see all N").
+        let (_, viz) = http_get(port, "/viz/".to_string()).await;
+        assert!(
+            viz.contains("01.html") && viz.contains("02.html") && viz.contains("frontend-dev preview"),
+            "gallery index: {viz}"
+        );
+
+        // The GETs landed in the handler's log ring.
         let lg = reg
             .call_tool(
                 "frontend-dev/frontend-dev",
                 "fe_serve_logs",
-                &serde_json::json!({ "limit": 5 }),
+                &serde_json::json!({ "limit": 20 }),
             )
             .await
             .unwrap();
         assert!(lg.contains("200 GET /"), "logs: {lg}");
+        assert!(lg.contains("GET /viz/"), "logs: {lg}");
 
         // Stop idempotently.
         let stp = reg
