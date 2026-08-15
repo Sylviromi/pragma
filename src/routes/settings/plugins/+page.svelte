@@ -1,11 +1,16 @@
 <script lang="ts">
-  import { plugins, loadPlugins, setEnabled } from '../../../stores/plugins.svelte'
+  import { plugins, loadPlugins, setEnabled, installFromSource, uninstallPlugin } from '../../../stores/plugins.svelte'
   import { openPluginFolder } from '../../../lib/tauri'
   import { pushToast } from '../../../stores/toast.svelte'
   import { onMount } from 'svelte'
   import Icon from '../../../components/Icon.svelte'
+  import { open } from '@tauri-apps/plugin-dialog'
 
   let expanded = $state<Record<string, boolean>>({})
+  let installing = $state(false)
+  let showInstall = $state(false)
+  let sourceInput = $state('')
+  let confirmUninstall = $state<Record<string, boolean>>({})
 
   onMount(async () => {
     await loadPlugins()
@@ -25,6 +30,38 @@
     openPluginFolder(p.id).catch((e) => pushToast(String(e), 'error'))
   }
 
+  async function browseFolder() {
+    const path = await open({ multiple: false, directory: true })
+    if (path) sourceInput = path
+  }
+
+  async function install() {
+    const spec = sourceInput.trim()
+    if (!spec) return
+    installing = true
+    try {
+      await installFromSource(spec)
+      pushToast('Plugin installed — enabled', 'success')
+      sourceInput = ''
+      showInstall = false
+    } catch (err) {
+      pushToast(`Install failed: ${String(err)}`, 'error')
+    } finally {
+      installing = false
+    }
+  }
+
+  async function doUninstall(p: { id: string; name: string }) {
+    try {
+      await uninstallPlugin(p.id)
+      pushToast(`Uninstalled ${p.name}`, 'success')
+    } catch (err) {
+      pushToast(String(err), 'error')
+    } finally {
+      confirmUninstall[p.id] = false
+    }
+  }
+
   const badge = (text: string, kind: 'provider' | 'slot' | 'command' | 'skill') => ({
     text,
     kind
@@ -32,10 +69,42 @@
 </script>
 
 <div class="page">
-  <div class="title">Plugins</div>
-  <div class="desc-lead">
-    Drop plugin folders into <code>~/.config/dev.pragma.app/plugins/</code> — changes hot-reload instantly.
+  <div class="title-row">
+    <div class="title">Plugins</div>
+    <div class="header-actions">
+      <button class="install-btn" onclick={() => (showInstall = !showInstall)}>
+        <Icon name="download" size={14} />
+        Install…
+      </button>
+    </div>
   </div>
+  <div class="desc-lead">
+    Install from a source — <code>git:…</code>, <code>npm:…</code>, or a local folder — or
+    drop a folder into <code>~/.config/dev.pragma.app/plugins/</code> (both hot-reload instantly).
+  </div>
+
+  {#if showInstall}
+    <div class="install-row">
+      <input
+        class="source-input"
+        bind:value={sourceInput}
+        placeholder="git:https://github.com/user/my-plugin  ·  npm:my-plugin  ·  /path/to/folder"
+        onkeydown={(e) => {
+          if (e.key === 'Enter') install()
+          if (e.key === 'Escape') {
+            showInstall = false
+            sourceInput = ''
+          }
+        }}
+      />
+      <button class="btn ghost" onclick={browseFolder} title="Pick a local plugin folder">
+        <Icon name="folder" size={14} /> Browse…
+      </button>
+      <button class="btn" onclick={install} disabled={installing || !sourceInput.trim()}>
+        {installing ? 'Installing…' : 'Install'}
+      </button>
+    </div>
+  {/if}
 
   {#if plugins.loading}
     <div class="empty">Loading…</div>
@@ -54,6 +123,9 @@
             <div class="name-col">
               <div class="name-row">
                 <span class="name">{p.name}</span>
+                {#if p.publisher === 'pragma'}
+                  <span class="badge first-party" title="Built into Pragma">Pragma</span>
+                {/if}
                 <span class="ver">v{p.version}</span>
               </div>
               <div class="id">{p.id}</div>
@@ -85,6 +157,13 @@
                 <span>{p.enabled ? 'Active' : 'Disabled'}</span>
                 <code class="folder">{p.folder}</code>
               </div>
+              {#if p.author}<div class="meta">by {p.author}</div>{/if}
+              {#if p.repository || p.homepage}
+                <div class="links">
+                  {#if p.repository}<a href={p.repository} target="_blank" rel="noopener noreferrer">Repository</a>{/if}
+                  {#if p.homepage}<a href={p.homepage} target="_blank" rel="noopener noreferrer">Homepage</a>{/if}
+                </div>
+              {/if}
               <div class="actions">
                 <a class="link" href={`/settings/plugin/${p.id}`}>Open settings</a>
                 <button class="link" onclick={() => reveal(p)}>Open folder</button>
@@ -95,6 +174,20 @@
           <div class="foot">
             <button class="btn" class:off={p.enabled} onclick={() => toggle(p)} aria-pressed={p.enabled}>
               {p.enabled ? 'Enabled' : 'Disabled'}
+            </button>
+            <button
+              class="btn danger"
+              class:confirm={confirmUninstall[p.id]}
+              onclick={() => {
+                if (!confirmUninstall[p.id]) {
+                  confirmUninstall[p.id] = true
+                  setTimeout(() => (confirmUninstall[p.id] = false), 3000)
+                } else {
+                  doUninstall(p)
+                }
+              }}
+            >
+              {confirmUninstall[p.id] ? 'Confirm uninstall?' : 'Uninstall'}
             </button>
           </div>
         </li>
@@ -110,6 +203,85 @@
     font-weight: 600;
     color: var(--text-primary);
     margin-bottom: 2px;
+  }
+  .title-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 2px;
+  }
+  .install-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: var(--bg-elevated);
+    color: var(--text-primary);
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius-sm);
+    padding: 5px 12px;
+    font-size: 12px;
+    font-family: var(--font-heading);
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .install-btn:hover:not(:disabled) {
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+  .install-btn:disabled {
+    opacity: 0.6;
+    cursor: default;
+  }
+  .header-actions {
+    display: flex;
+    gap: 8px;
+  }
+  .badge {
+    font-family: var(--font-mono);
+    font-size: 9.5px;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    border-radius: 2px;
+    padding: 1px 6px;
+  }
+  .badge.first-party {
+    color: var(--accent);
+    border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
+    background: color-mix(in srgb, var(--accent) 12%, transparent);
+  }
+  .install-row {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    margin-bottom: 20px;
+    max-width: 720px;
+  }
+  .source-input {
+    flex: 1;
+    min-width: 0;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--text-primary);
+    background: var(--bg-base);
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius-sm);
+    padding: 7px 10px;
+  }
+  .source-input:focus {
+    outline: none;
+    border-color: var(--accent);
+  }
+  .btn.ghost {
+    background: var(--bg-overlay);
+    color: var(--text-secondary);
+    border: 1px solid var(--border-default);
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    white-space: nowrap;
+  }
+  .btn.ghost:hover {
+    color: var(--text-primary);
   }
   .desc-lead {
     color: var(--text-muted);
@@ -308,6 +480,7 @@
   .foot {
     display: flex;
     justify-content: flex-end;
+    gap: 8px;
   }
   .btn {
     background: var(--accent);
@@ -324,5 +497,29 @@
     background: var(--bg-overlay);
     color: var(--text-secondary);
     border: 1px solid var(--border-default);
+  }
+  .btn.danger {
+    background: transparent;
+    color: var(--danger, #e5484d);
+    border: 1px solid color-mix(in srgb, var(--danger, #e5484d) 45%, transparent);
+  }
+  .btn.danger:hover {
+    background: color-mix(in srgb, var(--danger, #e5484d) 10%, transparent);
+  }
+  .btn.danger.confirm {
+    background: var(--danger, #e5484d);
+    color: #fff;
+  }
+  .links {
+    display: flex;
+    gap: 14px;
+  }
+  .links a {
+    font-size: 12px;
+    color: var(--accent);
+    text-decoration: none;
+  }
+  .links a:hover {
+    text-decoration: underline;
   }
 </style>

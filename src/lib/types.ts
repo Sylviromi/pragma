@@ -49,6 +49,11 @@ export interface PluginInfo {
   name: string
   version: string
   description: string
+  author: string
+  publisher: string
+  repository: string
+  homepage: string
+  updateUrl: string
   enabled: boolean
   contributes: PluginContributes
   hasComponent: boolean
@@ -56,6 +61,7 @@ export interface PluginInfo {
   skills: SkillInfo[]
   folder: string
 }
+
 
 export interface SkillInfo {
   id: string

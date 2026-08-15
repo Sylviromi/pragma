@@ -8,6 +8,27 @@ pub struct PluginManifest {
     pub version: String,
     #[serde(default)]
     pub description: String,
+    /// Who made it (shown in Settings → Plugins; also used by the future
+    /// plugin registry for attribution).
+    #[serde(default)]
+    pub author: String,
+    /// Publisher identity — namespaces plugins without touching the flat id
+    /// scheme: first-party pragma plugins use "pragma" (badged in the UI),
+    /// third parties use their own handle. The install SOURCE (npm scope,
+    /// git owner) provides ecosystem-level namespacing on top.
+    #[serde(default)]
+    pub publisher: String,
+    /// Source repo (GitHub etc.) — where the source and issues live.
+    #[serde(default)]
+    pub repository: String,
+    /// Project page for humans (docs, screenshots).
+    #[serde(default)]
+    pub homepage: String,
+    /// URL that serves the LATEST packaged .zip of this plugin. The update
+    /// machinery (planned: version poll → re-install through the same
+    /// install path as manual zips) will use it; ignored for now.
+    #[serde(default, rename = "updateUrl")]
+    pub update_url: String,
     #[serde(default)]
     pub contributes: Contributes,
 }
@@ -75,9 +96,27 @@ mod tests {
     }
 
     #[test]
+    fn parses_optional_metadata_fields() {
+        let m = parse_manifest(
+            r#"{"id":"demo","name":"Demo","version":"1.2.3","author":"Ada","publisher":"pragma","repository":"https://github.com/ada/demo","homepage":"https://ada.dev/demo","updateUrl":"https://ada.dev/demo/latest.zip"}"#,
+        )
+        .unwrap();
+        assert_eq!(m.author, "Ada");
+        assert_eq!(m.publisher, "pragma");
+        assert_eq!(m.repository, "https://github.com/ada/demo");
+        assert_eq!(m.homepage, "https://ada.dev/demo");
+        assert_eq!(m.update_url, "https://ada.dev/demo/latest.zip");
+    }
+
+    #[test]
     fn defaults_for_missing_contributes() {
         let m = parse_manifest(r#"{"id":"demo","name":"Demo","version":"0.1.0"}"#).unwrap();
         assert_eq!(m.description, "");
+        assert!(m.author.is_empty());
+        assert!(m.publisher.is_empty());
+        assert!(m.repository.is_empty());
+        assert!(m.homepage.is_empty());
+        assert!(m.update_url.is_empty());
         assert!(m.contributes.providers.is_empty());
         assert!(m.contributes.slots.is_empty());
         assert!(m.contributes.commands.is_empty());

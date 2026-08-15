@@ -36,6 +36,60 @@ pub async fn set_plugin_enabled(
     Ok(())
 }
 
+// ── Install / uninstall ─────────────────────────────────────────────────────
+
+/// Install a plugin from a **source spec** — `git:…`, `npm:…`, a local
+/// folder path, or a `.zip` file (Settings → Plugins → "Install…"). The
+/// backend fetches, validates, swaps it into the plugins dir, enables it,
+/// and hot-reloads (providers re-register, components re-import). The same
+/// path is used for future registry/update installs.
+#[tauri::command]
+pub async fn install_plugin(
+    spec: String,
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+) -> Result<(), String> {
+    state.plugins.install_from_source(&spec)?;
+
+    // Rebinding all plugin providers keeps register/unregister idempotent.
+    let api_keys = state.settings.read().unwrap().api_keys.clone();
+    crate::plugins::provider::unregister_plugin_providers(&state.registry, &state.plugins);
+    crate::plugins::provider::register_plugin_providers(
+        &state.registry,
+        &state.plugins,
+        &api_keys,
+        &app,
+    );
+
+    crate::save_settings(&state);
+    let _ = app.emit("plugin:reload", serde_json::json!({}));
+    Ok(())
+}
+
+/// Remove an installed plugin (folder + registration).
+#[tauri::command]
+pub async fn uninstall_plugin(
+    id: String,
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+) -> Result<(), String> {
+    state.plugins.uninstall(&id)?;
+
+    let api_keys = state.settings.read().unwrap().api_keys.clone();
+    crate::plugins::provider::unregister_plugin_providers(&state.registry, &state.plugins);
+    crate::plugins::provider::register_plugin_providers(
+        &state.registry,
+        &state.plugins,
+        &api_keys,
+        &app,
+    );
+
+    crate::save_settings(&state);
+    let _ = app.emit("plugin:reload", serde_json::json!({}));
+    Ok(())
+}
+
+
 #[tauri::command]
 pub async fn read_plugin_component(
     id: String,

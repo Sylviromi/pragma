@@ -18,6 +18,103 @@ building plugins. A plugin is a folder at `~/.config/dev.pragma.app/plugins/<id>
 > pinned fixture. Follow this pattern only for plugins whose content must track
 > the repo.
 
+## The Plugin Lifecycle
+
+### Where plugins live
+
+Every plugin is a **folder** under the app's plugin directory:
+`~/.config/dev.pragma.app/plugins/<id>/`. The folder name must match the `id`
+in `manifest.json`. What's on disk is the source of truth — the app never
+creates or copies plugin folders, it reads them (and hot-reloads on change).
+
+### Installing
+
+Install by **source**, not by archive — the same model pi and OpenCode use.
+Settings → Plugins → **Install…** accepts:
+
+- `git:https://github.com/user/repo` — shallow-cloned with git. A tag is
+  supported: `git:github.com/user/repo@v1.0.0` (bare `https://…`/`ssh://…`
+  URLs work too).
+- `npm:my-plugin` — fetched from the npm registry
+  (`npm:@scope/pkg`, `npm:pkg@1.2.3`).
+- a **local folder** path — installed as a symlink, so edits to the source
+  folder hot-reload live (the dev workflow).
+- a local **`.zip`** — still accepted for file drops.
+
+The backend fetches the source, validates the manifest, and swaps the folder
+in atomically — a bad package can never leave a half-installed plugin. The
+plugin is **enabled** on install, and its source spec is recorded in
+`plugin_sources.json` (app config dir) so a future update checker knows where
+each plugin came from. Re-installing an existing id replaces the old folder —
+which is how updates land.
+
+Alternatively, **drop a folder** into `plugins/` manually — the file watcher
+picks it up and hot-reloads. A dropped-in folder starts *disabled* (first-time
+plugins need an explicit enable in Settings → Plugins).
+
+### Publishing
+
+Publishing a plugin = putting it **somewhere fetchable** and telling people
+where. Two first-class options, matching how pi/OpenCode plugins are shipped:
+
+1. **A git repository** — the plugin folder (with `manifest.json` at the root,
+   or under a `plugins/<id>/` subfolder) in any repo. Users install it with
+   `git:<url>`; tag releases with `vX.Y.Z` for version pinning.
+2. **An npm package** — publish the plugin folder as a package containing
+   `manifest.json`. Users install it with `npm:<name>`.
+
+The manifest's optional metadata makes a plugin findable and attributable:
+
+```json
+{
+  "id": "my-plugin",
+  "name": "My Plugin",
+  "version": "1.0.0",
+  "author": "You",
+  "publisher": "your-handle",
+  "repository": "https://github.com/you/my-plugin",
+  "homepage": "https://you.dev/my-plugin",
+  "description": "…"
+}
+```
+
+- `author` / `repository` / `homepage` are shown in Settings → Plugins.
+- **`publisher` namespaces plugins** without touching the flat id scheme:
+  first-party plugins use `"publisher": "pragma"` and get a **Pragma** badge
+  in Settings → Plugins; third parties use their own handle. Ecosystem-level
+  namespacing comes from the **source** itself — an npm scope
+  (`npm:@you/my-plugin`), a git owner (`git:github.com/you/repo`) — exactly
+  like pi packages and npm scopes; the id stays a clean identifier because it
+  maps 1:1 to folder names and skill ids (`<plugin>/<skill>`).
+
+### Updates
+
+Pragma **checks for plugin updates automatically at startup** (at most every
+10 minutes, silently — it never interrupts). Settings → Plugins → **Check for
+updates** re-checks on demand. When newer versions exist you see them in two
+places:
+
+- a **count badge** next to **Plugins** in the Settings sidebar
+- per-plugin **`vX → vY`** badges with an **Update** button on the plugins page
+
+How versions are found:
+
+- **git sources**: `git ls-remote --tags` picks the highest `vX.Y.Z` tag.
+- **npm sources**: the registry's `latest` dist-tag.
+- **local folders** are live symlinks — always current, no polling.
+- **version-pinned sources** (`git:…@tag`, `npm:pkg@ver`) are deliberately
+  skipped, matching pi's pinned-ref semantics: unpin (drop the `@tag`/
+  `@version`) to receive updates.
+
+Manual/dropped-in folders have no recorded source and are skipped.
+
+A future **plugin registry** — a static JSON index hosted anywhere (a GitHub
+repo, GitHub Pages, any CDN) listing `{ id, name, version, description,
+  author, downloadUrl }` — will let the app show a “Browse plugins” screen:
+installing from the registry reuses the exact same validated install path as
+manual sources. Roadmap item; the installer and source records are already in
+place for it.
+
 ## Plugin Directory Structure
 
 ```

@@ -2,6 +2,8 @@ import { listen } from '@tauri-apps/api/event'
 import {
   listPlugins as apiListPlugins,
   setPluginEnabled as apiSetEnabled,
+  installPlugin as apiInstallPlugin,
+  uninstallPlugin as apiUninstallPlugin,
   readPluginSkill as apiReadSkill
 } from '../lib/tauri'
 import type { PluginInfo } from '../lib/tauri'
@@ -11,7 +13,7 @@ export const plugins = $state({
   list: [] as PluginInfo[],
   /** Bump per plugin id (or '*' for all) to force re-import of component modules. */
   cacheKey: {} as Record<string, number>,
-  loading: false
+  loading: false,
 })
 
 export async function loadPlugins() {
@@ -40,6 +42,24 @@ export async function setEnabled(id: string, enabled: boolean) {
   await loadPlugins()
   bumpPlugin(id)
 }
+
+/** Install from a source spec (git:…, npm:…, local path) — backend fetches,
+ *  validates and enables. */
+export async function installFromSource(spec: string) {
+  await apiInstallPlugin(spec)
+  await loadPlugins()
+  bumpAll()
+  await loadProviders()
+}
+
+/** Remove an installed plugin. */
+export async function uninstallPlugin(id: string) {
+  await apiUninstallPlugin(id)
+  await loadPlugins()
+  bumpAll()
+  await loadProviders()
+}
+
 
 export async function skillFor(id: string): Promise<string> {
   try {

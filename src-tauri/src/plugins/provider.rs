@@ -171,6 +171,11 @@ mod tests {
             name: "Zen".into(),
             version: "1".into(),
             description: String::new(),
+            author: String::new(),
+            publisher: String::new(),
+            repository: String::new(),
+            homepage: String::new(),
+            update_url: String::new(),
             contributes: parse_manifest(
                 r#"{"id":"zen","name":"Zen","version":"1","contributes":{"providers":["warp"]}}"#,
             )

@@ -275,6 +275,8 @@ pub fn run() {
             commands::providers::set_verification_settings,
             commands::plugins::list_plugins,
             commands::plugins::set_plugin_enabled,
+            commands::plugins::install_plugin,
+            commands::plugins::uninstall_plugin,
             commands::plugins::read_plugin_component,
             commands::plugins::read_plugin_skill,
             commands::plugins::list_skills,
