@@ -84,18 +84,17 @@ the same release.
 
 `distrib/aur/` holds a source-built Arch package (`pragma`) that installs a
 proper desktop entry + hicolor icons — real desktop integration, unlike the
-portable AppImage. To keep it in sync after a release, run this once (it needs
-the tag to be pushed first, so it's a follow-up to `release.sh`):
+portable AppImage. To publish it after a release (the tag must be pushed
+first, so this is a follow-up to `release.sh`):
 
 ```bash
-./scripts/aur-update.sh 0.1.3        # updates pkgver, source sha256, .SRCINFO
-git add -A && git commit -m "chore(aur): bump to 0.1.3" && git push
+./scripts/aur-deploy.sh 0.1.3        # bump PKGBUILD + .SRCINFO and push to AUR
+./scripts/aur-deploy.sh 0.1.3 --clone # first time on a machine (clones the AUR repo)
 ```
 
-Submit to the AUR by copying `distrib/aur/{PKGBUILD,.SRCINFO}` into the AUR
-git repo (`ssh://aur@aur.archlinux.org/pragma.git`) and pushing. Users then
-install with `yay -S pragma` (or `paru -S pragma`). Full details in
-`distrib/aur/README.md`.
+This needs your AUR SSH key. The very first package is created on the AUR
+website first (aur.archlinux.org → Submit, then add your SSH key). Full
+details in `distrib/aur/README.md`.
 
 ## What happens next (pipeline detail)
 

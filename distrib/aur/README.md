@@ -10,33 +10,40 @@ release, then installs the binary to `/usr/bin`, an app-menu entry
 menu/grid like a first-class desktop app. This is unlike the portable `.AppImage`
 (which only gets a menu entry if AppImageLauncher/`appimaged` is installed).
 
-## Releasing / keeping it in sync
+## Releasing / keeping it in sync (one command)
 
-After an app release, run once (computes the new source tarball's sha256 and
-rebuilds `.SRCINFO`):
+After an app release, publish to the AUR with:
 
 ```bash
-./scripts/aur-update.sh 0.1.3
-git add -A && git commit -m "chore(aur): bump to 0.1.3" && git push
+./scripts/aur-deploy.sh 0.1.3                 # bump + push
+./scripts/aur-deploy.sh 0.1.3 --clone          # first time on a machine
 ```
 
-## Submitting to the AUR (maintainer)
+That bumps the PKGBUILD (pkgver + source sha256), regenerates `.SRCINFO`, and
+pushes to `aur.archlinux.org/pragma` in one go. It just needs your AUR SSH key
+('`AUR_DIR`' defaults to `~/aur/pragma`; override with `AUR_DIR=/path`).
 
-AUR packages live in their own git repo (`aur.archlinux.org/<name>.git`) —
-GitHub can't publish there. To submit/update:
+## Submitting the FIRST package (one-time)
+
+1. Register the package name on the AUR website: **aur.archlinux.org → Submit**
+   (this creates the empty git repo). If `pragma` is taken, rename `pkgname`.
+2. Register your SSH key in **AUR account settings → SSH keys**.
+3. Then clone + publish with `./scripts/aur-deploy.sh 0.1.2 --clone`.
+
+Under the hood it's just: copy `distrib/aur/{PKGBUILD,.SRCINFO}` into the AUR
+repo, commit `upgpkg: pragma <ver>`, push. You can also do that by hand if you
+prefer (see below).
+
+## Manual alternative (no script)
 
 ```bash
-# clone the AUR repo (needs an AUR account + SSH key), then copy this over
 git clone ssh://aur@aur.archlinux.org/pragma.git /tmp/aur-pragma
 cp distrib/aur/PKGBUILD distrib/aur/.SRCINFO /tmp/aur-pragma/
 cd /tmp/aur-pragma
 git add PKGBUILD .SRCINFO
-git commit -m "0.1.3"
+git commit -m "upgpkg: pragma 0.1.3"
 git push
 ```
-
-> Check the package name is free on the AUR first; rename `pkgname` if `pragma`
-> is taken.
 
 ## Installing (users on Arch)
 
