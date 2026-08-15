@@ -108,6 +108,48 @@ How versions are found:
 
 Manual/dropped-in folders have no recorded source and are skipped.
 
+### The plugin registry (single-repo marketplace)
+
+Every Pragma plugin can be served from **one GitHub repo** — e.g.
+`pragma/plugins` — which doubles as both the storefront and the archive:
+
+```
+pragma/plugins
+  plugins/<id>/            one folder per plugin (the source of truth)
+    manifest.json
+    …
+  index.json               generated registry — what the app fetches
+  scripts/generate-plugin-index.js
+```
+
+**How it works:**
+
+1. Plugin authors add a folder under `plugins/<id>/` and tag releases
+   **per plugin** — `git tag <id>-v1.2.3` (tags are repo-wide, so they're
+   prefixed to stay unambiguous).
+2. A tiny script scans the folder and generates `index.json`:
+   `node scripts/generate-plugin-index.js plugins pragma/plugins index.json`
+   (wire it into CI so the index is always fresh).
+3. The app's Settings → Plugins → **Browse community plugins** fetches
+   `https://raw.githubusercontent.com/pragma/plugins/main/index.json` and
+   lists every plugin with an Install button.
+4. Each entry's `source` encodes the whole install recipe — the
+   `#plugins/<id>` subpath makes the installer **sparse-checkout** only that
+   folder from the shared repo, so a monorepo can serve individual plugins:
+
+   ```
+   git:https://github.com/pragma/plugins@<id>-v1.2.3#plugins/<id>
+   ```
+
+5. Update checks work the same as any git source: tags are filtered to the
+   plugin's own prefix (`<id>-v…`), so updating one plugin never crosses
+   into another's versions.
+
+**Install by hand** without the browse screen, from the same repo:
+`git:https://github.com/pragma/plugins#plugins/<id>` (unpinned = latest
+release tag) or with an explicit tag. The subpath syntax works for any
+git source, not just the official registry.
+
 A future **plugin registry** — a static JSON index hosted anywhere (a GitHub
 repo, GitHub Pages, any CDN) listing `{ id, name, version, description,
   author, downloadUrl }` — will let the app show a “Browse plugins” screen:

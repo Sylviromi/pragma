@@ -29,5 +29,11 @@ All notable changes to Pragma are documented here. Format based on
 - **Publisher namespacing**: `publisher` field in the manifest — first-party
   plugins (`publisher: "pragma"`) get a Pragma badge in Settings; ids stay
   flat while the source (npm scope / git owner) namespaces.
+- **Single-repo plugin registry**: `#subpath` git sources install one plugin
+  from a shared repo via sparse checkout, so a singular GitHub repo
+  (`pragma/plugins`) can serve every plugin; per-plugin tags (`<id>-v…`) keep
+  update checks isolated per plugin. `scripts/generate-plugin-index.js` builds
+  the registry `index.json`; Settings → Plugins → **Browse community
+  plugins** fetches and installs from it.
 - MIT license + attribution metadata (`author`, `publisher`, `repository`,
   `homepage`) shown in Settings → Plugins.

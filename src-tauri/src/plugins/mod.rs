@@ -495,7 +495,9 @@ impl PluginManager {
 
         let staged = (|| -> Result<(), String> {
             match &source {
-                PluginSource::Git { url, tag } => fetch_git(&staging, url, tag.as_deref()),
+                PluginSource::Git { url, tag, subpath } => {
+                    fetch_git(&staging, url, tag.as_deref(), subpath.as_deref())
+                }
                 PluginSource::Npm { package } => fetch_npm(&staging, package),
                 PluginSource::Local(path) => {
                     let p = Path::new(path);
@@ -638,12 +640,24 @@ impl PluginManager {
             };
             match PluginSource::parse(&spec) {
                 Ok(PluginSource::Local(_)) => {} // live symlink — always current
-                Ok(PluginSource::Git { url, tag }) => {
+                Ok(PluginSource::Git { url, tag, subpath }) => {
                     if tag.is_some() {
                         info.pinned = true;
-                    } else if let Ok(Some(latest)) = git_latest_tag(&url) {
-                        info.latest = Some(latest.clone());
-                        info.update_available = compare_versions(&latest, &info.current) > 0;
+                    } else {
+                        // Multi-plugin repo (single-repo registry): tags are
+                        // prefixed per plugin (`<id>-vX.Y.Z`), so only the
+                        // ones for THIS plugin count as update targets.
+                        let prefix = subpath.as_deref().and_then(plugin_id_from_subpath);
+                        if let Ok(Some(latest_tag)) = git_latest_tag(&url, prefix) {
+                            // Report the bare version ("2.0.0"), not the tag
+                            // ("v2.0.0" / "alpha-v2.0.0") — the UI renders
+                            // "v{latest}" and comparison needs a plain version.
+                            if let Some(version) = tag_to_version(&latest_tag, prefix) {
+                                info.latest = Some(version.clone());
+                                info.update_available =
+                                    compare_versions(&version, &info.current) > 0;
+                            }
+                        }
                     }
                 }
                 Ok(PluginSource::Npm { package }) => {
@@ -679,11 +693,36 @@ impl PluginManager {
                     "local-path plugins are live symlinks — edit the source folder".into(),
                 )
             }
-            PluginSource::Git { tag, .. } if tag.is_some() => {
+            PluginSource::Git {
+                url, tag, subpath
+            } if tag.is_some() => {
                 return Err(
                     "this plugin is version-pinned (git:…@tag) — drop the @tag to receive updates"
                         .into(),
                 )
+            }
+            PluginSource::Git { url, tag: None, subpath } => {
+                // Unpinned: update to the latest tag for THIS plugin (tags in
+                // a shared repo are prefixed per plugin).
+                let prefix = subpath.as_deref().and_then(plugin_id_from_subpath);
+                let latest = git_latest_tag(url, prefix)?.ok_or_else(|| {
+                    format!("no version tags found for '{id}' in {url}")
+                })?;
+                let frag = subpath
+                    .as_deref()
+                    .map(|s| format!("#{s}"))
+                    .unwrap_or_default();
+                let installed =
+                    self.install_from_source(&format!("git:{url}@{latest}{frag}"))?;
+                // Keep the RECORDED source as the user's unpinned spec — an
+                // internal tag resolution must not pin the plugin, or future
+                // update checks would skip it.
+                self.sources
+                    .write()
+                    .unwrap()
+                    .insert(id.to_string(), spec.clone());
+                self.persist_sources();
+                return Ok(installed);
             }
             PluginSource::Npm { package } if npm_name_version(package).1.is_some() => {
                 return Err(
@@ -697,12 +736,37 @@ impl PluginManager {
     }
 }
 
+/// The plugin folder name implied by a `#subpath` source (`plugins/foo` →
+/// `foo`) — used to filter per-plugin tags in a shared repo (`foo-v1.2.3`).
+fn plugin_id_from_subpath(subpath: &str) -> Option<&str> {
+    subpath.rsplit('/').next().filter(|s| !s.is_empty())
+}
+
+/// Strip a tag down to its bare version for display/comparison:
+/// `v2.0.0` → `2.0.0`; with a prefix, `alpha-v2.0.0` → `2.0.0`.
+fn tag_to_version(tag: &str, prefix: Option<&str>) -> Option<String> {
+    let rest = match prefix {
+        Some(p) => tag.strip_prefix(&format!("{p}-"))?,
+        None => tag,
+    };
+    let v = rest.trim_start_matches('v');
+    (!v.is_empty()).then(|| v.to_string())
+}
+
 /// A plugin source spec — where an installed plugin came from (mirrors pi /
 /// OpenCode: git, npm, or a local path; no hand-made archives).
 #[derive(Debug, Clone, PartialEq)]
 pub enum PluginSource {
-    Git { url: String, tag: Option<String> },
-    Npm { package: String },
+    /// `git:…[@tag][#subpath]` — subpath selects one plugin inside a
+    /// multi-plugin repo (sparse checkout), enabling a single-repo registry.
+    Git {
+        url: String,
+        tag: Option<String>,
+        subpath: Option<String>,
+    },
+    Npm {
+        package: String,
+    },
     Local(String),
 }
 
@@ -714,10 +778,12 @@ impl PluginSource {
     pub fn parse(spec: &str) -> Result<Self, String> {
         let s = spec.trim();
         if let Some(rest) = s.strip_prefix("git:") {
-            let (url, tag) = split_tag(rest);
+            let (base, subpath) = split_fragment(rest)?;
+            let (url, tag) = split_tag(&base);
             return Ok(PluginSource::Git {
                 url: normalize_git_url(&url),
                 tag,
+                subpath,
             });
         }
         if let Some(pkg) = s.strip_prefix("npm:") {
@@ -739,14 +805,15 @@ impl PluginSource {
             || s.starts_with("ssh://")
             || s.starts_with("git://")
         {
-            let (url, tag) = split_tag(s);
-            return Ok(PluginSource::Git { url, tag });
+            let (base, subpath) = split_fragment(s)?;
+            let (url, tag) = split_tag(&base);
+            return Ok(PluginSource::Git { url, tag, subpath });
         }
         if Path::new(s).exists() {
             return Ok(PluginSource::Local(s.to_string()));
         }
         Err(format!(
-            "unknown plugin source: {spec:?} — use git:<url>[@tag], npm:<package>[@version], a local path, or a URL"
+            "unknown plugin source: {spec:?} — use git:<url>[@tag][#subpath], npm:<package>[@version], a local path, or a URL"
         ))
     }
 }
@@ -765,6 +832,26 @@ fn split_tag(s: &str) -> (String, Option<String>) {
             }
         }
         None => (s.to_string(), None),
+    }
+}
+
+/// Split a `#subpath` fragment off a git source. The fragment must be a
+/// safe relative path (no `..`, no absolute, no empty segments) — it becomes
+/// the sparse-checkout cone inside the repo.
+fn split_fragment(s: &str) -> Result<(String, Option<String>), String> {
+    match s.split_once('#') {
+        None => Ok((s.to_string(), None)),
+        Some((base, frag)) => {
+            let frag = frag.trim_matches('/');
+            if frag.is_empty()
+                || frag
+                    .split('/')
+                    .any(|p| p.is_empty() || p == "." || p == ".." || p.contains('\\'))
+            {
+                return Err(format!("unsafe subpath in source: #{frag}"));
+            }
+            Ok((base.to_string(), Some(frag.to_string())))
+        }
     }
 }
 
@@ -818,9 +905,19 @@ fn walk_for_manifest(dir: &Path, depth: usize, found: &mut Vec<PathBuf>) {
 /// Shallow-clone a git repo into `staging` (requires `git` on PATH, like pi
 /// does for git sources). The `.git` dir is stripped — the plugin folder
 /// shouldn't carry repo internals, and updates re-clone from the source.
-fn fetch_git(staging: &Path, url: &str, tag: Option<&str>) -> Result<(), String> {
+fn fetch_git(
+    staging: &Path,
+    url: &str,
+    tag: Option<&str>,
+    subpath: Option<&str>,
+) -> Result<(), String> {
     let mut cmd = std::process::Command::new("git");
     cmd.arg("clone").arg("--depth").arg("1");
+    if subpath.is_some() {
+        // Sparse + partial clone: only blobs inside the cone are fetched
+        // (filter falls back gracefully on transports without protocol v2).
+        cmd.arg("--filter=blob:none").arg("--sparse");
+    }
     if let Some(t) = tag {
         cmd.arg("--branch").arg(t);
     }
@@ -835,6 +932,22 @@ fn fetch_git(staging: &Path, url: &str, tag: Option<&str>) -> Result<(), String>
         } else {
             msg
         });
+    }
+    if let Some(sub) = subpath {
+        let out = std::process::Command::new("git")
+            .args(["sparse-checkout", "set", sub])
+            .current_dir(staging)
+            .output()
+            .map_err(|e| format!("git is not available on PATH: {e}"))?;
+        if !out.status.success() {
+            let msg = String::from_utf8_lossy(&out.stderr).trim().to_string();
+            let _ = std::fs::remove_dir_all(staging);
+            return Err(if msg.is_empty() {
+                format!("sparse checkout of {sub} failed")
+            } else {
+                msg
+            });
+        }
     }
     let _ = std::fs::remove_dir_all(staging.join(".git"));
     Ok(())
@@ -1000,7 +1113,7 @@ fn npm_latest_version(name: &str) -> Result<Option<String>, String> {
 /// Highest `vX.Y.Z` tag of a git repo via `git ls-remote --tags` (no clone).
 /// Returns None when the repo has no numeric semver tags (prerelease tags
 /// like `v1.2.3-beta` don't count as update targets).
-fn git_latest_tag(url: &str) -> Result<Option<String>, String> {
+fn git_latest_tag(url: &str, plugin_prefix: Option<&str>) -> Result<Option<String>, String> {
     let out = std::process::Command::new("git")
         .args(["ls-remote", "--tags", url])
         .output()
@@ -1020,7 +1133,15 @@ fn git_latest_tag(url: &str) -> Result<Option<String>, String> {
         if tag.ends_with("^{}") || tag.is_empty() {
             continue; // peeled tag objects
         }
-        let core = tag.trim_start_matches('v');
+        // Shared-repo tags are prefixed per plugin (`<id>-vX.Y.Z`); without a
+        // prefix only bare `vX.Y.Z` tags count.
+        let core = match plugin_prefix {
+            Some(prefix) => match tag.strip_prefix(&format!("{prefix}-")) {
+                Some(rest) => rest.trim_start_matches('v'),
+                None => continue,
+            },
+            None => tag.trim_start_matches('v'),
+        };
         if core.is_empty()
             || !core
                 .split('.')
@@ -1504,7 +1625,7 @@ mod tests {
     fn parses_git_sources() {
         // explicit git: with shorthand + tag
         match PluginSource::parse("git:github.com/user/repo@v1.0.0").unwrap() {
-            PluginSource::Git { url, tag } => {
+            PluginSource::Git { url, tag, .. } => {
                 assert_eq!(url, "https://github.com/user/repo");
                 assert_eq!(tag.as_deref(), Some("v1.0.0"));
             }
@@ -1512,7 +1633,7 @@ mod tests {
         }
         // bare https URL with a tag
         match PluginSource::parse("https://github.com/user/repo.git@main").unwrap() {
-            PluginSource::Git { url, tag } => {
+            PluginSource::Git { url, tag, .. } => {
                 assert_eq!(url, "https://github.com/user/repo.git");
                 assert_eq!(tag.as_deref(), Some("main"));
             }
@@ -1520,7 +1641,7 @@ mod tests {
         }
         // ssh shorthand keeps its @ (not a tag)
         match PluginSource::parse("git:git@github.com:user/repo").unwrap() {
-            PluginSource::Git { url, tag } => {
+            PluginSource::Git { url, tag, .. } => {
                 assert_eq!(url, "git@github.com:user/repo");
                 assert!(tag.is_none(), "ssh userinfo must not be parsed as a tag");
             }
@@ -1767,7 +1888,10 @@ mod tests {
         run(&["tag", "v1.2.3-beta"]);
 
         let url = format!("file://{}", repo.path().display());
-        assert_eq!(git_latest_tag(&url).unwrap().as_deref(), Some("v2.1.0"));
+        assert_eq!(
+            git_latest_tag(&url, None).unwrap().as_deref(),
+            Some("v2.1.0")
+        );
         // No semver tags → None.
         let empty = tempfile::tempdir().unwrap();
         let run2 = |args: &[&str]| {
@@ -1785,7 +1909,195 @@ mod tests {
         run2(&["commit", "-qm", "one"]);
         run2(&["tag", "release-1"]);
         let url2 = format!("file://{}", empty.path().display());
-        assert_eq!(git_latest_tag(&url2).unwrap(), None);
+        assert_eq!(git_latest_tag(&url2, None).unwrap(), None);
+    }
+
+    #[test]
+    fn parses_subpath_sources() {
+        // #subpath on a git spec (single-repo registry install)
+        match PluginSource::parse("git:github.com/pragma/plugins#plugins/foo").unwrap() {
+            PluginSource::Git { url, tag, subpath } => {
+                assert_eq!(url, "https://github.com/pragma/plugins");
+                assert!(tag.is_none());
+                assert_eq!(subpath.as_deref(), Some("plugins/foo"));
+            }
+            other => panic!("expected Git, got {other:?}"),
+        }
+        // tag + subpath together, bare URL form
+        match PluginSource::parse("https://github.com/pragma/plugins@foo-v1.2.3#plugins/foo")
+            .unwrap()
+        {
+            PluginSource::Git { url, tag, subpath } => {
+                assert_eq!(url, "https://github.com/pragma/plugins");
+                assert_eq!(tag.as_deref(), Some("foo-v1.2.3"));
+                assert_eq!(subpath.as_deref(), Some("plugins/foo"));
+            }
+            other => panic!("expected Git, got {other:?}"),
+        }
+        // unsafe subpaths are rejected
+        assert!(PluginSource::parse("git:github.com/pragma/plugins#../escape").is_err());
+        assert!(PluginSource::parse("git:github.com/pragma/plugins#").is_err());
+    }
+
+    #[test]
+    fn installs_single_plugin_from_a_monorepo() {
+        // A multi-plugin repo (the single-repo registry layout) must install
+        // only the requested #subpath — sparse checkout does the isolation.
+        if std::process::Command::new("git")
+            .arg("--version")
+            .output()
+            .is_err()
+        {
+            return;
+        }
+        let repo = tempfile::tempdir().unwrap();
+        let run = |args: &[&str]| {
+            let out = std::process::Command::new("git")
+                .args(args)
+                .current_dir(repo.path())
+                .output()
+                .unwrap();
+            assert!(
+                out.status.success(),
+                "git {args:?}: {}",
+                String::from_utf8_lossy(&out.stderr)
+            );
+        };
+        run(&["init", "-q", "-b", "main"]);
+        run(&["config", "user.email", "t@example.com"]);
+        run(&["config", "user.name", "t"]);
+        for id in ["alpha", "beta"] {
+            std::fs::create_dir_all(repo.path().join("plugins").join(id)).unwrap();
+            std::fs::write(
+                repo.path().join("plugins").join(id).join("manifest.json"),
+                format!(r#"{{"id":"{id}","name":"{id}","version":"1.0.0"}}"#),
+            )
+            .unwrap();
+        }
+        run(&["add", "."]);
+        run(&["commit", "-qm", "init"]);
+        run(&["tag", "alpha-v1.0.0"]);
+        run(&["tag", "beta-v1.0.0"]);
+
+        let (m, _dir) = mk_manager(vec![]);
+        let url = format!("git:file://{}#plugins/alpha", repo.path().display());
+        m.install_from_source(&url).unwrap();
+        assert!(
+            m.plugin_dir("alpha").join("manifest.json").is_file(),
+            "alpha must install"
+        );
+        assert!(
+            !m.plugin_dir("beta").exists(),
+            "beta must NOT install from the shared repo"
+        );
+        assert_eq!(m.source_of("alpha").as_deref(), Some(url.as_str()));
+    }
+
+    #[test]
+    fn shared_repo_tags_are_filtered_per_plugin() {
+        // Latest-tag lookup with a prefix must ignore other plugins' tags.
+        if std::process::Command::new("git")
+            .arg("--version")
+            .output()
+            .is_err()
+        {
+            return;
+        }
+        let repo = tempfile::tempdir().unwrap();
+        let run = |args: &[&str]| {
+            std::process::Command::new("git")
+                .args(args)
+                .current_dir(repo.path())
+                .output()
+                .unwrap()
+        };
+        run(&["init", "-q", "-b", "main"]);
+        run(&["config", "user.email", "t@example.com"]);
+        run(&["config", "user.name", "t"]);
+        std::fs::write(repo.path().join("f"), "x").unwrap();
+        run(&["add", "."]);
+        run(&["commit", "-qm", "one"]);
+        for t in [
+            "alpha-v1.0.0",
+            "alpha-v2.0.0",
+            "beta-v9.9.9",
+            "shared-v3.3.3",
+        ] {
+            run(&["tag", t]);
+        }
+        let url = format!("file://{}", repo.path().display());
+        assert_eq!(
+            git_latest_tag(&url, Some("alpha")).unwrap().as_deref(),
+            Some("alpha-v2.0.0")
+        );
+        // Unprefixed: only bare vX.Y.Z tags count — none here.
+        assert_eq!(git_latest_tag(&url, None).unwrap(), None);
+    }
+
+    #[test]
+    fn updates_monorepo_plugin_to_its_own_latest_tag() {
+        // Install alpha@v1 from a shared repo, tag alpha-v2 + beta-v9,
+        // update → alpha goes to v2 (never beta's version), and the recorded
+        // source stays unpinned so future checks keep working.
+        if std::process::Command::new("git")
+            .arg("--version")
+            .output()
+            .is_err()
+        {
+            return;
+        }
+        let repo = tempfile::tempdir().unwrap();
+        let run = |args: &[&str]| {
+            let out = std::process::Command::new("git")
+                .args(args)
+                .current_dir(repo.path())
+                .output()
+                .unwrap();
+            assert!(
+                out.status.success(),
+                "git {args:?}: {}",
+                String::from_utf8_lossy(&out.stderr)
+            );
+        };
+        run(&["init", "-q", "-b", "main"]);
+        run(&["config", "user.email", "t@example.com"]);
+        run(&["config", "user.name", "t"]);
+        std::fs::create_dir_all(repo.path().join("plugins/alpha")).unwrap();
+        std::fs::write(
+            repo.path().join("plugins/alpha/manifest.json"),
+            r#"{"id":"alpha","name":"Alpha","version":"1.0.0"}"#,
+        )
+        .unwrap();
+        run(&["add", "."]);
+        run(&["commit", "-qm", "v1"]);
+        run(&["tag", "alpha-v1.0.0"]);
+
+        let (m, _dir) = mk_manager(vec![]);
+        let url = format!("git:file://{}#plugins/alpha", repo.path().display());
+        m.install_from_source(&url).unwrap();
+        assert_eq!(m.list()[0].version, "1.0.0");
+
+        // publish alpha v2 + an unrelated beta v9
+        std::fs::write(
+            repo.path().join("plugins/alpha/manifest.json"),
+            r#"{"id":"alpha","name":"Alpha","version":"2.0.0"}"#,
+        )
+        .unwrap();
+        run(&["add", "."]);
+        run(&["commit", "-qm", "v2"]);
+        run(&["tag", "alpha-v2.0.0"]);
+        run(&["tag", "beta-v9.9.9"]);
+
+        let updates = m.check_updates();
+        assert_eq!(updates.len(), 1);
+        assert!(updates[0].update_available);
+        assert_eq!(updates[0].latest.as_deref(), Some("2.0.0"));
+
+        m.update_plugin("alpha").unwrap();
+        assert_eq!(m.list()[0].version, "2.0.0");
+        // Source record stays unpinned → next check still works.
+        assert_eq!(m.source_of("alpha").as_deref(), Some(url.as_str()));
+        assert!(!m.check_updates()[0].pinned);
     }
 
     #[test]
@@ -1848,7 +2160,7 @@ mod tests {
         let updates = m.check_updates();
         assert_eq!(updates.len(), 1);
         assert!(updates[0].update_available);
-        assert_eq!(updates[0].latest.as_deref(), Some("v2.0.0"));
+        assert_eq!(updates[0].latest.as_deref(), Some("2.0.0"));
 
         m.update_plugin("up").unwrap();
         assert_eq!(m.list()[0].version, "2.0.0");

@@ -14,6 +14,22 @@
   let confirmUninstall = $state<Record<string, boolean>>({})
   let checking = $state(false)
   let updatingId = $state<string | null>(null)
+  // Registry (single-repo marketplace) browse state
+  let showBrowse = $state(false)
+  let registryUrl = $state('https://raw.githubusercontent.com/pragma/plugins/main/index.json')
+  let browseList = $state<RegistryPlugin[]>([])
+  let browsing = $state(false)
+  let installingFrom = $state<string | null>(null)
+
+  interface RegistryPlugin {
+    id: string
+    name: string
+    version: string
+    description?: string
+    author?: string
+    publisher?: string
+    source: string
+  }
 
   onMount(async () => {
     await loadPlugins()
@@ -85,6 +101,35 @@
     }
   }
 
+  async function loadRegistry() {
+    browsing = true
+    try {
+      const res = await fetch(registryUrl.trim())
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      const data = await res.json()
+      browseList = Array.isArray(data.plugins) ? data.plugins : []
+      if (browseList.length === 0) pushToast('No plugins found in that index', 'info')
+    } catch (err) {
+      pushToast(`Registry load failed: ${String(err)}`, 'error')
+    } finally {
+      browsing = false
+    }
+  }
+
+  async function installFromRegistry(p: RegistryPlugin) {
+    installingFrom = p.id
+    try {
+      await installFromSource(p.source)
+      pushToast(`Installed ${p.name} — enabled`, 'success')
+    } catch (err) {
+      pushToast(`Install failed: ${String(err)}`, 'error')
+    } finally {
+      installingFrom = null
+    }
+  }
+
+  const installedIds = $derived(new Set(plugins.list.map((p) => p.id)))
+
   async function doUninstall(p: { id: string; name: string }) {
     try {
       await uninstallPlugin(p.id)
@@ -141,6 +186,61 @@
       <button class="btn" onclick={install} disabled={installing || !sourceInput.trim()}>
         {installing ? 'Installing…' : 'Install'}
       </button>
+    </div>
+  {/if}
+
+  <div class="browse-toggle">
+    <button class="link" onclick={() => (showBrowse = !showBrowse)} aria-expanded={showBrowse}>
+      <Icon name={showBrowse ? 'expand_more' : 'chevron_right'} size={14} />
+      Browse community plugins
+    </button>
+  </div>
+
+  {#if showBrowse}
+    <div class="browse">
+      <div class="browse-row">
+        <input
+          class="source-input"
+          bind:value={registryUrl}
+          placeholder="https://raw.githubusercontent.com/…/main/index.json"
+          onkeydown={(e) => {
+            if (e.key === 'Enter') loadRegistry()
+          }}
+        />
+        <button class="btn" onclick={loadRegistry} disabled={browsing}>
+          {browsing ? 'Loading…' : 'Load registry'}
+        </button>
+      </div>
+      {#if browseList.length > 0}
+        <ul class="browse-list">
+          {#each browseList as p (p.id)}
+            <li class="browse-item">
+              <div class="browse-main">
+                <div class="browse-head">
+                  <span class="name">{p.name}</span>
+                  {#if p.publisher === 'pragma'}
+                    <span class="badge first-party" title="Built into Pragma">Pragma</span>
+                  {/if}
+                  <span class="ver">v{p.version}</span>
+                </div>
+                <div class="browse-id">{p.id}{p.author ? ` · by ${p.author}` : ''}</div>
+                {#if p.description}<p class="browse-desc">{p.description}</p>{/if}
+              </div>
+              {#if installedIds.has(p.id)}
+                <span class="installed-tag">Installed</span>
+              {:else}
+                <button
+                  class="btn"
+                  onclick={() => installFromRegistry(p)}
+                  disabled={installingFrom === p.id}
+                >
+                  {installingFrom === p.id ? 'Installing…' : 'Install'}
+                </button>
+              {/if}
+            </li>
+          {/each}
+        </ul>
+      {/if}
     </div>
   {/if}
 
@@ -318,6 +418,69 @@
   }
   .btn.update-btn:disabled {
     opacity: 0.6;
+  }
+  .browse-toggle {
+    margin: -8px 0 12px;
+  }
+  .browse-toggle .link {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+  }
+  .browse {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-bottom: 20px;
+    max-width: 720px;
+  }
+  .browse-row {
+    display: flex;
+    gap: 8px;
+  }
+  .browse-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .browse-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-md);
+    padding: 10px 14px;
+  }
+  .browse-main {
+    flex: 1;
+    min-width: 0;
+  }
+  .browse-head {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+  }
+  .browse-id {
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    color: var(--text-muted);
+  }
+  .browse-desc {
+    margin: 3px 0 0;
+    font-size: 12px;
+    color: var(--text-muted);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .installed-tag {
+    font-size: 11px;
+    color: var(--success);
+    flex: none;
   }
   .install-row {
     display: flex;
