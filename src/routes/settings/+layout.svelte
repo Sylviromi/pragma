@@ -1,6 +1,7 @@
 <script lang="ts">
   import { page } from '$app/stores'
   import { plugins, updatesAvailable } from '../../stores/plugins.svelte'
+  import { updater } from '../../stores/updater.svelte'
   import Icon from '../../components/Icon.svelte'
   let { children } = $props()
 
@@ -47,6 +48,9 @@
             <span class="nav-badge" title={`${updateCount} plugin update${updateCount > 1 ? 's' : ''} available`}>
               {updateCount}
             </span>
+          {/if}
+          {#if item.label === 'General' && updater.available}
+            <span class="nav-badge" title={`Pragma ${updater.available.version} available`}>1</span>
           {/if}
         </a>
       {/each}

@@ -17,12 +17,14 @@
   import PluginFreeLayer from '../components/PluginFreeLayer.svelte'
   import Toast from '../components/Toast.svelte';
   import PluginConfirmModal from '../components/PluginConfirmModal.svelte';
+  import UpdateDialog from '../components/UpdateDialog.svelte';
   import { onMount } from 'svelte';
   import { loadPlugins, initPluginEvents, autoCheckUpdates } from '../stores/plugins.svelte';
   import { reconnectRunningSessions } from '../stores/chat.svelte';
   import { initStatsEvents } from '../stores/stats.svelte';
   import { initTheme, applyTheme, theme } from '../stores/theme.svelte';
   import { installMarkdownPluginBridge } from '../lib/markdown';
+  import { initUpdater } from '../stores/updater.svelte';
 
   let { children } = $props();
 
@@ -36,6 +38,9 @@
     autoCheckUpdates();
     reconnectRunningSessions();
     initStatsEvents();
+    // Auto-update: startup check (may show the one-time changelog dialog) +
+    // silent 10-minute poller that toasts and lights up Settings → Update.
+    initUpdater();
   });
 
   // Re-apply the family×mode token set whenever the user changes it; also
@@ -49,6 +54,7 @@
 <div id="app">
   <TabBar />
   <StatusBar />
+  <UpdateDialog />
   <main>{@render children()}</main>
   <!-- Free-floating plugin surfaces: any plugin slot the layout doesn't
        anchor is mounted here and positions itself (position: fixed). -->
