@@ -14,6 +14,7 @@
   import '../styles/base.css'
   import TabBar from '../components/TabBar.svelte'
   import StatusBar from '../components/StatusBar.svelte'
+  import PluginFreeLayer from '../components/PluginFreeLayer.svelte'
   import Toast from '../components/Toast.svelte';
   import PluginConfirmModal from '../components/PluginConfirmModal.svelte';
   import { onMount } from 'svelte';
@@ -46,6 +47,9 @@
   <TabBar />
   <StatusBar />
   <main>{@render children()}</main>
+  <!-- Free-floating plugin surfaces: any plugin slot the layout doesn't
+       anchor is mounted here and positions itself (position: fixed). -->
+  <PluginFreeLayer />
   <Toast />
   <PluginConfirmModal />
 </div>

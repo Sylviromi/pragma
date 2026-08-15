@@ -144,6 +144,18 @@ export default class MyPlugin extends HTMLElement {
 
 ### Available Slots
 
+Slots fall into two kinds:
+
+- **Anchored slots** — the app places these in fixed layout positions. The
+  table below lists the built-in ones.
+- **Free slots** — any slot name NOT in the table below. A plugin claiming
+  one is mounted in a global free-floating layer instead; the component
+  positions itself anywhere on screen with `position: fixed` (remember to set
+  `pointer-events: auto` on your `:host` — the layer is transparent to
+  clicks). This is how a plugin takes arbitrary UI space without any vanilla
+  change: claim a new slot name (e.g. `"pets"` for a pet that walks across
+  the bottom of the screen) and render whatever you want.
+
 | Slot | Location | Use Case |
 |------|----------|----------|
 | `chat-view` | Replaces the whole message list | Full custom conversation surface (owns the composer too — when a plugin claims it, the default `InputArea` is hidden) |

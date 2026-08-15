@@ -3,7 +3,6 @@
   import ChatPanel from '../components/ChatPanel.svelte'
   import DirBar from '../components/DirBar.svelte'
   import SidebarPanel from '../components/SidebarPanel.svelte'
-  import SlotStack from '../components/SlotStack.svelte'
   import { loadSessions, sessions, restoreTabs } from '../stores/sessions.svelte'
   import { ui } from '../stores/ui.svelte'
 
@@ -42,10 +41,6 @@
         <SidebarPanel sessionId={sessions.activeTabId} />
       </div>
     </div>
-    <!-- Plugin miniscreen slot: docked overlay panels (frontend-dev's live
-         preview). Components position themselves (fixed overlay) and follow
-         the agent's servers — the app just mounts them; no context needed. -->
-    <SlotStack slot="miniscreen" />
   </div>
 {:else}
   <div class="empty">Open or create a session to start.</div>

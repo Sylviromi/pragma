@@ -188,7 +188,12 @@ export default class MyPlugin extends HTMLElement {
   }
 }
 ```
-Available slots: `input-toolbar`, `chat-toolbar-extra`, `model-picker-extra`
+Anchored slots: `input-toolbar`, `chat-toolbar-extra`, `model-picker-extra`,
+`composer-center`, `status-bar`, `sidebar-section`, `chat-view`, `settings-page`.
+**Free slots**: any slot name not in that list is mounted in the global free
+plugin layer (`PluginFreeLayer`) — the component positions itself anywhere
+with `position: fixed` (set `pointer-events: auto` on `:host`). Plugins can
+claim brand-new slot names for arbitrary UI surfaces with no vanilla change.
 
 ### skill.md
 Loaded on demand (model calls `load_skill`); loading also adds the skill's
