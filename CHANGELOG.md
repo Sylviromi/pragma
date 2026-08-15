@@ -4,6 +4,16 @@ All notable changes to Pragma are documented here. Format based on
 [Keep a Changelog](https://keepachangelog.com/), versions follow
 [SemVer](https://semver.org/).
 
+## [0.1.1] - 2026-08-15
+
+### Fixed
+
+- **GNOME (Wayland): the window could not be moved or fullscreened.** The
+  GTK title bar was being removed on every Wayland session, but GNOME draws
+  its own client-side decorations — the decorations are now hidden only on
+  compositors that provide their own frame (Hyprland, Sway, …), so GNOME
+  keeps the title bar with its move / maximize / fullscreen controls.
+
 ## [Unreleased]
 
 ### Fixed

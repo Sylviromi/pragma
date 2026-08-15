@@ -113,10 +113,12 @@ pub fn run() {
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
-            // Wayland compositors (Hyprland, Sway, …) draw their own window
-            // frame, so the GTK client-side header bar should not render there.
-            // X11 / GNOME keep the normal decorations.
-            if is_wayland_session() {
+            // Wayland compositors that draw their own window frame (Hyprland,
+            // Sway, …) shouldn't render the GTK client-side header bar there.
+            // GNOME — even on Wayland — relies on client-side decorations for
+            // the title bar (move / maximize / fullscreen controls), so it
+            // keeps them.
+            if should_hide_decorations() {
                 if let Some(win) = app.get_webview_window("main") {
                     let _ = win.set_decorations(false);
                 }
@@ -424,23 +426,44 @@ fn load_settings(path: &std::path::Path) -> Settings {
         .unwrap_or_default()
 }
 
-/// True when running under a Wayland compositor (Hyprland, Sway, KWin wayland,
-/// …) rather than X11 — used to suppress the GTK client-side window header.
+/// True when the window should drop the GTK client-side header bar: Wayland
+/// compositors that draw their own server-side decorations (Hyprland, Sway,
+/// …) don't need one. GNOME keeps its title bar even on Wayland — hiding it
+/// there leaves the window unmovable and un-fullscreenable.
 #[cfg(target_os = "linux")]
-fn is_wayland_session() -> bool {
-    detects_wayland(
+fn should_hide_decorations() -> bool {
+    hides_decorations(
         std::env::var("XDG_SESSION_TYPE").ok(),
         std::env::var("WAYLAND_DISPLAY").ok(),
+        std::env::var("XDG_CURRENT_DESKTOP").ok(),
     )
 }
 
 #[cfg(not(target_os = "linux"))]
-fn is_wayland_session() -> bool {
+fn should_hide_decorations() -> bool {
     false
 }
 
-/// Pure detector so it's unit-testable without touching process env.
-/// Only reachable from `is_wayland_session` (Linux) and the tests — on other
+/// Pure decision helper so it's unit-testable without touching process env.
+/// Only reachable from `should_hide_decorations` (Linux) and the tests — on
+/// other platforms it's dead code, so allow it there (clippy -D warnings in CI).
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+fn hides_decorations(
+    xdg_session_type: Option<String>,
+    wayland_display: Option<String>,
+    xdg_current_desktop: Option<String>,
+) -> bool {
+    // GNOME desktops (incl. flavors: "ubuntu:GNOME", "pop:GNOME") handle the
+    // title bar themselves, so they keep decorations on both X11 and Wayland.
+    let on_gnome = xdg_current_desktop
+        .map(|d| d.to_lowercase().contains("gnome"))
+        .unwrap_or(false);
+    !on_gnome && detects_wayland(xdg_session_type, wayland_display)
+}
+
+/// True when running under a Wayland compositor rather than X11.
+/// Pure detector so it's unit-testable without touching process env. Only
+/// reachable from `hides_decorations` (Linux) and the tests — on other
 /// platforms it's dead code, so allow it there (clippy -D warnings in CI).
 #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 fn detects_wayland(xdg_session_type: Option<String>, wayland_display: Option<String>) -> bool {
@@ -524,18 +547,39 @@ mod tests {
     }
 
     #[test]
-    fn wayland_detection() {
-        // XDG_SESSION_TYPE=wayland (Hyprland/Sway) → no decorations
-        assert!(detects_wayland(Some("wayland".into()), None));
-        assert!(detects_wayland(
-            Some("WAYLAND".into()),
-            Some("wayland-0".into())
+    fn decoration_detection() {
+        // wlroots compositors (Hyprland/Sway) on Wayland → no decorations
+        assert!(hides_decorations(
+            Some("wayland".into()),
+            None,
+            Some("Hyprland".into())
         ));
-        // WAYLAND_DISPLAY set (some sessions only set the socket)
-        assert!(detects_wayland(None, Some("wayland-1".into())));
-        // X11 / GNOME on Xorg → keep decorations
-        assert!(!detects_wayland(Some("x11".into()), None));
-        assert!(!detects_wayland(Some("tty".into()), None));
-        assert!(!detects_wayland(None, None));
+        assert!(hides_decorations(
+            Some("WAYLAND".into()),
+            Some("wayland-0".into()),
+            Some("sway".into())
+        ));
+        // WAYLAND_DISPLAY set with no desktop var (bare sway session)
+        assert!(hides_decorations(None, Some("wayland-1".into()), None));
+        // GNOME keeps decorations even on Wayland (title bar = move/fullscreen)
+        assert!(!hides_decorations(
+            Some("wayland".into()),
+            None,
+            Some("GNOME".into())
+        ));
+        // Flavors list GNOME after the distro: "ubuntu:GNOME", "pop:GNOME"
+        assert!(!hides_decorations(
+            Some("wayland".into()),
+            None,
+            Some("ubuntu:GNOME".into())
+        ));
+        // X11 (incl. GNOME on Xorg) → keep decorations
+        assert!(!hides_decorations(
+            Some("x11".into()),
+            None,
+            Some("GNOME".into())
+        ));
+        assert!(!hides_decorations(Some("tty".into()), None, None));
+        assert!(!hides_decorations(None, None, None));
     }
 }
