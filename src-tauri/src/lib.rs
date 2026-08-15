@@ -440,6 +440,9 @@ fn is_wayland_session() -> bool {
 }
 
 /// Pure detector so it's unit-testable without touching process env.
+/// Only reachable from `is_wayland_session` (Linux) and the tests — on other
+/// platforms it's dead code, so allow it there (clippy -D warnings in CI).
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 fn detects_wayland(xdg_session_type: Option<String>, wayland_display: Option<String>) -> bool {
     xdg_session_type
         .map(|v| v.eq_ignore_ascii_case("wayland"))
