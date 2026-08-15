@@ -14,7 +14,7 @@ All notable changes to Pragma are documented here. Format based on
   compositors that provide their own frame (Hyprland, Sway, …), so GNOME
   keeps the title bar with its move / maximize / fullscreen controls.
 
-## [Unreleased]
+## [0.1.0] - 2026-08-15
 
 ### Fixed
 
@@ -47,3 +47,5 @@ All notable changes to Pragma are documented here. Format based on
   flat while npm scopes namespace at the distribution level.
 - MIT license + attribution metadata (`author`, `publisher`, `repository`,
   `homepage`) shown in Settings → Plugins.
+
+## [Unreleased]

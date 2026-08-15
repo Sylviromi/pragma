@@ -45,7 +45,7 @@ async function latestRelease() {
     headers: { 'User-Agent': 'pragma-app', Accept: 'application/vnd.github+json' }
   })
   if (res.status === 404) {
-    throw new Error(`no published release found — the v0.1.0 release may still be a draft`)
+    throw new Error(`no published release found — check https://github.com/${REPO}/releases`)
   }
   if (!res.ok) throw new Error(`GitHub API failed (HTTP ${res.status})`)
   return res.json()
