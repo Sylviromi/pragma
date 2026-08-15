@@ -1,0 +1,50 @@
+# Maintainer: Pragma Contributors <https://github.com/Sylviromi/pragma>
+# Arch/AUR package for Pragma — an agentic AI coding harness (Tauri 2 desktop
+# app). Built from the source tarball of the tag-matching release, so it gets
+# proper desktop integration (binary + app-menu .desktop + hicolor icons),
+# unlike the portable AppImage (which needs AppImageLauncher/appimaged).
+#
+# After each app release, sync this package with:
+#   ./scripts/aur-update.sh <version>
+# (updates pkgver + the source tarball URL + sha256 + .SRCINFO in one go).
+
+pkgname='pragma'
+pkgver='0.1.2'
+pkgrel=1
+pkgdesc='Agentic AI coding harness'
+arch=('x86_64')
+url='https://github.com/Sylviromi/pragma'
+license=('MIT')
+depends=('webkit2gtk-4.1' 'gtk3' 'librsvg' 'openssl')
+makedepends=('rust' 'cargo' 'nodejs' 'npm' 'pkgconf' 'patchelf')
+options=('!lto')
+source=("pragma-$pkgver.tar.gz::https://github.com/Sylviromi/pragma/archive/refs/tags/v$pkgver.tar.gz")
+sha256sums=('50503bcd4b22ab8edb911da6d373b75a75924bb6427e239139d17130f9ca7dbd')
+
+build() {
+  cd "$srcdir/pragma-$pkgver"
+  # Frontend → build/ (embedded into the binary by Tauri at compile time).
+  npm ci --no-audit --no-fund
+  npm run build
+  cargo build --release --manifest-path src-tauri/Cargo.toml
+}
+
+check() {
+  cd "$srcdir/pragma-$pkgver"
+  npm test
+  cargo test --manifest-path src-tauri/Cargo.toml
+}
+
+package() {
+  cd "$srcdir/pragma-$pkgver"
+  # The app binary (frontend assets are compiled in).
+  install -Dm755 src-tauri/target/release/pragma "$pkgdir/usr/bin/pragma"
+  # Desktop entry + hicolor icons → shows in the app menu / grid.
+  install -Dm644 "$srcdir/pragma-$pkgver/distrib/aur/pragma.desktop" \
+    "$pkgdir/usr/share/applications/pragma.desktop"
+  install -Dm644 src-tauri/icons/128x128.png \
+    "$pkgdir/usr/share/icons/hicolor/128x128/apps/pragma.png"
+  install -Dm644 src-tauri/icons/32x32.png \
+    "$pkgdir/usr/share/icons/hicolor/32x32/apps/pragma.png"
+  install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+}

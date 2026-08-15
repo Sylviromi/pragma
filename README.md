@@ -16,6 +16,7 @@ Installers for every platform are attached to each
 [release](https://github.com/Sylviromi/pragma/releases) — the download page
 lives at **https://sylviromi.github.io/pragma/** (Linux `.deb`/`.AppImage`/`.rpm`,
 macOS `.dmg` for Apple Silicon + Intel, Windows `.msi`/`.exe`).
+Arch Linux: `yay -S pragma` (AUR, source-built with a proper desktop entry).
 
 Plugins are **npm packages** (`pragma-plugin-*`): install them from the app's
 **Settings → Marketplace**, or with `npm:pragma-plugin-<id>`.

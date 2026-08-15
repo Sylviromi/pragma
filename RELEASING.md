@@ -80,6 +80,23 @@ it's quick.
 Don't do both a tag push and a manual run for the same version — they race on
 the same release.
 
+## Arch Linux (AUR)
+
+`distrib/aur/` holds a source-built Arch package (`pragma`) that installs a
+proper desktop entry + hicolor icons — real desktop integration, unlike the
+portable AppImage. To keep it in sync after a release, run this once (it needs
+the tag to be pushed first, so it's a follow-up to `release.sh`):
+
+```bash
+./scripts/aur-update.sh 0.1.3        # updates pkgver, source sha256, .SRCINFO
+git add -A && git commit -m "chore(aur): bump to 0.1.3" && git push
+```
+
+Submit to the AUR by copying `distrib/aur/{PKGBUILD,.SRCINFO}` into the AUR
+git repo (`ssh://aur@aur.archlinux.org/pragma.git`) and pushing. Users then
+install with `yay -S pragma` (or `paru -S pragma`). Full details in
+`distrib/aur/README.md`.
+
 ## What happens next (pipeline detail)
 
 - The **Release** workflow:

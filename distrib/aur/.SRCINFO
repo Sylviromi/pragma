@@ -1,0 +1,22 @@
+pkgbase = pragma
+	pkgdesc = Agentic AI coding harness
+	pkgver = 0.1.2
+	pkgrel = 1
+	url = https://github.com/Sylviromi/pragma
+	arch = x86_64
+	license = MIT
+	makedepends = rust
+	makedepends = cargo
+	makedepends = nodejs
+	makedepends = npm
+	makedepends = pkgconf
+	makedepends = patchelf
+	depends = webkit2gtk-4.1
+	depends = gtk3
+	depends = librsvg
+	depends = openssl
+	options = !lto
+	source = pragma-0.1.2.tar.gz::https://github.com/Sylviromi/pragma/archive/refs/tags/v0.1.2.tar.gz
+	sha256sums = 50503bcd4b22ab8edb911da6d373b75a75924bb6427e239139d17130f9ca7dbd
+
+pkgname = pragma

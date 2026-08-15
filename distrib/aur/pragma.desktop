@@ -1,0 +1,10 @@
+[Desktop Entry]
+Name=Pragma
+GenericName=AI Programming Assistant
+Comment=Agentic AI coding harness
+Exec=pragma
+Icon=pragma
+Terminal=false
+Type=Application
+Categories=Development;IDE;
+StartupWMClass=pragma
