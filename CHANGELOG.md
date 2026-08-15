@@ -4,6 +4,32 @@ All notable changes to Pragma are documented here. Format based on
 [Keep a Changelog](https://keepachangelog.com/), versions follow
 [SemVer](https://semver.org/).
 
+## [0.1.2] - 2026-08-15
+
+### Fixed
+
+- **Windows**: `guess_dir` failed to resolve absolute paths (`D:\…` doesn't
+  start with `/`), so working-dir guessing missed explicit paths — now uses
+  cross-platform `Path::is_absolute()`.
+- **Windows**: npm plugin installs/updates failed because the process spawner
+  can't resolve the `npm` shim — it now invokes `npm.cmd`. Local-folder plugin
+  tests are gated to Unix (Windows installs are copies, not symlinks).
+- **macOS**: the NFC↔NFD spelling-repair tests now account for APFS storing
+  filenames decomposed (the repair path itself only exists on
+  case-sensitive filesystems).
+- `pragma-app` wrapper: `pragma --update` crashed (`rmSync` was never
+  imported). Fixed in wrapper 0.1.3.
+- Release notes no longer say "See CHANGELOG.md" (a dead relative link) —
+  each release's changelog section is embedded directly in the notes.
+
+### Added
+
+- `pragma-app` wrapper: on first Linux launch it registers a GNOME app-menu
+  entry with an icon (wrapper 0.1.3).
+- Fully automated release pipeline: parallel cached builds, auto-published
+  releases, auto-published npm wrapper, quick Linux-only debug builds,
+  optional build-finished webhook — see RELEASING.md.
+
 ## [0.1.1] - 2026-08-15
 
 ### Fixed

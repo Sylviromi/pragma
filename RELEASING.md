@@ -1,8 +1,8 @@
 # Releasing Pragma
 
 Pragma's release pipeline is fully automated: pushing a version tag makes
-GitHub Actions build the native bundles for every platform, publish the GitHub
-Release, and publish the `pragma-app` npm wrapper — no manual steps. A manual
+GitHub Actions build the native bundles for every platform and publish the
+GitHub Release — no manual steps. A manual
 **quick debug** path (workflow_dispatch) builds only the platforms you pick,
 for when you need a fix out in minutes.
 
@@ -41,8 +41,15 @@ git tag v1.0.0
 git push origin main --tags
 ```
 
-That's it — the pipeline builds, publishes the release, and publishes
-`pragma-app@<version>` to npm. You get a notification when it's done.
+That's it — the pipeline builds and publishes the release. You get a
+notification when it's done.
+
+> **Wrapper versioning:** `pragma-app` (the npm installer) versions *independently*
+> of the app — bumps are separate (`scripts/publish-app.mjs`). The release
+> workflow publishes whatever version `packages/pragma-app/package.json`
+> declares (skipping versions already on npm), so wrapper fixes ride along
+> with app releases or stand alone. Do not manually publish wrapper versions
+> between app releases unless you bump it in the repo too.
 
 ## Quick debug update (fast, Linux-only by default)
 
@@ -75,7 +82,8 @@ the same release.
     entries fall back to a placeholder;
   - attaches them to the release, then **auto-publishes** it (unless
     `MANUAL_RELEASE_REVIEW=true`);
-  - publishes the `pragma-app` npm wrapper at the same version;
+  - publishes the `pragma-app` npm wrapper (at its own repo version, only if
+    not already on npm);
   - posts a completion message to `NOTIFY_WEBHOOK_URL` (if configured) —
     including a link to the release.
 - The **Pages** workflow keeps the download page in sync on every push.

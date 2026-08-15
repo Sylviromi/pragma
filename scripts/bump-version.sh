@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# Sync a release version across the places it lives:
-#   package.json, src-tauri/tauri.conf.json, src-tauri/Cargo.toml,
-#   packages/pragma-app/package.json (npm wrapper)
+# Sync a release version across the places the APP version lives:
+#   package.json, src-tauri/tauri.conf.json, src-tauri/Cargo.toml
+# The pragma-app npm wrapper keeps its OWN version (decoupled — see
+# RELEASING.md; publishable separately via scripts/publish-app.mjs).
 # Usage: ./scripts/bump-version.sh 1.0.0
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -14,7 +15,7 @@ fi
 
 node -e "
 const fs = require('fs');
-for (const f of ['package.json', 'src-tauri/tauri.conf.json', 'packages/pragma-app/package.json']) {
+for (const f of ['package.json', 'src-tauri/tauri.conf.json']) {
   const j = JSON.parse(fs.readFileSync(f, 'utf8'));
   j.version = '$VERSION';
   fs.writeFileSync(f, JSON.stringify(j, null, 2) + '\n');
@@ -29,4 +30,4 @@ fs.writeFileSync(
 # Keep Cargo.lock in sync with the new Cargo.toml version.
 (cd src-tauri && cargo check --quiet)
 
-echo "✓ bumped to $VERSION (package.json, tauri.conf.json, Cargo.toml + Cargo.lock, packages/pragma-app)"
+echo "✓ bumped to $VERSION (package.json, tauri.conf.json, Cargo.toml + Cargo.lock)"

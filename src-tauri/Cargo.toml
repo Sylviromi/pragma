@@ -1,6 +1,6 @@
 [package]
 name = "pragma"
-version = "0.1.1"
+version = "0.1.2"
 description = "Pragma — AI coding harness"
 authors = ["Pragma contributors"]
 license = "MIT"

@@ -8,7 +8,7 @@
 'use strict'
 
 const { execFileSync, spawn } = require('node:child_process')
-const { chmodSync, existsSync, mkdirSync, statSync, writeFileSync } = require('node:fs')
+const { chmodSync, existsSync, mkdirSync, rmSync, statSync, writeFileSync } = require('node:fs')
 const { homedir } = require('node:os')
 const { join } = require('node:path')
 

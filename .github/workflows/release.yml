@@ -205,7 +205,6 @@ jobs:
       - name: Publish pragma-app to npm
         env:
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
-          TAG: ${{ needs.setup.outputs.tag }}
           MANUAL_REVIEW: ${{ vars.MANUAL_RELEASE_REVIEW }}
         run: |
           if [ "$MANUAL_REVIEW" = "true" ]; then
@@ -216,7 +215,9 @@ jobs:
             echo "NPM_TOKEN secret not set — skipping npm publish (publish locally with scripts/publish-app.mjs)"
             exit 0
           fi
-          VERSION="${TAG#v}"
+          # The wrapper versions independently of the app (see RELEASING.md);
+          # publish whatever version the repo currently declares.
+          VERSION="$(node -p "require('./packages/pragma-app/package.json').version")"
           if npm view pragma-app@"$VERSION" version >/dev/null 2>&1; then
             echo "pragma-app@$VERSION already on npm — skipping"
           else

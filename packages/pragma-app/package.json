@@ -1,6 +1,6 @@
 {
   "name": "pragma-app",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Pragma — an agentic AI coding harness. Downloads and launches the latest release for your platform.",
   "bin": {
     "pragma": "bin/pragma.js"
