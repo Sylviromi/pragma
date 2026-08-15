@@ -9,6 +9,7 @@
     { label: 'Providers', href: '/settings/providers' },
     { label: 'Skills', href: '/settings/skills' },
     { label: 'Verification', href: '/settings/verification' },
+    { label: 'Marketplace', href: '/settings/marketplace' },
     { label: 'Plugins', href: '/settings/plugins' },
     { label: 'Shortcuts', href: '/settings/shortcuts' },
     { label: 'Appearance', href: '/settings/appearance' }
