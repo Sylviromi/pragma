@@ -185,7 +185,8 @@ fn resolve_dir_candidate(candidate: &str, roots: &[std::path::PathBuf]) -> Optio
     let p = if let Some(rest) = candidate.strip_prefix("~/") {
         let home = std::env::var("HOME").ok()?;
         std::path::PathBuf::from(home).join(rest)
-    } else if candidate.starts_with('/') {
+    } else if std::path::Path::new(candidate).is_absolute() {
+        // Windows absolute paths (D:\…, C:/…) don't start with '/'.
         std::path::PathBuf::from(candidate)
     } else {
         // Bare name (or relative fragment) — search the well-known roots.
@@ -194,11 +195,10 @@ fn resolve_dir_candidate(candidate: &str, roots: &[std::path::PathBuf]) -> Optio
         }
         let lower = candidate.to_lowercase();
         for root in roots {
-            let exact = root.join(candidate);
-            if exact.is_dir() {
-                return Some(exact.to_string_lossy().to_string());
-            }
-            // case-insensitive fallback: "PRAGMA" → <root>/pragma
+            // Scan entries first so the returned path carries the on-disk
+            // casing — on case-insensitive filesystems (macOS/Windows) an
+            // exact `root.join(candidate)` check would echo the request's
+            // casing ("PRAGMA" → <root>/PRAGMA) instead of the real dir.
             if let Ok(entries) = std::fs::read_dir(root) {
                 for e in entries.flatten() {
                     if e.file_type().map(|t| t.is_dir()).unwrap_or(false)
@@ -207,6 +207,11 @@ fn resolve_dir_candidate(candidate: &str, roots: &[std::path::PathBuf]) -> Optio
                         return Some(e.path().to_string_lossy().to_string());
                     }
                 }
+            }
+            // Exact single-level path for nested fragments ("foo/bar").
+            let exact = root.join(candidate);
+            if exact.is_dir() {
+                return Some(exact.to_string_lossy().to_string());
             }
         }
         return None;

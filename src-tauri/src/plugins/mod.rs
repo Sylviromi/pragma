@@ -755,6 +755,13 @@ fn walk_for_manifest(dir: &Path, depth: usize, found: &mut Vec<PathBuf>) {
     }
 }
 
+/// `npm` resolves on Windows as `npm.cmd` — `Command::new` doesn't pick up
+/// .cmd shims, so use the platform-exact executable name.
+#[cfg(windows)]
+const NPM_BIN: &str = "npm.cmd";
+#[cfg(not(windows))]
+const NPM_BIN: &str = "npm";
+
 /// Install an npm package with a real `npm install` into the shared npm prefix
 /// (config_dir/npm) — `node_modules` lands next to the package, so plugin
 /// sidecars can `require` dependencies. Returns the installed package folder.
@@ -766,7 +773,7 @@ fn install_npm(npm_dir: &Path, package: &str) -> Result<PathBuf, String> {
     if !manifest_path.exists() {
         std::fs::write(&manifest_path, "{}\n").map_err(|e| e.to_string())?;
     }
-    let out = std::process::Command::new("npm")
+    let out = std::process::Command::new(NPM_BIN)
         .args(["install", "--no-audit", "--no-fund", "--prefix"])
         .arg(npm_dir)
         .arg(package)
@@ -823,7 +830,7 @@ fn npm_name_version(package: &str) -> (String, Option<String>) {
 
 /// Latest published version of an npm package via `npm view <name> version`.
 fn npm_latest_version(name: &str) -> Result<Option<String>, String> {
-    let out = std::process::Command::new("npm")
+    let out = std::process::Command::new(NPM_BIN)
         .args(["view", name, "version"])
         .output()
         .map_err(|e| format!("npm is not available on PATH: {e}"))?;
@@ -1240,11 +1247,17 @@ mod tests {
                 .unwrap_or(false),
             "local installs must be symlinks (dev workflow)"
         );
-        // Source recorded + edits visible through the link.
+        // Source recorded. On Unix the plugin dir is a live symlink, so edits
+        // to the source folder show through it; on Windows (no symlink
+        // privilege) it's a copy — the live-link assertions are Unix-only.
         assert_eq!(m.source_of("local").as_deref(), Some(spec.as_str()));
-        std::fs::write(source.path().join("new-file.txt"), "hi").unwrap();
-        assert!(installed.join("new-file.txt").is_file());
-        // Uninstall removes the link, not the source folder.
+        #[cfg(unix)]
+        {
+            std::fs::write(source.path().join("new-file.txt"), "hi").unwrap();
+            assert!(installed.join("new-file.txt").is_file());
+        }
+        // Uninstall removes the plugin dir (the link on Unix, the copy on
+        // Windows), never the source folder.
         m.uninstall("local").unwrap();
         assert!(!installed.exists());
         assert!(source.path().join("manifest.json").is_file());
