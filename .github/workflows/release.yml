@@ -43,7 +43,10 @@ jobs:
     outputs:
       matrix: ${{ steps.resolve.outputs.matrix }}
       tag: ${{ steps.resolve.outputs.tag }}
+      release_body: ${{ steps.changelog.outputs.release_body }}
     steps:
+      - uses: actions/checkout@v4
+
       - name: Compute platform matrix and release tag
         id: resolve
         run: |
@@ -82,6 +85,44 @@ jobs:
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "matrix=$JSON" >> "$GITHUB_OUTPUT"
           echo "building tag $TAG on: $JSON"
+
+      # Release notes = install preamble + THIS version's CHANGELOG.md section
+      # (so the changelog is embedded in the notes, not linked). Kept out of
+      # tauri-action's releaseBody because it's easier to set it reliably via
+      # gh --notes-file once the draft exists.
+      - name: Extract changelog for this release
+        id: changelog
+        env:
+          TAG: ${{ steps.resolve.outputs.tag }}
+        run: |
+          VERSION="${TAG#v}"
+          {
+            echo "release_body<<CHANGELOG_EOF"
+            echo "See the assets below to download and install this version."
+            echo ""
+            echo "- **Linux**: use the \`.deb\` (Debian/Ubuntu) or \`.AppImage\` (any distro, no install needed)"
+            echo "- **macOS**: use the \`.dmg\` / \`.app\` for your architecture (Apple Silicon or Intel)"
+            echo "- **Windows**: use the \`.msi\` installer"
+            echo ""
+            echo "## Changelog"
+            echo ""
+            while IFS= read -r line; do
+              if [[ -z "$in_section" && "$line" == "## [$VERSION]"* ]]; then
+                in_section=1
+              elif [[ -n "$in_section" && "$line" == "## "* ]]; then
+                break
+              fi
+              if [[ -n "$in_section" ]]; then
+                printf '%s\n' "$line"
+              fi
+            done < CHANGELOG.md
+            if [[ -z "$in_section" ]]; then
+              echo "_No changelog entry for this version yet._"
+            fi
+            echo ""
+            echo "Full changelog: https://github.com/${{ github.repository }}/blob/main/CHANGELOG.md"
+            echo "CHANGELOG_EOF"
+          } >> "$GITHUB_OUTPUT"
 
   publish-tauri:
     name: Publish (${{ matrix.platform }})
@@ -126,15 +167,8 @@ jobs:
         with:
           tagName: ${{ needs.setup.outputs.tag }}
           releaseName: 'Pragma v__VERSION__'
-          releaseBody: |
-            See the assets below to download and install this version.
-
-            - **Linux**: use the `.deb` (Debian/Ubuntu) or `.AppImage` (any distro, no install needed)
-            - **macOS**: use the `.dmg` / `.app` for your architecture (Apple Silicon or Intel)
-            - **Windows**: use the `.msi` installer
-
-            ## Changelog
-            See [CHANGELOG.md](CHANGELOG.md) for this release.
+          # The full notes (install preamble + changelog section) are written
+          # by the publish job via gh --notes-file once the draft exists.
           releaseDraft: true
           prerelease: false
 
@@ -146,21 +180,26 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Publish draft release
+      - name: Write release notes + publish draft
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ needs.setup.outputs.tag }}
+          RELEASE_BODY: ${{ needs.setup.outputs.release_body }}
           MANUAL_REVIEW: ${{ vars.MANUAL_RELEASE_REVIEW }}
         run: |
+          NOTES="$RUNNER_TEMP/release-notes.md"
+          printf '%s\n' "$RELEASE_BODY" > "$NOTES"
           if [ "$MANUAL_REVIEW" = "true" ]; then
-            echo "MANUAL_RELEASE_REVIEW=true — keeping the release as a draft for manual review"
+            gh release edit "$TAG" --notes-file "$NOTES"
+            echo "MANUAL_RELEASE_REVIEW=true — notes set, release kept as a draft for manual review"
             exit 0
           fi
           if gh release view "$TAG" --json isDraft -q '.isDraft' 2>/dev/null | grep -q true; then
-            gh release edit "$TAG" --draft=false
-            echo "published release $TAG"
+            gh release edit "$TAG" --draft=false --notes-file "$NOTES"
+            echo "published release $TAG with changelog"
           else
-            echo "release $TAG not found or already published — nothing to do"
+            gh release edit "$TAG" --notes-file "$NOTES"
+            echo "release $TAG already published — notes updated"
           fi
 
       - name: Publish pragma-app to npm

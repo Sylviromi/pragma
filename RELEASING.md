@@ -70,6 +70,9 @@ the same release.
     `.rpm` / `.AppImage` on ubuntu-22.04, macOS `.dmg` + `.app` for both
     Apple Silicon and Intel, Windows `.msi` / `.exe`) — parallel across
     runners, with npm + Rust caches so follow-up builds are minutes;
+  - writes the release notes: install preamble + **this version's
+    `CHANGELOG.md` section, embedded directly** (no link-out); missing
+    entries fall back to a placeholder;
   - attaches them to the release, then **auto-publishes** it (unless
     `MANUAL_RELEASE_REVIEW=true`);
   - publishes the `pragma-app` npm wrapper at the same version;
