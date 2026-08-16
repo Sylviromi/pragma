@@ -5,6 +5,7 @@
   // with a Stop button while running, and (b) as a persisted role='verification'
   // message once finished — it does NOT disappear after the next prompt.
   import type { VerificationInfo } from '../lib/types'
+  import Icon from './Icon.svelte'
 
   let {
     run = null,
@@ -84,7 +85,7 @@
 <div class="vbubble" class:pass={statusClass === 'pass'} class:fail={statusClass === 'fail'} class:running={live} class:cancelled={statusClass === 'cancelled'}>
   <div class="vhead">
     <span class="vicon {statusClass}" class:spin={live} aria-hidden="true">
-      <span class="msr">{icon}</span>
+      <Icon name={icon as never} size={15} />
     </span>
     <span class="vtitle">{title}</span>
     <span class="vtag">harness check</span>
@@ -93,14 +94,14 @@
   {#if live}
     <div class="vbody">
       <div class="vline">
-        <span class="msr vline-icon" aria-hidden="true">{phase === 'checks' ? 'terminal' : 'rate_review'}</span>
+        <span class="vline-icon" aria-hidden="true"><Icon name={phase === 'checks' ? 'terminal' : 'rate_review'} size={13} /></span>
         <span>{phase === 'checks' ? 'Running the project’s test/check command — no model involved' : 'One isolated model call — task + diff + check output only (never the conversation)'}</span>
       </div>
       <div class="vmeta-row">
         <span class="vmeta-live">{elapsed > 0 ? fmtDuration(elapsed) : ''}</span>
         {#if onStop}
           <button class="vstop" onclick={onStop} aria-label="Stop verification">
-            <span class="msr" aria-hidden="true">stop</span>Stop
+            <Icon name="stop" size={13} />Stop
           </button>
         {/if}
       </div>
@@ -119,13 +120,13 @@
       {/if}
       {#if run.checksLabel}
         <div class="vline vline-sub">
-          <span class="msr vline-icon" aria-hidden="true">terminal</span>
+          <span class="vline-icon" aria-hidden="true"><Icon name="terminal" size={13} /></span>
           <span>Checks: {run.checksLabel} — {run.passed ? 'passed' : 'failed'}</span>
         </div>
       {/if}
       {#if run.reviewUsed}
         <div class="vline vline-sub">
-          <span class="msr vline-icon" aria-hidden="true">rate_review</span>
+          <span class="vline-icon" aria-hidden="true"><Icon name="rate_review" size={13} /></span>
           <span>Independent review: {run.passed ? 'accepted' : 'rejected'}</span>
         </div>
       {/if}
@@ -175,11 +176,7 @@
   .vicon.pass { color: var(--success, var(--accent)); }
   .vicon.fail { color: var(--warning, var(--accent)); }
   .vicon.running { color: var(--accent); }
-  .vicon.spin .msr { animation: vspin 1s linear infinite; }
-  @keyframes vspin {
-    from { transform: rotate(0deg); }
-    to { transform: rotate(360deg); }
-  }
+  .vicon.spin :global(.msr) { animation: spin 1s linear infinite; }
   .vtitle {
     font-weight: 600;
     font-size: 12.5px;

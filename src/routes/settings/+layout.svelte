@@ -6,7 +6,8 @@
   import { providerState, loadProviders } from '../../stores/providers.svelte'
   import { sessions, openTab, loadSessions, restoreTabs } from '../../stores/sessions.svelte'
   import { chat, STATUS_META, type AgentStatus } from '../../stores/chat.svelte'
-  import logo from '$lib/logo.svg?raw'
+  import Logo from '../../components/Logo.svelte'
+  import Icon from '../../components/Icon.svelte'
   let { children } = $props()
 
   // Deep-linked settings (e.g. an opened route) may arrive before the app view
@@ -83,12 +84,9 @@
 <div class="shell">
   <!-- Design v2 top bar: logo block + Settings + session chips + back. -->
   <header>
-    <span class="logo" aria-label="Pragma">
-      {@html logo}
-      <span class="wordmark">PRAGMA</span>
-    </span>
+    <Logo />
     <div class="settings-tag">
-      <span class="msr" aria-hidden="true">tune</span>
+      <Icon name="tune" size={16} />
       <span class="settings-label">Settings</span>
     </div>
     <div class="chips">
@@ -103,7 +101,7 @@
       {/if}
     </div>
     <a class="back" href="/" aria-label="Back to session">
-      <span class="msr" aria-hidden="true">arrow_back</span>Session
+      <Icon name="arrow_back" size={16} />Session
     </a>
   </header>
 
@@ -119,7 +117,7 @@
             class:active={isActive(item.href)}
             aria-current={isActive(item.href) ? 'page' : undefined}
           >
-            <span class="item-ico" aria-hidden="true"><span class="msr">{item.icon}</span></span>
+            <span class="item-ico" aria-hidden="true"><Icon name={item.icon as never} size={17} /></span>
             <span class="item-label">{item.label}</span>
             {#if item.label === 'General'}
               {#if generalBadge}<span class="nav-badge">{generalBadge}</span>{/if}
@@ -162,26 +160,6 @@
     flex: none;
     min-width: 0;
   }
-  .logo {
-    display: flex;
-    align-items: center;
-    gap: 9px;
-    padding: 0 14px 0 7.5px;
-    border-right: 1px solid var(--border-default);
-    flex-shrink: 0;
-  }
-  .logo :global(svg) {
-    flex: none;
-    overflow: visible;
-  }
-  .wordmark {
-    font-family: var(--font-heading);
-    font-weight: 600;
-    font-size: 15px;
-    letter-spacing: 0.1em;
-    color: var(--text-primary);
-    white-space: nowrap;
-  }
   .settings-tag {
     display: flex;
     align-items: center;
@@ -190,7 +168,7 @@
     border-right: 1px solid var(--border-default);
     flex: none;
   }
-  .settings-tag .msr {
+  .settings-tag :global(.msr) {
     font-family: 'Material Symbols Rounded';
     font-size: 16px;
     line-height: 1;
@@ -284,7 +262,7 @@
     color: var(--text-primary);
     border-color: var(--accent);
   }
-  .back .msr {
+  .back :global(.msr) {
     font-size: 16px;
     line-height: 1;
   }
@@ -315,10 +293,6 @@
   /* second nav group gets breathing room above it */
   .label.alt {
     margin-top: 16px;
-  }
-  .stagger {
-    animation: rowIn 0.34s cubic-bezier(0.22, 0.8, 0.3, 1) both;
-    animation-delay: calc(var(--i) * 45ms);
   }
   .flex-spacer {
     flex: 1;
@@ -355,7 +329,7 @@
     display: flex;
     color: var(--text-muted);
   }
-  .item-ico .msr {
+  .item-ico :global(.msr) {
     font-size: 17px;
     line-height: 1;
   }
@@ -411,7 +385,7 @@
     .content {
       padding: 16px;
     }
-    .wordmark {
+    :global(.logo .wordmark) {
       display: none;
     }
     .return-label {

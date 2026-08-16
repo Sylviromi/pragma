@@ -3,6 +3,8 @@
   import { chat, STATUS_META, type AgentStatus } from '../stores/chat.svelte'
   import { ui } from '../stores/ui.svelte'
   import { sessionTint } from '../lib/tint'
+  import Icon from './Icon.svelte'
+  import StatusDot from './StatusDot.svelte'
 
   // Design session rail (`Pragma UI Kit v2.dc.html`): sessions grouped by
   // working directory, tinted per-session accents, "New session" on top.
@@ -77,7 +79,7 @@
   <div class="rail-inner" style={`width:${railW}px`}>
     <div class="rail-top">
       <button class="new-session" onclick={() => newSession()}>
-        <span class="msr" aria-hidden="true">add</span>New session
+        <Icon name="add" size={16} />New session
       </button>
     </div>
 
@@ -85,7 +87,7 @@
       {#each groups as g, gi (g.dir)}
         <div class="group stagger" style={`--i:${gi}`}>
           <div class="group-head">
-            <span class="msr g-icon" class:active={!g.dir} aria-hidden="true">{g.dir ? 'folder' : 'folder_open'}</span>
+            <span class="g-icon" class:active={!g.dir} aria-hidden="true"><Icon name={g.dir ? 'folder' : 'folder_open'} size={14} /></span>
             <span class="g-dir" title={g.dir || 'No working directory'}>{g.dir || 'no directory'}</span>
             <span class="g-count">{g.count}</span>
           </div>
@@ -106,7 +108,7 @@
                   }
                 }}
               >
-                <span class="s-dot" class:live={row.live} style={`background:${row.dot}`} aria-hidden="true"></span>
+                <StatusDot color={row.dot} live={row.live} size={6} />
                 <span class="s-name" title={row.name}>{row.name}</span>
                 <span class="s-meta">{row.meta}</span>
                 <button
@@ -117,7 +119,7 @@
                     e.stopPropagation()
                     closeTab(row.id)
                   }}
-                ><span class="msr" aria-hidden="true">close</span></button>
+                ><Icon name="close" size={14} /></button>
               </div>
             {/each}
           </div>
@@ -191,7 +193,7 @@
     color: var(--text-primary);
     background: var(--surface-hover);
   }
-  .new-session .msr {
+  .new-session :global(.msr) {
     font-size: 16px;
     line-height: 1;
   }
@@ -264,15 +266,6 @@
     border-left-color: var(--tint);
     background: color-mix(in oklch, var(--tint) 15%, transparent);
   }
-  .s-dot {
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-    flex: none;
-  }
-  .s-dot.live {
-    animation: cursorblink 1.2s ease-in-out infinite;
-  }
   .s-name {
     flex: 1;
     min-width: 0;
@@ -307,7 +300,7 @@
   .s-row.active .s-close {
     opacity: 0.9;
   }
-  .s-close .msr {
+  .s-close :global(.msr) {
     font-size: 14px;
     line-height: 1;
   }
@@ -318,9 +311,5 @@
     padding: 10px 6px;
     text-align: center;
   }
-  /* Design stagger entrance on first open. */
-  .stagger {
-    animation: rowIn 0.32s cubic-bezier(0.22, 0.8, 0.3, 1) both;
-    animation-delay: calc(var(--i) * 45ms);
-  }
+  /* Design stagger entrance on first open — global .stagger. */
 </style>

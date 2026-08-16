@@ -3,9 +3,9 @@
   import { chat, STATUS_META, type AgentStatus } from '../stores/chat.svelte'
   import { toggleRail, toggleSidebar, ui } from '../stores/ui.svelte'
   import { sessionTint } from '../lib/tint'
-  // Brand mark (single source in src/lib/logo.svg) — inlined raw so the
-  // theme tokens in the SVG resolve against the active family×mode.
-  import logo from '$lib/logo.svg?raw'
+  import Logo from './Logo.svelte'
+  import Icon from './Icon.svelte'
+  import StatusDot from './StatusDot.svelte'
 
   // Design tab bar (`Pragma UI Kit v2.dc.html`): slim chrome — logo block,
   // session-rail toggle, the ACTIVE session's dot + name + status, and the
@@ -58,11 +58,8 @@
 </script>
 
 <div class="tab-bar" aria-label="App bar">
-  <!-- Design logo block: P-mark SVG + PRAGMA wordmark. -->
-  <span class="logo" aria-label="Pragma">
-    {@html logo}
-    <span class="wordmark">PRAGMA</span>
-  </span>
+  <!-- Design logo block: P-mark SVG + PRAGMA wordmark (shared Logo component). -->
+  <Logo />
 
   <!-- Session rail toggle (design `railToggleStyle`). -->
   <button
@@ -73,18 +70,13 @@
     title={ui.railOpen ? 'Hide session rail' : 'Show session rail'}
     aria-pressed={ui.railOpen}
   >
-    <span class="msr" aria-hidden="true">left_panel_open</span>
+    <span aria-hidden="true"><Icon name="left_panel_open" size={18} /></span>
   </button>
 
   <!-- Active session: tinted status dot + name + mono status label. -->
   <div class="active" role="status" aria-label={active ? `${active.name} — ${statusMeta.label}` : 'No session'}>
     {#if active}
-      <span
-        class="active-dot"
-        class:live={activeStatus !== 'idle'}
-        style={`background:${activeDot}`}
-        aria-hidden="true"
-      ></span>
+      <StatusDot color={activeDot} live={activeStatus !== 'idle'} size={7} />
       <span class="active-name" title={active.name}>{active.name}</span>
       <span class="active-status">{statusMeta.label}</span>
     {:else}
@@ -94,13 +86,13 @@
 
   <div class="actions">
     <a href="/settings/appearance" aria-label="Settings" title="Settings">
-      <span class="msr" aria-hidden="true">settings</span>
+      <Icon name="settings" size={18} />
     </a>
     <button aria-label="Toggle sidebar" title="Toggle sidebar" onclick={toggleSidebar}>
-      <span class="msr" aria-hidden="true">right_panel_open</span>
+      <Icon name="right_panel_open" size={18} />
     </button>
     <a href="/settings/plugins" aria-label="Plugins" title="Plugins">
-      <span class="msr" aria-hidden="true">extension</span>
+      <Icon name="extension" size={18} />
     </a>
   </div>
 </div>
@@ -115,27 +107,6 @@
     height: 42px;
     user-select: none;
     flex-shrink: 0;
-  }
-  /* Design logo block: P-mark + wordmark, right-separated. */
-  .logo {
-    display: flex;
-    align-items: center;
-    gap: 9px;
-    padding: 0 14px 0 7.5px;
-    border-right: 1px solid var(--border-default);
-    flex-shrink: 0;
-  }
-  .logo :global(svg) {
-    flex: none;
-    overflow: visible;
-  }
-  .wordmark {
-    font-family: var(--font-heading);
-    font-weight: 600;
-    font-size: 15px;
-    letter-spacing: 0.1em;
-    color: var(--text-primary);
-    white-space: nowrap;
   }
   /* Rail toggle: 34px, right-separated, tinted when the rail is open. */
   .rail-toggle {
@@ -158,7 +129,7 @@
   .rail-toggle.open {
     color: var(--text-primary);
   }
-  .rail-toggle .msr {
+  .rail-toggle :global(.msr) {
     font-size: 18px;
     line-height: 1;
   }
@@ -170,15 +141,6 @@
     flex: 1;
     min-width: 0;
     padding: 0 14px;
-  }
-  .active-dot {
-    width: 7px;
-    height: 7px;
-    border-radius: 50%;
-    flex: none;
-  }
-  .active-dot.live {
-    animation: cursorblink 1.2s ease-in-out infinite;
   }
   .active-name {
     font-family: var(--font-body);
@@ -230,7 +192,7 @@
 
   /* ── Narrow windows ─────────────────────────────────────────────────── */
   @media (max-width: 1040px) {
-    .wordmark {
+    :global(.logo .wordmark) {
       display: none; /* the PRAGMA wordmark eats width the session name needs */
     }
   }

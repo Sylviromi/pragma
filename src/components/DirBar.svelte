@@ -4,6 +4,7 @@
   import { statsFor } from '../stores/stats.svelte'
   import { ui } from '../stores/ui.svelte'
   import { updateSession } from '../lib/tauri'
+  import Icon from './Icon.svelte'
 
   // Design working-directory bar (`Pragma UI Kit`): folder icon + parent/leaf
   // split path (click → dialog picker), git branch pill, files-touched meta.
@@ -125,7 +126,7 @@
 <svelte:window onkeydown={onKey} />
 
 <div class="dir-bar">
-  <span class="msr dir-ico" aria-hidden="true">folder_open</span>
+  <span class="dir-ico" aria-hidden="true"><Icon name="folder_open" size={16} /></span>
   <button
     class="dir-btn"
     onclick={pickerOpen ? closePicker : openPicker}
@@ -140,11 +141,11 @@
     {:else}
       <span class="leaf placeholder">Set working directory</span>
     {/if}
-    <span class="msr unfold" aria-hidden="true">unfold_more</span>
+    <span class="unfold" aria-hidden="true"><Icon name="unfold_more" size={15} /></span>
   </button>
   {#if st.git.branch && showBranch}
     <span class="branch" title="Git branch">
-      <span class="msr" aria-hidden="true">fork_right</span>{st.git.branch}
+      <Icon name="fork_right" size={13} />{st.git.branch}
     </span>
   {/if}
   {#if workingDir && showDirMeta}
@@ -156,12 +157,12 @@
   <div class="backdrop" class:out={exiting} onclick={closePicker} onkeydown={(e) => { if (e.key === 'Escape') closePicker() }} role="presentation">
     <div class="dialog" role="dialog" aria-modal="true" aria-label="Select a directory to work on" class:out={exiting} tabindex="-1" onclick={(e) => e.stopPropagation()} onkeydown={(e) => e.stopPropagation()}>
       <div class="dh">
-        <span class="msr dh-ico" aria-hidden="true">drive_folder_upload</span>
+        <span class="dh-ico" aria-hidden="true"><Icon name="drive_folder_upload" size={18} /></span>
         <span class="dh-title">Select a directory to work on</span>
-        <button class="x" aria-label="Close" onclick={closePicker}><span class="msr" aria-hidden="true">close</span></button>
+        <button class="x" aria-label="Close" onclick={closePicker}><Icon name="close" size={17} /></button>
       </div>
       <div class="dsearch">
-        <span class="msr" aria-hidden="true">search</span>
+        <Icon name="search" size={16} />
         <input
           type="search"
           placeholder="Filter directories…"
@@ -175,18 +176,18 @@
         {/if}
         {#each dirOptions as d, i (d.path)}
           <button class="drow" class:picked={d.path === choice} class:staggered={mapped} style={`--i:${i}`} onclick={() => (choice = d.path)}>
-            <span class="msr d-ico" class:picked={d.path === choice} aria-hidden="true">{d.current ? 'folder_open' : 'folder'}</span>
+            <span class="d-ico" class:picked={d.path === choice} aria-hidden="true"><Icon name={d.current ? 'folder_open' : 'folder'} size={18} /></span>
             <span class="d-copy">
               <span class="d-path">{d.path}</span>
               <span class="d-meta">{d.meta}</span>
             </span>
-            {#if d.path === choice}<span class="msr d-check" aria-hidden="true">check</span>{/if}
+            {#if d.path === choice}<span class="d-check" aria-hidden="true"><Icon name="check" size={15} /></span>{/if}
           </button>
         {/each}
       </div>
       <div class="df">
         <button class="ghost" onclick={browseDir}>
-          <span class="msr" aria-hidden="true">folder_open</span>Browse…
+          <Icon name="folder_open" size={15} />Browse…
         </button>
         <span class="flex"></span>
         <button class="ghost" onclick={closePicker}>Cancel</button>
@@ -292,7 +293,7 @@
     white-space: nowrap;
     flex: none;
   }
-  .branch .msr {
+  .branch :global(.msr) {
     font-size: 13px;
     line-height: 1;
   }
@@ -371,7 +372,7 @@
     color: var(--text-primary);
     background: var(--surface-hover);
   }
-  .x .msr { font-size: 17px; line-height: 1; }
+  .x :global(.msr) { font-size: 17px; line-height: 1; }
   .dsearch {
     display: flex;
     align-items: center;
@@ -379,7 +380,7 @@
     padding: 10px 18px;
     border-bottom: 1px solid var(--border-subtle);
   }
-  .dsearch .msr {
+  .dsearch :global(.msr) {
     font-size: 16px;
     line-height: 1;
     color: var(--text-muted);
@@ -504,7 +505,7 @@
     color: var(--text-primary);
     background: var(--surface-hover);
   }
-  .ghost .msr { font-size: 15px; line-height: 1; }
+  .ghost :global(.msr) { font-size: 15px; line-height: 1; }
   .go {
     background: var(--accent);
     color: var(--accent-on);

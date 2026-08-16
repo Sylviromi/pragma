@@ -1,5 +1,7 @@
 <script lang="ts">
   import CornerMarks from './CornerMarks.svelte'
+  import Icon from './Icon.svelte'
+  import Pill from './Pill.svelte'
   // Design "Input requested" block (`Pragma UI Kit v2.dc.html` → buildBlock
   // kind 'question'): accent-bordered card with blueprint corner marks, a
   // header (icon + mono label + count + "run paused · k/n" pill), per-question
@@ -95,14 +97,14 @@
   <CornerMarks color={answered ? 'var(--border-default)' : 'var(--accent)'} />
 
   <div class="q-head">
-    <span class="q-ico" aria-hidden="true"><span class="msr">{answered ? 'task_alt' : 'contact_support'}</span></span>
+    <span class="q-ico" aria-hidden="true"><Icon name={answered ? 'task_alt' : 'contact_support'} size={16} /></span>
     <span class="q-label">{answered ? 'Answers recorded' : 'Input requested'}</span>
     <span class="q-count">{rows.length === 1 ? '1 question' : `${rows.length} questions`}</span>
-    <span class="q-pill">
+    <Pill class="q-pill">
       {answered
         ? (rows.length === 1 ? '1/1 answered' : `${multiFilled}/${rows.length} answered`)
         : `run paused · ${rows.length === 1 ? 0 : multiFilled}/${rows.length}`}
-    </span>
+    </Pill>
   </div>
 
   <!-- progress segments: one 2px bar per question -->
@@ -178,7 +180,7 @@
               >
                 <span class="q-opt-key">{keyFor(q, oi)}</span>
                 <span class="q-opt-label">{label}</span>
-                {#if isPicked(q, label)}<span class="q-opt-check" aria-hidden="true"><span class="msr">check</span></span>{/if}
+                {#if isPicked(q, label)}<span class="q-opt-check" aria-hidden="true"><Icon name="check" size={15} /></span>{/if}
               </button>
             {/each}
           </div>
@@ -265,15 +267,9 @@
     letter-spacing: 0.06em;
     color: var(--text-muted);
   }
-  .q-pill {
+  /* q-pill — shared Pill, right-aligned. */
+  :global(.q-pill) {
     margin-left: auto;
-    font-family: var(--font-mono);
-    font-size: 10px;
-    color: var(--text-muted);
-    background: var(--bg-overlay);
-    border-radius: 2px;
-    padding: 2px 8px;
-    white-space: nowrap;
   }
   .q-progress {
     display: flex;

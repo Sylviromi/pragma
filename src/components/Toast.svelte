@@ -1,5 +1,6 @@
 <script lang="ts">
   import { toasts, dismissToast } from '../stores/toast.svelte'
+  import Icon from './Icon.svelte'
 
   // Design toast (`Pragma UI Kit v2.dc.html` → `toasts`): 340px elevated card,
   // 3px colored rail, status icon, title + mono source, optional desc + action
@@ -58,7 +59,7 @@
     <div class="toast" class:exiting={exiting.has(t.id)} style={`--tcolor:${color}`} role="status">
       <span class="rail" aria-hidden="true"></span>
       <span class="t-ico" class:spin={t.kind === 'progress'} style={`color:${color}`} aria-hidden="true">
-        <span class="msr">{icon}</span>
+        <Icon name={icon as never} size={17} />
       </span>
       <div class="t-copy">
         <div class="t-title-row">
@@ -84,7 +85,7 @@
         class="t-dismiss"
         aria-label="Dismiss"
         onclick={() => dismiss(t.id)}
-      ><span class="msr" aria-hidden="true">close</span></button>
+      ><Icon name="close" size={15} /></button>
       {#if t.life && !exiting.has(t.id)}
         <span class="timer" style={`--life:${t.life}ms; --tcolor:${color}`} aria-hidden="true"></span>
       {/if}
@@ -138,7 +139,7 @@
     margin-top: 1px;
     color: var(--tcolor);
   }
-  .t-ico .msr {
+  .t-ico :global(.msr) {
     font-size: 17px;
     line-height: 1;
   }
@@ -210,7 +211,7 @@
   .t-dismiss:hover {
     color: var(--text-primary);
   }
-  .t-dismiss .msr {
+  .t-dismiss :global(.msr) {
     font-size: 15px;
     line-height: 1;
   }
