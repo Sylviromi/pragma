@@ -3,6 +3,7 @@
   import ModelPicker from './ModelPicker.svelte'
   import Icon from './Icon.svelte'
   import SlotStack from './SlotStack.svelte'
+  import Toggle from './Toggle.svelte'
   import { getSession } from '../stores/sessions.svelte'
   import { updateSession } from '../lib/tauri'
   import { pushToast } from '../stores/toast.svelte'
@@ -152,7 +153,7 @@
          model supports thinking. -->
     {#if thinkingSupported}
       <div class="effort" class:on={thinkingOn}>
-        <span class="effort-ico" aria-hidden="true"><span class="msr">neurology</span></span>
+        <span class="effort-ico" aria-hidden="true"><Icon name="neurology" size={15} /></span>
         {#each effortLevels as l (l.key)}
           <button
             class="effort-chip"
@@ -177,9 +178,12 @@
       <button class="hint-btn hide-narrow" type="button">/ cmds</button>
       <!-- Auto-approve (compact toggle; moved into the composer so the tab
            bar matches the design's icon-only actions). -->
-      <button class="auto-dot" class:on={autoApprove} onclick={toggleAuto} title="Auto-approve all tool calls (active session)" aria-pressed={autoApprove}>
-        <span class="track" aria-hidden="true"><span class="knob"></span></span>
-      </button>
+      <Toggle
+        size="sm"
+        checked={autoApprove}
+        onChange={toggleAuto}
+        label="Auto-approve all tool calls (active session)"
+      />
       <button
         class="send-btn"
         onclick={submit}
@@ -268,7 +272,7 @@
     padding: 0 7px;
     color: var(--slot);
   }
-  .effort-ico .msr {
+  .effort-ico :global(.msr) {
     font-size: 15px;
     line-height: 1;
   }
@@ -344,42 +348,7 @@
     opacity: 0.5;
     cursor: not-allowed;
   }
-  /* Compact auto-approve switch */
-  .auto-dot {
-    display: flex;
-    align-items: center;
-    background: transparent;
-    border: none;
-    padding: 2px;
-    cursor: pointer;
-    flex: none;
-  }
-  .track {
-    position: relative;
-    width: 26px;
-    height: 15px;
-    border-radius: 2px;
-    background: var(--border-default);
-    transition: background 0.12s;
-    flex-shrink: 0;
-  }
-  .auto-dot.on .track {
-    background: var(--accent);
-  }
-  .knob {
-    position: absolute;
-    top: 2px;
-    left: 2px;
-    width: 11px;
-    height: 11px;
-    border-radius: 1px;
-    background: var(--bg-elevated);
-    transition: left 0.12s;
-  }
-  .auto-dot.on .knob {
-    left: calc(100% - 13px);
-    background: var(--accent-on);
-  }
+  /* Compact auto-approve switch — now the shared Toggle (size="sm"). */
 
   @media (max-width: 940px) {
     .input-area {

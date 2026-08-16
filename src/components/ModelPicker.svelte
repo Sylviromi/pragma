@@ -5,6 +5,8 @@
   import { theme, uiScaleFactor } from '../stores/theme.svelte'
   import SlotStack from './SlotStack.svelte'
   import Icon from './Icon.svelte'
+  import SearchInput from './SearchInput.svelte'
+  import Pill from './Pill.svelte'
   import type { ProviderInfo, ThinkingPref } from '../lib/types'
 
   let {
@@ -145,9 +147,7 @@
     <span class="mname">{current?.name ?? 'Choose model'}</span>
     {#if current}<span class="pname">· {current.pname}</span>{/if}
     {#if thinkingOn}
-      <span class="think-badge" title="Extended thinking on">
-        <span class="msr" aria-hidden="true">neurology</span>thinking
-      </span>
+      <Pill tone="slot" radius="pill" icon="neurology" title="Extended thinking on">thinking</Pill>
     {/if}
     <span aria-hidden="true"><Icon name="expand_more" size={14} /></span>
   </button>
@@ -166,14 +166,13 @@
       }}
       role="listbox"
     >
-      <div class="search">
-        <span class="msr" aria-hidden="true">search</span>
-        <input
-          type="search"
-          placeholder="Search models…"
+      <div class="search-wrap">
+        <SearchInput
+          variant="underline"
           bind:value={search}
-          bind:this={searchInput}
-          aria-label="Search models"
+          bind:inputEl={searchInput}
+          placeholder="Search models…"
+          label="Search models"
         />
       </div>
       <div class="list">
@@ -281,24 +280,7 @@
   .chip.thinking {
     border-color: color-mix(in oklch, var(--slot) 40%, transparent);
   }
-  /* Design thinkingBadgeStyle: neurology + slot pill. */
-  .think-badge {
-    display: flex;
-    align-items: center;
-    gap: 3px;
-    font-family: var(--font-mono);
-    font-size: 10px;
-    letter-spacing: 0.04em;
-    color: var(--slot);
-    background: color-mix(in oklch, var(--slot) 16%, transparent);
-    border-radius: 9px;
-    padding: 2px 7px 2px 5px;
-    animation: fadeIn 0.25s ease both;
-  }
-  .think-badge .msr {
-    font-size: 12px;
-    line-height: 1;
-  }
+  /* Design thinkingBadgeStyle: neurology + slot pill — shared Pill. */
   .chip .mname {
     min-width: 0;
     overflow: hidden;
@@ -336,31 +318,8 @@
     display: flex;
     flex-direction: column;
   }
-  .search {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    padding: 6px 8px;
-    border-bottom: 1px solid var(--border-default);
+  .search-wrap {
     margin: 6px 6px 0;
-  }
-  .search .msr {
-    font-size: 15px;
-    line-height: 1;
-    color: var(--text-muted);
-    flex: none;
-  }
-  .search input {
-    flex: 1;
-    background: none;
-    border: none;
-    outline: none;
-    color: var(--text-primary);
-    font-family: var(--font-body);
-    font-size: 12.5px;
-  }
-  .search input::placeholder {
-    color: var(--text-muted);
   }
   .list {
     max-height: min(300px, 45vh);
