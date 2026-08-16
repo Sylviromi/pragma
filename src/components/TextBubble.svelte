@@ -69,9 +69,6 @@
     color: var(--accent);
     animation: cursorblink 1s step-start infinite;
   }
-  @keyframes cursorblink {
-    50% { opacity: 0; }
-  }
   .code-block {
     position: relative;
     margin-top: 10px;
