@@ -1,6 +1,6 @@
 name: Pages
 
-# Serves docs/ (the download page) on GitHub Pages.
+# Serves site/ (the public download page) on GitHub Pages.
 on:
   push:
     branches: [main]
@@ -26,6 +26,6 @@ jobs:
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: docs
+          path: site
       - id: deployment
         uses: actions/deploy-pages@v4
