@@ -4,6 +4,7 @@
   // Update still shows the update) + Install & restart.
   import { updater, installUpdate, dismissDialog } from '../stores/updater.svelte'
   import { renderMarkdown } from '../lib/markdown'
+  import CornerMarks from './CornerMarks.svelte'
 </script>
 
 {#if updater.showDialog && updater.available}
@@ -19,6 +20,8 @@
     }}
   >
     <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="upd-title">
+      <!-- blueprint corner marks: accent, per design updDialogStyle -->
+      <CornerMarks color="var(--accent)" length={7} />
       <div class="head">
         <div class="titles">
           <div class="eyebrow">New version available</div>
