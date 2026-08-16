@@ -1,80 +1,85 @@
 <script lang="ts">
-  import { statsFor, hasSessionStats, loadSessionStats } from '../stores/stats.svelte'
-  import { sessions } from '../stores/sessions.svelte'
-  import { ui, setPanelTab } from '../stores/ui.svelte'
-  import { agents, agentsSummary, selectNode, toggleFollow } from '../stores/agents.svelte'
-  import { hueTint } from '../lib/tint'
-  import SlotStack from './SlotStack.svelte'
-  import Icon from './Icon.svelte'
-  import StatusDot from './StatusDot.svelte'
-  import OutputLog from './OutputLog.svelte'
-  import Pill from './Pill.svelte'
+  import { statsFor, hasSessionStats, loadSessionStats } from '../stores/stats.svelte';
+  import { sessions } from '../stores/sessions.svelte';
+  import { ui, setPanelTab } from '../stores/ui.svelte';
+  import { agents, agentsSummary, selectNode, toggleFollow } from '../stores/agents.svelte';
+  import { hueTint } from '../lib/tint';
+  import SlotStack from './SlotStack.svelte';
+  import Icon from './Icon.svelte';
+  import StatusDot from './StatusDot.svelte';
+  import OutputLog from './OutputLog.svelte';
+  import Pill from './Pill.svelte';
 
-  let { sessionId }: { sessionId: string } = $props()
+  let { sessionId }: { sessionId: string } = $props();
 
-  const st = $derived(statsFor(sessionId))
+  const st = $derived(statsFor(sessionId));
 
   // Sidebar only mounts when opened. Load telemetry once per session (the
   // run loop pushes `session:stats` updates while active, and a session that
   // already has a payload must show THAT — not a re-fetch — when the panel
   // reopens or the tab is switched).
   $effect(() => {
-    if (!hasSessionStats(sessionId)) loadSessionStats(sessionId)
-  })
+    if (!hasSessionStats(sessionId)) loadSessionStats(sessionId);
+  });
 
   // Ring: 58px canvas (r=24), segments scaled to `used` (design v2).
-  const CIRC = 2 * Math.PI * 24
-  const fmt = (n: number) => (n >= 1000 ? (n / 1000).toFixed(1) + 'k' : String(n))
-  const totalUsed = $derived(st.context.used)
-  const sessionName = $derived(
-    sessions.list.find((x) => x.id === sessionId)?.name ?? sessionId
-  )
+  const CIRC = 2 * Math.PI * 24;
+  const fmt = (n: number) => (n >= 1000 ? (n / 1000).toFixed(1) + 'k' : String(n));
+  const totalUsed = $derived(st.context.used);
+  const sessionName = $derived(sessions.list.find((x) => x.id === sessionId)?.name ?? sessionId);
   const segments = $derived.by(() => {
-    const limit = Math.max(st.context.limit, 1)
-    let acc = 0
+    const limit = Math.max(st.context.limit, 1);
+    let acc = 0;
     return st.context.segments.map((p) => {
-      const frac = p.tokens / limit
-      const clamped = Math.max(0, Math.min(frac, 1 - acc))
+      const frac = p.tokens / limit;
+      const clamped = Math.max(0, Math.min(frac, 1 - acc));
       const seg = {
         ...p,
         tokensLabel: fmt(p.tokens),
         dash: `${(CIRC * clamped).toFixed(2)} ${CIRC.toFixed(2)}`,
         offset: (-CIRC * acc).toFixed(2),
-      }
-      acc += frac
-      return seg
-    })
-  })
+      };
+      acc += frac;
+      return seg;
+    });
+  });
 
-  const badgeColor = { read: 'var(--text-muted)', edited: 'var(--warning)', created: 'var(--success)', deleted: 'var(--danger)' }
-  const badgeLetter = { read: 'R', edited: 'E', created: 'C', deleted: 'D' }
+  const badgeColor = {
+    read: 'var(--text-muted)',
+    edited: 'var(--warning)',
+    created: 'var(--success)',
+    deleted: 'var(--danger)',
+  };
+  const badgeLetter = { read: 'R', edited: 'E', created: 'C', deleted: 'D' };
 
   function onOpenFile(path: string) {
     // TODO(milestone 6) — open the diff/editor; toast placeholder for now.
     import('../stores/toast.svelte').then(({ pushToast }) =>
-      pushToast(`opened diff: ${path.split('/').pop()}`, 'info')
-    )
+      pushToast(`opened diff: ${path.split('/').pop()}`, 'info'),
+    );
   }
   const hasDiff = (added: number | null | undefined, removed: number | null | undefined) =>
-    added != null || removed != null
+    added != null || removed != null;
 
   // ---- Plan pane ----
-  const plan = $derived(st.plan)
-  const planDone = $derived(plan.items.filter((i) => i.state === 'done').length)
-  const planProgress = $derived(`${planDone}/${plan.items.length}`)
+  const plan = $derived(st.plan);
+  const planDone = $derived(plan.items.filter((i) => i.state === 'done').length);
+  const planProgress = $derived(`${planDone}/${plan.items.length}`);
 
   // ---- Changes pane (files + working tree merged) ----
-  const files = $derived(st.files)
-  const git = $derived(st.git)
-  const changedCount = $derived(files.filter((f) => f.kind !== 'read').length)
+  const files = $derived(st.files);
+  const git = $derived(st.git);
+  const changedCount = $derived(files.filter((f) => f.kind !== 'read').length);
   // Files first (with diffs), then pure git rows; each row's churn bar scales
   // against the max churn (design `changeRows`).
   const changeRows = $derived.by(() => {
-    const withDiff = files.filter((f) => hasDiff(f.added, f.removed))
-    const sorted = [...withDiff].sort((a, b) => ((b.added ?? 0) + (b.removed ?? 0)) - ((a.added ?? 0) + (a.removed ?? 0)))
-    const maxChurn = Math.max(1, ...sorted.map((f) => (f.added ?? 0) + (f.removed ?? 0)))
+    const withDiff = files.filter((f) => hasDiff(f.added, f.removed));
+    const sorted = [...withDiff].sort(
+      (a, b) => (b.added ?? 0) + (b.removed ?? 0) - ((a.added ?? 0) + (a.removed ?? 0)),
+    );
+    const maxChurn = Math.max(1, ...sorted.map((f) => (f.added ?? 0) + (f.removed ?? 0)));
     return sorted.map((f, i) => {
-      const churn = (f.added ?? 0) + (f.removed ?? 0)
+      const churn = (f.added ?? 0) + (f.removed ?? 0);
       return {
         path: f.path,
         badge: badgeLetter[f.kind] ?? '?',
@@ -83,16 +88,16 @@
         removed: f.removed ?? 0,
         barW: Math.round(34 * (churn / maxChurn)),
         delay: i * 70,
-      }
-    })
-  })
+      };
+    });
+  });
   const gitRows = $derived(
     git.rows.map((g) => ({
       ...g,
       color: g.mark === 'A' ? 'var(--success)' : 'var(--warning)',
       barW: Math.round(34 * g.weight),
-    }))
-  )
+    })),
+  );
 
   // ---- Agents pane ----
   const NODE_STATE = {
@@ -102,12 +107,12 @@
     done: { color: 'var(--text-muted)', pulse: false },
     exited: { color: 'var(--text-muted)', pulse: false },
     failed: { color: 'var(--danger)', pulse: false },
-  }
+  };
   const tree = $derived(
     agents.nodes.map((n, i) => {
-      const stt = NODE_STATE[n.state] ?? NODE_STATE.done
-      const isAgent = n.kind === 'agent'
-      const tint = isAgent ? hueTint(n.name) : 'var(--text-muted)'
+      const stt = NODE_STATE[n.state] ?? NODE_STATE.done;
+      const isAgent = n.kind === 'agent';
+      const tint = isAgent ? hueTint(n.name) : 'var(--text-muted)';
       return {
         ...n,
         tint,
@@ -118,43 +123,49 @@
         dotColor: stt.color,
         pulse: stt.pulse,
         depth: n.depth,
-      }
-    })
-  )
+      };
+    }),
+  );
   const proc = $derived(
-    agents.nodes.find((n) => n.id === agents.selectedId) ?? agents.nodes[0] ?? null
-  )
-  const procState = $derived(proc?.state ?? 'exited')
-  const procIsAgent = $derived(!!proc && proc.kind === 'agent')
+    agents.nodes.find((n) => n.id === agents.selectedId) ?? agents.nodes[0] ?? null,
+  );
+  const procState = $derived(proc?.state ?? 'exited');
+  const procIsAgent = $derived(!!proc && proc.kind === 'agent');
   const procColor = $derived(
     procIsAgent
-      ? (procState === 'done' ? 'var(--text-muted)' : hueTint(proc?.name ?? ''))
-      : procState === 'exited' ? 'var(--text-muted)'
-        : procState === 'failed' ? 'var(--danger)'
-          : procState === 'detached' ? 'var(--accent)' : 'var(--success)'
-  )
+      ? procState === 'done'
+        ? 'var(--text-muted)'
+        : hueTint(proc?.name ?? '')
+      : procState === 'exited'
+        ? 'var(--text-muted)'
+        : procState === 'failed'
+          ? 'var(--danger)'
+          : procState === 'detached'
+            ? 'var(--accent)'
+            : 'var(--success)',
+  );
   const procLive = $derived(
-    procState === 'running' || procState === 'detached' || procState === 'thinking'
-  )
-  const procLines = $derived((proc && agents.logs[proc.id]) ?? [])
-  const summary = $derived(agentsSummary())
+    procState === 'running' || procState === 'detached' || procState === 'thinking',
+  );
+  const procLines = $derived((proc && agents.logs[proc.id]) ?? []);
+  const summary = $derived(agentsSummary());
 
   // Log line coloring (design consoleLines): errors → danger, warn → warning,
   // ✓ → success, › → muted, ⎇ → proc color, else secondary.
   function lineStyle(text: string): string {
-    if (/error|fail|panic/i.test(text)) return 'var(--danger)'
-    if (/warn/i.test(text)) return 'var(--warning)'
-    if (text.startsWith('✓')) return 'var(--success)'
-    if (text.startsWith('›')) return 'var(--text-muted)'
-    if (text.startsWith('⎇')) return procColor
-    return 'var(--text-secondary)'
+    if (/error|fail|panic/i.test(text)) return 'var(--danger)';
+    if (/warn/i.test(text)) return 'var(--warning)';
+    if (text.startsWith('✓')) return 'var(--success)';
+    if (text.startsWith('›')) return 'var(--text-muted)';
+    if (text.startsWith('⎇')) return procColor;
+    return 'var(--text-secondary)';
   }
 
   const tabs = [
     { key: 'plan' as const, label: 'Plan', icon: 'checklist' },
     { key: 'agents' as const, label: 'Agents', icon: 'account_tree' },
     { key: 'changes' as const, label: 'Changes', icon: 'difference' },
-  ]
+  ];
 </script>
 
 <aside class="sidebar" aria-label="Session telemetry">
@@ -166,12 +177,18 @@
     <div class="ring-row">
       <div class="ring-wrap">
         <svg width="58" height="58" viewBox="0 0 58 58" style="transform:rotate(-90deg)">
-          <circle cx="29" cy="29" r="24" fill="none" stroke="var(--border-subtle)" stroke-width="7"></circle>
+          <circle cx="29" cy="29" r="24" fill="none" stroke="var(--border-subtle)" stroke-width="7"
+          ></circle>
           {#each segments as seg (seg.label)}
             <circle
-              cx="29" cy="29" r="24" fill="none"
-              stroke={seg.color} stroke-width="7"
-              stroke-dasharray={seg.dash} stroke-dashoffset={seg.offset}
+              cx="29"
+              cy="29"
+              r="24"
+              fill="none"
+              stroke={seg.color}
+              stroke-width="7"
+              stroke-dasharray={seg.dash}
+              stroke-dashoffset={seg.offset}
               style="transition: stroke-dasharray 0.9s cubic-bezier(0.22, 0.8, 0.3, 1), stroke-dashoffset 0.9s cubic-bezier(0.22, 0.8, 0.3, 1);"
             ></circle>
           {/each}
@@ -188,7 +205,10 @@
             <span class="legend-tokens">{seg.tokensLabel}</span>
           </div>
         {/each}
-        <div class="legend-footer" title="Context in the next call / model window — used is the provider-counted input of the last call (system + full history); segments are its estimated composition">
+        <div
+          class="legend-footer"
+          title="Context in the next call / model window — used is the provider-counted input of the last call (system + full history); segments are its estimated composition"
+        >
           <span class="legend-used">{fmt(totalUsed)}</span>
           <span class="legend-div">/</span>
           <span class="legend-limit">{fmt(st.context.limit)}</span>
@@ -259,9 +279,20 @@
                 style={`--plan-color: ${item.state === 'done' ? 'var(--success)' : item.state === 'active' ? 'var(--accent)' : 'var(--text-muted)'}`}
                 aria-hidden="true"
               >
-                <Icon name={item.state === 'done' ? 'task_alt' : item.state === 'active' ? 'radio_button_checked' : 'radio_button_unchecked'} size={15} />
+                <Icon
+                  name={item.state === 'done'
+                    ? 'task_alt'
+                    : item.state === 'active'
+                      ? 'radio_button_checked'
+                      : 'radio_button_unchecked'}
+                  size={15}
+                />
               </span>
-              <span class="plan-label" class:done={item.state === 'done'} class:todo={item.state === 'todo'}>{item.label}</span>
+              <span
+                class="plan-label"
+                class:done={item.state === 'done'}
+                class:todo={item.state === 'todo'}>{item.label}</span
+              >
             </div>
           {/each}
         </div>
@@ -280,7 +311,9 @@
             <!-- TODO(agents): backend events — this pane is ready but empty. -->
             <div class="upcoming">
               <span class="upcoming-pill">upcoming</span>
-              <span class="upcoming-text">Sub-agents and detached processes will appear here with a live console.</span>
+              <span class="upcoming-text"
+                >Sub-agents and detached processes will appear here with a live console.</span
+              >
             </div>
           {:else}
             <div class="agent-tree">
@@ -293,7 +326,9 @@
                   onclick={() => selectNode(n.id)}
                 >
                   {#if n.depth > 0}<span class="stem" aria-hidden="true"></span>{/if}
-                  <span class="node-ico" aria-hidden="true"><Icon name={n.icon as never} size={14} /></span>
+                  <span class="node-ico" aria-hidden="true"
+                    ><Icon name={n.icon as never} size={14} /></span
+                  >
                   <span class="node-name" class:proc={!n.isAgent}>{n.name}</span>
                   <StatusDot color={n.dotColor} live={n.pulse} size={5} />
                   <span class="node-meta">{n.meta}</span>
@@ -307,7 +342,10 @@
                   <Icon name={procIsAgent ? 'account_tree' : 'terminal'} size={14} />
                 </span>
                 <span class="c-cmd">{proc?.name ?? 'nothing selected'}</span>
-                <span class="c-state" style={`color:${procColor}; background:color-mix(in oklch, ${procColor} 13%, transparent)`}>
+                <span
+                  class="c-state"
+                  style={`color:${procColor}; background:color-mix(in oklch, ${procColor} 13%, transparent)`}
+                >
                   {procIsAgent ? (procState === 'done' ? 'finished' : procState) : procState}
                 </span>
                 {#if proc}<span class="c-meta">{proc.meta}</span>{/if}
@@ -322,7 +360,9 @@
                   maxHeight={132}
                   anchorBottom={procLive && agents.follow}
                 />
-                {#if procLive && agents.follow}<div class="c-caret" style={`color:${procColor}`}>▌</div>{/if}
+                {#if procLive && agents.follow}<div class="c-caret" style={`color:${procColor}`}>
+                    ▌
+                  </div>{/if}
               </div>
               <div class="console-foot">
                 <button class="follow" class:on={agents.follow} onclick={toggleFollow}>
@@ -357,9 +397,7 @@
               <span class="file-path" title={f.path}>{f.path}</span>
               <span class="add">+{f.added}</span>
               <span class="remove">−{f.removed}</span>
-              <span
-                class="churn"
-                style={`--bar: ${f.color}; --w: ${f.barW}px; --d: ${f.delay}ms`}
+              <span class="churn" style={`--bar: ${f.color}; --w: ${f.barW}px; --d: ${f.delay}ms`}
               ></span>
             </button>
           {/each}
@@ -370,7 +408,8 @@
             <div class="git-row stagger" style={`--i:${i}`}>
               <span class="git-mark" style={`--mark: ${g.color}`}>{g.mark}</span>
               <span class="git-path">{g.path}</span>
-              <span class="churn" style={`--bar: ${g.color}; --w: ${g.barW}px; --d: ${i * 70}ms`}></span>
+              <span class="churn" style={`--bar: ${g.color}; --w: ${g.barW}px; --d: ${i * 70}ms`}
+              ></span>
             </div>
           {/each}
         </div>
@@ -548,8 +587,12 @@
     text-overflow: ellipsis;
     white-space: nowrap;
   }
-  .cost-meta { color: var(--text-muted); }
-  .cost-amt { color: var(--text-secondary); }
+  .cost-meta {
+    color: var(--text-muted);
+  }
+  .cost-amt {
+    color: var(--text-secondary);
+  }
 
   /* Panel tabs (design panelTabs): flex-1 buttons, accent underline. */
   .panel-tabs {
@@ -575,7 +618,10 @@
     font-size: 12px;
     cursor: pointer;
     white-space: nowrap;
-    transition: color 0.2s ease, border-color 0.2s ease, background 0.2s ease;
+    transition:
+      color 0.2s ease,
+      border-color 0.2s ease,
+      background 0.2s ease;
   }
   .ptab:hover {
     color: var(--text-primary);
@@ -678,9 +724,15 @@
     font-size: 11px;
     margin-bottom: 10px;
   }
-  .git-add { color: var(--success); }
-  .git-del { color: var(--danger); }
-  .git-files { color: var(--text-muted); }
+  .git-add {
+    color: var(--success);
+  }
+  .git-del {
+    color: var(--danger);
+  }
+  .git-files {
+    color: var(--text-muted);
+  }
   .file-row {
     display: flex;
     align-items: center;
@@ -694,7 +746,9 @@
     text-align: left;
     transition: background 0.2s ease;
   }
-  .file-row:hover { background: var(--surface-hover); }
+  .file-row:hover {
+    background: var(--surface-hover);
+  }
   .file-badge {
     width: 16px;
     height: 16px;
@@ -952,7 +1006,10 @@
     border: 1px solid var(--border-default);
     background: transparent;
     color: var(--text-muted);
-    transition: background 0.2s ease, color 0.2s ease, border-color 0.2s ease;
+    transition:
+      background 0.2s ease,
+      color 0.2s ease,
+      border-color 0.2s ease;
   }
   .follow :global(.msr) {
     font-size: 13px;

@@ -1,10 +1,10 @@
 <script lang="ts">
-  import Toggle from '../../../components/Toggle.svelte'
-  import Card from '../../../components/Card.svelte'
-  import SettingRow from '../../../components/SettingRow.svelte'
-  import { getVerificationSettings, setVerificationSettings } from '../../../lib/tauri'
-  import type { VerificationSettings } from '../../../lib/types'
-  import SettingsHeader from '../../../components/SettingsHeader.svelte'
+  import Toggle from '../../../components/Toggle.svelte';
+  import Card from '../../../components/Card.svelte';
+  import SettingRow from '../../../components/SettingRow.svelte';
+  import { getVerificationSettings, setVerificationSettings } from '../../../lib/tauri';
+  import type { VerificationSettings } from '../../../lib/types';
+  import SettingsHeader from '../../../components/SettingsHeader.svelte';
 
   let s = $state<VerificationSettings>({
     enabled: true,
@@ -13,19 +13,19 @@
     maxRounds: 2,
     reviewerModel: null,
     testCommand: null,
-  })
-  let loaded = $state(false)
+  });
+  let loaded = $state(false);
 
   $effect(() => {
     getVerificationSettings().then((v) => {
-      s = v
-      loaded = true
-    })
-  })
+      s = v;
+      loaded = true;
+    });
+  });
 
   function patch(p: Partial<VerificationSettings>) {
-    s = { ...s, ...p }
-    setVerificationSettings(s)
+    s = { ...s, ...p };
+    setVerificationSettings(s);
   }
 </script>
 
@@ -37,14 +37,20 @@
   />
 
   <Card>
-    <SettingRow label="Verify finished turns" desc="Master switch — off means the loop ends exactly as before (no checks, no review)">
+    <SettingRow
+      label="Verify finished turns"
+      desc="Master switch — off means the loop ends exactly as before (no checks, no review)"
+    >
       <Toggle
         label="Verify finished turns"
         bind:checked={s.enabled}
         onChange={(v) => patch({ enabled: v })}
       />
     </SettingRow>
-    <SettingRow label="Run project checks" desc="Deterministic — runs the project's test/check command (cargo test, npm test…) after the agent finishes. No model involved, zero tokens">
+    <SettingRow
+      label="Run project checks"
+      desc="Deterministic — runs the project's test/check command (cargo test, npm test…) after the agent finishes. No model involved, zero tokens"
+    >
       <Toggle
         label="Run project checks"
         bind:checked={s.runChecks}
@@ -52,7 +58,10 @@
         onChange={(v) => patch({ runChecks: v })}
       />
     </SettingRow>
-    <SettingRow label="Independent review" desc="One small model call with only the task + diff + check output (never the conversation). Costs a few thousand tokens per finished turn">
+    <SettingRow
+      label="Independent review"
+      desc="One small model call with only the task + diff + check output (never the conversation). Costs a few thousand tokens per finished turn"
+    >
       <Toggle
         label="Independent review"
         bind:checked={s.independentReview}
@@ -60,7 +69,10 @@
         onChange={(v) => patch({ independentReview: v })}
       />
     </SettingRow>
-    <SettingRow label="Fix rounds" desc="When verification fails, how many targeted fix attempts the agent gets before the report is surfaced to you (0 = report only)">
+    <SettingRow
+      label="Fix rounds"
+      desc="When verification fails, how many targeted fix attempts the agent gets before the report is surfaced to you (0 = report only)"
+    >
       <input
         class="num"
         type="number"
@@ -76,7 +88,10 @@
   </Card>
 
   <Card style="margin-bottom: 16px">
-    <SettingRow label="Test command override" desc="Leave empty to auto-detect (Cargo.toml → cargo check && cargo test; package.json → npm test / npm run check)">
+    <SettingRow
+      label="Test command override"
+      desc="Leave empty to auto-detect (Cargo.toml → cargo check && cargo test; package.json → npm test / npm run check)"
+    >
       <input
         class="text"
         type="text"
@@ -84,13 +99,16 @@
         value={s.testCommand ?? ''}
         disabled={!s.enabled || !s.runChecks}
         onchange={(e) => {
-          const v = (e.currentTarget as HTMLInputElement).value.trim()
-          patch({ testCommand: v ? v : null })
+          const v = (e.currentTarget as HTMLInputElement).value.trim();
+          patch({ testCommand: v ? v : null });
         }}
         aria-label="Test command override"
       />
     </SettingRow>
-    <SettingRow label="Reviewer model" desc="Model used for the independent review (same provider). Empty = same model as the session">
+    <SettingRow
+      label="Reviewer model"
+      desc="Model used for the independent review (same provider). Empty = same model as the session"
+    >
       <input
         class="text"
         type="text"
@@ -98,8 +116,8 @@
         value={s.reviewerModel ?? ''}
         disabled={!s.enabled || !s.independentReview}
         onchange={(e) => {
-          const v = (e.currentTarget as HTMLInputElement).value.trim()
-          patch({ reviewerModel: v ? v : null })
+          const v = (e.currentTarget as HTMLInputElement).value.trim();
+          patch({ reviewerModel: v ? v : null });
         }}
         aria-label="Reviewer model"
       />

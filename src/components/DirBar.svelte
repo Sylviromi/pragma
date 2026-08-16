@@ -1,107 +1,111 @@
 <script lang="ts">
-  import { open } from '@tauri-apps/plugin-dialog'
-  import { getSession, sessions } from '../stores/sessions.svelte'
-  import { statsFor } from '../stores/stats.svelte'
-  import { ui } from '../stores/ui.svelte'
-  import { updateSession } from '../lib/tauri'
-  import Icon from './Icon.svelte'
+  import { open } from '@tauri-apps/plugin-dialog';
+  import { getSession, sessions } from '../stores/sessions.svelte';
+  import { statsFor } from '../stores/stats.svelte';
+  import { ui } from '../stores/ui.svelte';
+  import { updateSession } from '../lib/tauri';
+  import Icon from './Icon.svelte';
 
   // Design working-directory bar (`Pragma UI Kit`): folder icon + parent/leaf
   // split path (click → dialog picker), git branch pill, files-touched meta.
-  let { sessionId }: { sessionId: string } = $props()
+  let { sessionId }: { sessionId: string } = $props();
 
-  const session = $derived(getSession(sessionId))
-  const workingDir = $derived(session?.workingDir ?? '')
-  const st = $derived(statsFor(sessionId))
+  const session = $derived(getSession(sessionId));
+  const workingDir = $derived(session?.workingDir ?? '');
+  const st = $derived(statsFor(sessionId));
 
   // Design v2 responsive dir bar: hide the git branch below 430px centre
   // width and the files-touched meta below 580px (centre = window minus the
   // rail and the right sidebar).
-  let centreW = $state(1200)
+  let centreW = $state(1200);
   $effect(() => {
     const onResize = () => {
-      const rail = ui.railOpen ? (window.innerWidth < 900 ? 200 : 224) : 0
-      const side = ui.sidebarOpen && window.innerWidth >= 900 ? 300 : 0
-      centreW = Math.max(0, window.innerWidth - rail - side)
-    }
-    onResize()
-    window.addEventListener('resize', onResize)
-    return () => window.removeEventListener('resize', onResize)
-  })
-  const showBranch = $derived(centreW >= 430)
-  const showDirMeta = $derived(centreW >= 580)
-  const showParent = $derived(centreW >= 360)
+      const rail = ui.railOpen ? (window.innerWidth < 900 ? 200 : 224) : 0;
+      const side = ui.sidebarOpen && window.innerWidth >= 900 ? 300 : 0;
+      centreW = Math.max(0, window.innerWidth - rail - side);
+    };
+    onResize();
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  });
+  const showBranch = $derived(centreW >= 430);
+  const showDirMeta = $derived(centreW >= 580);
+  const showParent = $derived(centreW >= 360);
 
   const dirParent = $derived.by(() => {
-    const i = workingDir.lastIndexOf('/')
-    return i > 0 ? workingDir.slice(0, i + 1) : ''
-  })
+    const i = workingDir.lastIndexOf('/');
+    return i > 0 ? workingDir.slice(0, i + 1) : '';
+  });
   const dirLeaf = $derived.by(() => {
-    const i = workingDir.lastIndexOf('/')
-    return i > 0 ? workingDir.slice(i + 1) : workingDir
-  })
+    const i = workingDir.lastIndexOf('/');
+    return i > 0 ? workingDir.slice(i + 1) : workingDir;
+  });
 
   // Recent directories: the distinct set of working dirs across sessions,
   // current session's first. Rows carry a hint of which sessions use them.
   const recents = $derived.by(() => {
-    const seen = new Set<string>()
-    const rows: { path: string; current: boolean; meta: string }[] = []
+    const seen = new Set<string>();
+    const rows: { path: string; current: boolean; meta: string }[] = [];
     const push = (path: string, current: boolean) => {
-      if (!path || seen.has(path)) return
-      seen.add(path)
-      const users = sessions.list.filter((s) => s.workingDir === path)
-      const names = users.map((u) => u.name).filter((n) => n && n !== 'new-session')
-      const meta = current ? 'current session' : names.length ? names.join(', ') : 'session'
-      rows.push({ path, current, meta })
-    }
-    if (workingDir) push(workingDir, true)
-    for (const s of sessions.list) push(s.workingDir ?? '', false)
-    return rows
-  })
+      if (!path || seen.has(path)) return;
+      seen.add(path);
+      const users = sessions.list.filter((s) => s.workingDir === path);
+      const names = users.map((u) => u.name).filter((n) => n && n !== 'new-session');
+      const meta = current ? 'current session' : names.length ? names.join(', ') : 'session';
+      rows.push({ path, current, meta });
+    };
+    if (workingDir) push(workingDir, true);
+    for (const s of sessions.list) push(s.workingDir ?? '', false);
+    return rows;
+  });
 
   const dirOptions = $derived(
-    recents.filter((d) => !search || d.path.toLowerCase().includes(search.toLowerCase()))
-  )
+    recents.filter((d) => !search || d.path.toLowerCase().includes(search.toLowerCase())),
+  );
 
-  const changed = $derived(st.files.filter((f) => f.kind !== 'read').length)
-  const dirMeta = $derived(`${st.files.length} files touched${changed ? ` · ${changed} changed` : ''}`)
+  const changed = $derived(st.files.filter((f) => f.kind !== 'read').length);
+  const dirMeta = $derived(
+    `${st.files.length} files touched${changed ? ` · ${changed} changed` : ''}`,
+  );
 
   // Picker dialog lifecycle: open → render with entrance animations; closing
   // flags `exiting` to play dialogOut/fadeOut before unmount.
-  let pickerOpen = $state(false)
-  let exiting = $state(false)
-  let mapped = $state(false) // mounted (post entrance) — powers rowIn staggers
-  let search = $state('')
-  let choice = $state('')
+  let pickerOpen = $state(false);
+  let exiting = $state(false);
+  let mapped = $state(false); // mounted (post entrance) — powers rowIn staggers
+  let search = $state('');
+  let choice = $state('');
 
   function openPicker() {
-    choice = workingDir
-    search = ''
-    pickerOpen = true
-    mapped = false
-    requestAnimationFrame(() => (mapped = true))
+    choice = workingDir;
+    search = '';
+    pickerOpen = true;
+    mapped = false;
+    requestAnimationFrame(() => (mapped = true));
   }
   function closePicker() {
-    if (!pickerOpen || exiting) return
-    exiting = true
+    if (!pickerOpen || exiting) return;
+    exiting = true;
     setTimeout(() => {
-      pickerOpen = false
-      exiting = false
-    }, 240)
+      pickerOpen = false;
+      exiting = false;
+    }, 240);
   }
   function confirmDir() {
-    if (!choice) return
-    applyDir(choice)
+    if (!choice) return;
+    applyDir(choice);
   }
   async function applyDir(path: string) {
-    if (!path) return
+    if (!path) return;
     try {
-      await updateSession(sessionId, session?.model ?? '', session?.provider ?? '', path)
+      await updateSession(sessionId, session?.model ?? '', session?.provider ?? '', path);
       sessions.list = sessions.list.map((s) =>
-        s.id === sessionId ? { ...s, workingDir: path } : s
-      )
-    } catch { /* keep previous dir on failure */ }
-    closePicker()
+        s.id === sessionId ? { ...s, workingDir: path } : s,
+      );
+    } catch {
+      /* keep previous dir on failure */
+    }
+    closePicker();
   }
   // System file picker — falls back through the same apply path.
   async function browseDir() {
@@ -109,16 +113,16 @@
       directory: true,
       multiple: false,
       defaultPath: workingDir || undefined,
-    })
-    if (!selected || typeof selected !== 'string') return
-    await applyDir(selected)
+    });
+    if (!selected || typeof selected !== 'string') return;
+    await applyDir(selected);
   }
 
   // ESC closes the dialog; the backdrop click also closes it.
   function onKey(e: KeyboardEvent) {
     if (e.key === 'Escape' && pickerOpen) {
-      e.preventDefault()
-      closePicker()
+      e.preventDefault();
+      closePicker();
     }
   }
 </script>
@@ -137,7 +141,11 @@
     {#if workingDir}
       <!-- parent + leaf are one flex child so the path reads as a single
            continuous string (no flex gap between muted parent / leaf). -->
-      <span class="path"><span class="parent" class:hidden={!showParent}>{dirParent}</span><span class="leaf">{dirLeaf}</span></span>
+      <span class="path"
+        ><span class="parent" class:hidden={!showParent}>{dirParent}</span><span class="leaf"
+          >{dirLeaf}</span
+        ></span
+      >
     {:else}
       <span class="leaf placeholder">Set working directory</span>
     {/if}
@@ -154,12 +162,31 @@
 </div>
 
 {#if pickerOpen}
-  <div class="backdrop" class:out={exiting} onclick={closePicker} onkeydown={(e) => { if (e.key === 'Escape') closePicker() }} role="presentation">
-    <div class="dialog" role="dialog" aria-modal="true" aria-label="Select a directory to work on" class:out={exiting} tabindex="-1" onclick={(e) => e.stopPropagation()} onkeydown={(e) => e.stopPropagation()}>
+  <div
+    class="backdrop"
+    class:out={exiting}
+    onclick={closePicker}
+    onkeydown={(e) => {
+      if (e.key === 'Escape') closePicker();
+    }}
+    role="presentation"
+  >
+    <div
+      class="dialog"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Select a directory to work on"
+      class:out={exiting}
+      tabindex="-1"
+      onclick={(e) => e.stopPropagation()}
+      onkeydown={(e) => e.stopPropagation()}
+    >
       <div class="dh">
         <span class="dh-ico" aria-hidden="true"><Icon name="drive_folder_upload" size={18} /></span>
         <span class="dh-title">Select a directory to work on</span>
-        <button class="x" aria-label="Close" onclick={closePicker}><Icon name="close" size={17} /></button>
+        <button class="x" aria-label="Close" onclick={closePicker}
+          ><Icon name="close" size={17} /></button
+        >
       </div>
       <div class="dsearch">
         <Icon name="search" size={16} />
@@ -175,13 +202,23 @@
           <div class="dlist-empty">No matching directories — try Browse…</div>
         {/if}
         {#each dirOptions as d, i (d.path)}
-          <button class="drow" class:picked={d.path === choice} class:staggered={mapped} style={`--i:${i}`} onclick={() => (choice = d.path)}>
-            <span class="d-ico" class:picked={d.path === choice} aria-hidden="true"><Icon name={d.current ? 'folder_open' : 'folder'} size={18} /></span>
+          <button
+            class="drow"
+            class:picked={d.path === choice}
+            class:staggered={mapped}
+            style={`--i:${i}`}
+            onclick={() => (choice = d.path)}
+          >
+            <span class="d-ico" class:picked={d.path === choice} aria-hidden="true"
+              ><Icon name={d.current ? 'folder_open' : 'folder'} size={18} /></span
+            >
             <span class="d-copy">
               <span class="d-path">{d.path}</span>
               <span class="d-meta">{d.meta}</span>
             </span>
-            {#if d.path === choice}<span class="d-check" aria-hidden="true"><Icon name="check" size={15} /></span>{/if}
+            {#if d.path === choice}<span class="d-check" aria-hidden="true"
+                ><Icon name="check" size={15} /></span
+              >{/if}
           </button>
         {/each}
       </div>
@@ -366,13 +403,18 @@
     display: flex;
     padding: 3px;
     border-radius: 3px;
-    transition: color 0.18s ease, background 0.18s ease;
+    transition:
+      color 0.18s ease,
+      background 0.18s ease;
   }
   .x:hover {
     color: var(--text-primary);
     background: var(--surface-hover);
   }
-  .x :global(.msr) { font-size: 17px; line-height: 1; }
+  .x :global(.msr) {
+    font-size: 17px;
+    line-height: 1;
+  }
   .dsearch {
     display: flex;
     align-items: center;
@@ -419,7 +461,9 @@
     cursor: pointer;
     text-align: left;
     color: var(--text-primary);
-    transition: background 0.2s ease, border-color 0.2s ease;
+    transition:
+      background 0.2s ease,
+      border-color 0.2s ease;
   }
   .drow:hover {
     background: var(--surface-hover);
@@ -486,7 +530,9 @@
     padding: 11px 18px 14px;
     border-top: 1px solid var(--border-subtle);
   }
-  .flex { flex: 1; }
+  .flex {
+    flex: 1;
+  }
   .ghost {
     display: flex;
     align-items: center;
@@ -499,13 +545,18 @@
     padding: 7px 10px;
     cursor: pointer;
     border-radius: var(--radius-sm);
-    transition: color 0.18s ease, background 0.18s ease;
+    transition:
+      color 0.18s ease,
+      background 0.18s ease;
   }
   .ghost:hover {
     color: var(--text-primary);
     background: var(--surface-hover);
   }
-  .ghost :global(.msr) { font-size: 15px; line-height: 1; }
+  .ghost :global(.msr) {
+    font-size: 15px;
+    line-height: 1;
+  }
   .go {
     background: var(--accent);
     color: var(--accent-on);
@@ -516,7 +567,9 @@
     font-weight: 600;
     font-size: 13px;
     cursor: pointer;
-    transition: background 0.2s ease, transform 0.15s ease;
+    transition:
+      background 0.2s ease,
+      transform 0.15s ease;
   }
   .go:hover {
     background: var(--accent-hover);

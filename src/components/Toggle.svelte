@@ -9,17 +9,17 @@
     disabled = false,
     size = 'md',
   }: {
-    checked?: boolean
-    onChange?: (v: boolean) => void
-    label?: string
-    disabled?: boolean
-    size?: 'sm' | 'md'
-  } = $props()
+    checked?: boolean;
+    onChange?: (v: boolean) => void;
+    label?: string;
+    disabled?: boolean;
+    size?: 'sm' | 'md';
+  } = $props();
 
   function toggle() {
-    if (disabled) return
-    checked = !checked
-    onChange?.(checked)
+    if (disabled) return;
+    checked = !checked;
+    onChange?.(checked);
   }
 </script>
 
@@ -32,7 +32,7 @@
   title={label}
   role="switch"
   onclick={toggle}
-  disabled={disabled}
+  {disabled}
 >
   <span class="knob" aria-hidden="true"></span>
 </button>
@@ -69,7 +69,9 @@
     border-radius: 1px;
     background: var(--bg-elevated);
     display: block;
-    transition: left 0.28s cubic-bezier(0.22, 0.8, 0.3, 1), background 0.28s ease;
+    transition:
+      left 0.28s cubic-bezier(0.22, 0.8, 0.3, 1),
+      background 0.28s ease;
   }
   .toggle.on .knob {
     left: calc(100% - 16px);

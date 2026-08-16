@@ -1,11 +1,11 @@
 <script lang="ts">
-  import { sessions, newSession, closeTab } from '../stores/sessions.svelte'
-  import { chat, STATUS_META, type AgentStatus } from '../stores/chat.svelte'
-  import { toggleRail, toggleSidebar, ui } from '../stores/ui.svelte'
-  import { sessionTint } from '../lib/tint'
-  import Logo from './Logo.svelte'
-  import Icon from './Icon.svelte'
-  import StatusDot from './StatusDot.svelte'
+  import { sessions, newSession, closeTab } from '../stores/sessions.svelte';
+  import { chat, STATUS_META, type AgentStatus } from '../stores/chat.svelte';
+  import { toggleRail, toggleSidebar, ui } from '../stores/ui.svelte';
+  import { sessionTint } from '../lib/tint';
+  import Logo from './Logo.svelte';
+  import Icon from './Icon.svelte';
+  import StatusDot from './StatusDot.svelte';
 
   // Design tab bar (`Pragma UI Kit v2.dc.html`): slim chrome — logo block,
   // session-rail toggle, the ACTIVE session's dot + name + status, and the
@@ -14,47 +14,44 @@
 
   const active = $derived(
     sessions.activeTabId
-      ? sessions.list.find((s) => s.id === sessions.activeTabId) ?? null
-      : null
-  )
+      ? (sessions.list.find((s) => s.id === sessions.activeTabId) ?? null)
+      : null,
+  );
   const activeStatus = $derived(
-    ((sessions.activeTabId ? chat.status[sessions.activeTabId] : undefined) ?? 'idle') as AgentStatus
-  )
-  const statusMeta = $derived(STATUS_META[activeStatus])
-  const tint = $derived(sessionTint(sessions.activeTabId))
-  const activeDot = $derived(
-    activeStatus === 'idle'
-      ? tint
-      : statusMeta.color
-  )
+    ((sessions.activeTabId ? chat.status[sessions.activeTabId] : undefined) ??
+      'idle') as AgentStatus,
+  );
+  const statusMeta = $derived(STATUS_META[activeStatus]);
+  const tint = $derived(sessionTint(sessions.activeTabId));
+  const activeDot = $derived(activeStatus === 'idle' ? tint : statusMeta.color);
 
   // Global session shortcuts stay available with the rail UI (Ctrl+T new,
   // Ctrl+W close, Ctrl+B rail, Ctrl+Tab switch).
   $effect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (!(e.ctrlKey || e.metaKey)) return
-      const k = e.key.toLowerCase()
+      if (!(e.ctrlKey || e.metaKey)) return;
+      const k = e.key.toLowerCase();
       if (k === 't') {
-        e.preventDefault()
-        newSession()
+        e.preventDefault();
+        newSession();
       } else if (k === 'w') {
-        e.preventDefault()
-        if (sessions.activeTabId) closeTab(sessions.activeTabId)
+        e.preventDefault();
+        if (sessions.activeTabId) closeTab(sessions.activeTabId);
       } else if (k === 'b') {
-        e.preventDefault()
-        toggleRail()
+        e.preventDefault();
+        toggleRail();
       } else if (k === 'tab') {
-        e.preventDefault()
-        const ids = sessions.openTabs
-        if (ids.length < 2 || !sessions.activeTabId) return
-        const idx = ids.indexOf(sessions.activeTabId)
-        const next = ids[(idx + 1) % ids.length]
-        sessions.activeTabId = next
+        e.preventDefault();
+        const ids = sessions.openTabs;
+        if (ids.length < 2 || !sessions.activeTabId) return;
+        const idx = ids.indexOf(sessions.activeTabId);
+        const next = ids[(idx + 1) % ids.length];
+        sessions.activeTabId = next;
       }
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  })
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  });
 </script>
 
 <div class="tab-bar" aria-label="App bar">
@@ -74,7 +71,11 @@
   </button>
 
   <!-- Active session: tinted status dot + name + mono status label. -->
-  <div class="active" role="status" aria-label={active ? `${active.name} — ${statusMeta.label}` : 'No session'}>
+  <div
+    class="active"
+    role="status"
+    aria-label={active ? `${active.name} — ${statusMeta.label}` : 'No session'}
+  >
     {#if active}
       <StatusDot color={activeDot} live={activeStatus !== 'idle'} size={7} />
       <span class="active-name" title={active.name}>{active.name}</span>
@@ -120,7 +121,9 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    transition: color 0.2s ease, background 0.2s ease;
+    transition:
+      color 0.2s ease,
+      background 0.2s ease;
   }
   .rail-toggle:hover {
     color: var(--text-primary);

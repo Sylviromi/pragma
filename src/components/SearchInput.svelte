@@ -4,8 +4,8 @@
   // and the directory picker. `variant` covers the bordered box (settings
   // pages) vs. the underline field (dropdowns, pickers); `mono` switches to
   // the mono typeface (registry + dir picker).
-  import Icon from './Icon.svelte'
-  import type { Snippet } from 'svelte'
+  import Icon from './Icon.svelte';
+  import type { Snippet } from 'svelte';
 
   let {
     value = $bindable(''),
@@ -19,19 +19,19 @@
     inputEl = $bindable(null),
     class: klass = '',
   }: {
-    value?: string
-    placeholder?: string
-    label?: string
-    mono?: boolean
-    variant?: 'box' | 'underline'
-    icon?: string
-    onkeydown?: (e: KeyboardEvent) => void
+    value?: string;
+    placeholder?: string;
+    label?: string;
+    mono?: boolean;
+    variant?: 'box' | 'underline';
+    icon?: string;
+    onkeydown?: (e: KeyboardEvent) => void;
     /** Extra content at the row's end (e.g. a result count). */
-    trailing?: Snippet
+    trailing?: Snippet;
     /** Bound to the inner <input> element (dropdowns focus it on open). */
-    inputEl?: HTMLInputElement | null
-    class?: string
-  } = $props()
+    inputEl?: HTMLInputElement | null;
+    class?: string;
+  } = $props();
 </script>
 
 <div class={`search ${variant}${mono ? ' mono' : ''}${klass ? ' ' + klass : ''}`}>

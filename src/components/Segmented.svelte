@@ -9,23 +9,27 @@
     mono = false,
     class: klass = '',
   }: {
-    options: { value: string; label: string }[]
-    value: string
-    onchange?: (v: string) => void
-    ariaLabel?: string
-    mono?: boolean
-    class?: string
-  } = $props()
+    options: { value: string; label: string }[];
+    value: string;
+    onchange?: (v: string) => void;
+    ariaLabel?: string;
+    mono?: boolean;
+    class?: string;
+  } = $props();
 </script>
 
-<div class={`segmented${mono ? ' mono' : ''}${klass ? ' ' + klass : ''}`} role="group" aria-label={ariaLabel}>
+<div
+  class={`segmented${mono ? ' mono' : ''}${klass ? ' ' + klass : ''}`}
+  role="group"
+  aria-label={ariaLabel}
+>
   {#each options as o (o.value)}
     <button
       class="seg"
       class:active={value === o.value}
       onclick={() => onchange?.(o.value)}
-      aria-pressed={value === o.value}
-    >{o.label}</button>
+      aria-pressed={value === o.value}>{o.label}</button
+    >
   {/each}
 </div>
 
@@ -47,7 +51,9 @@
     cursor: pointer;
     background: transparent;
     color: var(--text-secondary);
-    transition: background 0.18s ease, color 0.18s ease;
+    transition:
+      background 0.18s ease,
+      color 0.18s ease;
   }
   .seg:hover {
     color: var(--text-primary);

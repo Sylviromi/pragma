@@ -8,12 +8,12 @@
     size = 6,
     class: klass = '',
   }: {
-    color?: string
+    color?: string;
     /** Pulse with cursorblink while live/running. */
-    live?: boolean
-    size?: number
-    class?: string
-  } = $props()
+    live?: boolean;
+    size?: number;
+    class?: string;
+  } = $props();
 </script>
 
 <span

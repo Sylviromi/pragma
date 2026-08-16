@@ -2,11 +2,11 @@
   // Centered "what's new" dialog, shown once per version when an update is
   // available. Readable changelog + Skip (persists per-version; Settings →
   // Update still shows the update) + Install & restart.
-  import { updater, installUpdate, dismissDialog } from '../stores/updater.svelte'
-  import Modal from './Modal.svelte'
-  import Button from './Button.svelte'
-  import Changelog from './Changelog.svelte'
-  import CornerMarks from './CornerMarks.svelte'
+  import { updater, installUpdate, dismissDialog } from '../stores/updater.svelte';
+  import Modal from './Modal.svelte';
+  import Button from './Button.svelte';
+  import Changelog from './Changelog.svelte';
+  import CornerMarks from './CornerMarks.svelte';
 </script>
 
 {#if updater.showDialog && updater.available}
@@ -27,7 +27,12 @@
           <div class="eyebrow">New version available</div>
           <h2 id="upd-title">Pragma {avail.version}</h2>
         </div>
-        <button class="x" onclick={dismissDialog} aria-label="Skip this version" title="Skip this version">×</button>
+        <button
+          class="x"
+          onclick={dismissDialog}
+          aria-label="Skip this version"
+          title="Skip this version">×</button
+        >
       </div>
     {/snippet}
 
@@ -40,8 +45,19 @@
     {/if}
 
     {#snippet footer()}
-      <Button variant="ghost" flat class="upd-btn" onclick={dismissDialog} disabled={updater.installing}>Skip this version</Button>
-      <Button variant="primary" class="upd-btn" onclick={installUpdate} disabled={updater.installing}>
+      <Button
+        variant="ghost"
+        flat
+        class="upd-btn"
+        onclick={dismissDialog}
+        disabled={updater.installing}>Skip this version</Button
+      >
+      <Button
+        variant="primary"
+        class="upd-btn"
+        onclick={installUpdate}
+        disabled={updater.installing}
+      >
         {updater.installing ? 'Downloading…' : 'Install & restart'}
       </Button>
     {/snippet}
@@ -80,7 +96,9 @@
     cursor: pointer;
     padding: 0 2px;
   }
-  .x:hover { color: var(--text-primary); }
+  .x:hover {
+    color: var(--text-primary);
+  }
 
   /* Scrollable middle section between the fixed head and footer. */
   .changelog-scroll {

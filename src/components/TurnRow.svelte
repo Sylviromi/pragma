@@ -2,17 +2,17 @@
   // Assistant turn row — agent mark avatar + body column (audit A3).
   // Previously duplicated between ChatMessage (persisted turns) and
   // MessageList (live turns).
-  import AgentMark from './AgentMark.svelte'
-  import { sessionTint } from '../lib/tint'
-  import type { Snippet } from 'svelte'
+  import AgentMark from './AgentMark.svelte';
+  import { sessionTint } from '../lib/tint';
+  import type { Snippet } from 'svelte';
 
   let {
     sessionId,
     children,
   }: {
-    sessionId: string
-    children?: Snippet
-  } = $props()
+    sessionId: string;
+    children?: Snippet;
+  } = $props();
 </script>
 
 <div class="turn-row">

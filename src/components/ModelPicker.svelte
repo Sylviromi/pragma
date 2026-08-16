@@ -1,53 +1,53 @@
 <script lang="ts">
-  import { onMount } from 'svelte'
-  import { fly } from 'svelte/transition'
-  import { loadProviders, providerState } from '../stores/providers.svelte'
-  import { theme, uiScaleFactor } from '../stores/theme.svelte'
-  import SlotStack from './SlotStack.svelte'
-  import Icon from './Icon.svelte'
-  import SearchInput from './SearchInput.svelte'
-  import Pill from './Pill.svelte'
-  import type { ProviderInfo, ThinkingPref } from '../lib/types'
+  import { onMount } from 'svelte';
+  import { fly } from 'svelte/transition';
+  import { loadProviders, providerState } from '../stores/providers.svelte';
+  import { theme, uiScaleFactor } from '../stores/theme.svelte';
+  import SlotStack from './SlotStack.svelte';
+  import Icon from './Icon.svelte';
+  import SearchInput from './SearchInput.svelte';
+  import Pill from './Pill.svelte';
+  import type { ProviderInfo, ThinkingPref } from '../lib/types';
 
   let {
     model = $bindable(''),
     provider = $bindable(''),
     thinking = $bindable<ThinkingPref>('auto'),
-    thinkingSupported = $bindable(false)
+    thinkingSupported = $bindable(false),
   }: {
-    model: string
-    provider: string
-    thinking: ThinkingPref
+    model: string;
+    provider: string;
+    thinking: ThinkingPref;
     /** Exposes whether the selected model supports thinking (drives the
      *  composer's inline effort chips in InputArea). */
-    thinkingSupported?: boolean
-  } = $props()
+    thinkingSupported?: boolean;
+  } = $props();
 
-  let open = $state(false)
-  let search = $state('')
-  let el = $state<HTMLElement | null>(null)
-  let searchInput = $state<HTMLInputElement | null>(null)
+  let open = $state(false);
+  let search = $state('');
+  let el = $state<HTMLElement | null>(null);
+  let searchInput = $state<HTMLInputElement | null>(null);
   /* Dropdown is position:fixed so it escapes the footer's overflow clipping
      (the footer must scroll on narrow windows, which makes it a clipping
      scroll container — an upward-opening absolute dropdown inside it gets
      cut off). Anchor it to the chip's on-screen position instead. */
-  let anchor = $state<{ top: number; left: number } | null>(null)
+  let anchor = $state<{ top: number; left: number } | null>(null);
 
   $effect(() => {
     if (open) {
-      const r = el?.querySelector('.chip')?.getBoundingClientRect()
+      const r = el?.querySelector('.chip')?.getBoundingClientRect();
       // The dropdown is position:fixed; under the app's interface-scale
       // transform (#app) fixed anchors to the app's layout box, so viewport
       // (visual) coordinates must be divided by the scale factor.
-      const s = uiScaleFactor()
-      anchor = r ? { top: (r.top - 6) / s, left: r.left / s } : null
-      searchInput?.focus()
+      const s = uiScaleFactor();
+      anchor = r ? { top: (r.top - 6) / s, left: r.left / s } : null;
+      searchInput?.focus();
     }
-  })
+  });
 
   onMount(async () => {
-    await loadProviders()
-  })
+    await loadProviders();
+  });
 
   // NOTE: there is deliberately NO auto-selection here. Loading a plugin with
   // models (or discovery landing after mount) refreshes the provider list —
@@ -57,9 +57,7 @@
 
   // Only providers the user can actually use: api-key providers need at
   // least one configured key; "none" providers are always usable.
-  const usable = $derived(
-    (p: ProviderInfo) => p.auth !== 'api-key' || p.hasKey
-  )
+  const usable = $derived((p: ProviderInfo) => p.auth !== 'api-key' || p.hasKey);
 
   const filtered = $derived(
     providerState.providers
@@ -70,23 +68,23 @@
           (m) =>
             !search ||
             m.name.toLowerCase().includes(search.toLowerCase()) ||
-            m.id.toLowerCase().includes(search.toLowerCase())
-        )
+            m.id.toLowerCase().includes(search.toLowerCase()),
+        ),
       }))
-      .filter((p) => p.models.length > 0)
-  )
+      .filter((p) => p.models.length > 0),
+  );
 
   const current = $derived(
     providerState.providers
       .flatMap((p) => p.models.map((m) => ({ ...m, pid: p.id, pname: p.name })))
-      .find((m) => m.id === model && m.pid === provider)
-  )
+      .find((m) => m.id === model && m.pid === provider),
+  );
 
   function select(pid: string, mid: string) {
-    provider = pid
-    model = mid
-    open = false
-    search = ''
+    provider = pid;
+    model = mid;
+    open = false;
+    search = '';
   }
 
   // Thinking controls. The available levels adapt to the selected model:
@@ -94,13 +92,13 @@
   // qwen3, …) get off/auto/low/medium/high; thinking-but-fixed models
   // (Claude 3.7) get just off/auto; non-thinking models get a muted disabled
   // row. `thinking` lives in the chat store per session via the parent.
-  const canThink = $derived(current?.supportsThinking ?? false)
-  const canLevels = $derived(current?.supportsThinkingLevels ?? false)
+  const canThink = $derived(current?.supportsThinking ?? false);
+  const canLevels = $derived(current?.supportsThinkingLevels ?? false);
   const levels: ThinkingPref[] = $derived(
-    canLevels ? ['off', 'auto', 'low', 'medium', 'high'] : ['off', 'auto']
-  )
+    canLevels ? ['off', 'auto', 'low', 'medium', 'high'] : ['off', 'auto'],
+  );
   const levelLabel = (l: ThinkingPref) =>
-    l === 'auto' ? 'Auto' : l === 'off' ? 'Off' : l[0].toUpperCase() + l.slice(1)
+    l === 'auto' ? 'Auto' : l === 'off' ? 'Off' : l[0].toUpperCase() + l.slice(1);
   const thinkHint = $derived(
     !current
       ? 'Enable when supported'
@@ -108,20 +106,20 @@
         ? 'Model does not support'
         : canLevels
           ? 'Off · Auto · Low · Med · High'
-          : 'Fixed level — Off or Auto'
-  )
-  let levelMenuOpen = $state(false)
+          : 'Fixed level — Off or Auto',
+  );
+  let levelMenuOpen = $state(false);
   $effect(() => {
     // Close the level menu when the model changes (its options/meaning shift).
-    if (model || provider) levelMenuOpen = false
-  })
+    if (model || provider) levelMenuOpen = false;
+  });
 
   // Expose thinking capability to the composer's inline effort chips.
-  const thinkingSupportedDerived = $derived(current?.supportsThinking ?? false)
+  const thinkingSupportedDerived = $derived(current?.supportsThinking ?? false);
   $effect(() => {
-    thinkingSupported = thinkingSupportedDerived
-  })
-  const thinkingOn = $derived(thinkingSupportedDerived && thinking !== 'off')
+    thinkingSupported = thinkingSupportedDerived;
+  });
+  const thinkingOn = $derived(thinkingSupportedDerived && thinking !== 'off');
 </script>
 
 <svelte:window
@@ -131,7 +129,7 @@
     // bubbling reaches window (e.g. picking a thinking level removes the menu,
     // detaching the clicked button — el.contains would then return false and
     // wrongly close the whole picker).
-    if (el && !e.composedPath().includes(el)) open = false
+    if (el && !e.composedPath().includes(el)) open = false;
   }}
 />
 
@@ -177,9 +175,10 @@
       </div>
       <div class="list">
         {#each filtered as p (p.id)}
-          <div class="group-label"
-            >{p.name.toUpperCase()}{#if p.source !== 'builtin'} <span class="plugin-tag">· plugin</span>{/if}</div
-          >
+          <div class="group-label">
+            {p.name.toUpperCase()}{#if p.source !== 'builtin'}
+              <span class="plugin-tag">· plugin</span>{/if}
+          </div>
           {#each p.models as m (m.id)}
             <button
               class="row"
@@ -199,7 +198,9 @@
               {/if}
               {#if m.isFree}<span class="rmeta free">free</span>{/if}
               {#if m.supportsThinking}<span class="rmeta think">think</span>{/if}
-              {#if m.id === model && p.id === provider}<span class="check" aria-hidden="true"><Icon name="check" size={13} /></span>{/if}
+              {#if m.id === model && p.id === provider}<span class="check" aria-hidden="true"
+                  ><Icon name="check" size={13} /></span
+                >{/if}
             </button>
           {/each}
         {/each}
@@ -231,8 +232,8 @@
               class="tm-opt"
               class:sel={thinking === l}
               onclick={() => {
-                thinking = l
-                levelMenuOpen = false
+                thinking = l;
+                levelMenuOpen = false;
               }}
               role="option"
               aria-selected={thinking === l}
@@ -241,7 +242,9 @@
               {#if l === 'auto'}
                 <span class="tm-sub">model default</span>
               {/if}
-              {#if thinking === l}<span class="check" aria-hidden="true"><Icon name="check" size={13} /></span>{/if}
+              {#if thinking === l}<span class="check" aria-hidden="true"
+                  ><Icon name="check" size={13} /></span
+                >{/if}
             </button>
           {/each}
         </div>

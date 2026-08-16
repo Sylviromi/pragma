@@ -1,21 +1,21 @@
 <script lang="ts">
   // Fonts — Barlow / Barlow Condensed / JetBrains Mono + Material Symbols Rounded
   // (bundled locally via npm so the desktop app works fully offline).
-  import 'material-symbols/rounded.css'
-  import '@fontsource/barlow/400.css'
-  import '@fontsource/barlow/500.css'
-  import '@fontsource/barlow/700.css'
-  import '@fontsource/barlow-condensed/400.css'
-  import '@fontsource/barlow-condensed/600.css'
-  import '@fontsource/jetbrains-mono/400.css'
-  import '@fontsource/jetbrains-mono/500.css'
-  import '@fontsource/jetbrains-mono/600.css'
-  import '../styles/tokens.css'
-  import '../styles/base.css'
-  import { page } from '$app/stores'
-  import TabBar from '../components/TabBar.svelte'
-  import StatusBar from '../components/StatusBar.svelte'
-  import PluginFreeLayer from '../components/PluginFreeLayer.svelte'
+  import 'material-symbols/rounded.css';
+  import '@fontsource/barlow/400.css';
+  import '@fontsource/barlow/500.css';
+  import '@fontsource/barlow/700.css';
+  import '@fontsource/barlow-condensed/400.css';
+  import '@fontsource/barlow-condensed/600.css';
+  import '@fontsource/jetbrains-mono/400.css';
+  import '@fontsource/jetbrains-mono/500.css';
+  import '@fontsource/jetbrains-mono/600.css';
+  import '../styles/tokens.css';
+  import '../styles/base.css';
+  import { page } from '$app/stores';
+  import TabBar from '../components/TabBar.svelte';
+  import StatusBar from '../components/StatusBar.svelte';
+  import PluginFreeLayer from '../components/PluginFreeLayer.svelte';
   import Toast from '../components/Toast.svelte';
   import PluginConfirmModal from '../components/PluginConfirmModal.svelte';
   import UpdateDialog from '../components/UpdateDialog.svelte';
@@ -23,7 +23,13 @@
   import { loadPlugins, initPluginEvents, autoCheckUpdates } from '../stores/plugins.svelte';
   import { reconnectRunningSessions } from '../stores/chat.svelte';
   import { initStatsEvents } from '../stores/stats.svelte';
-  import { initTheme, applyTheme, applyUiScale, applyFontFamily, theme } from '../stores/theme.svelte';
+  import {
+    initTheme,
+    applyTheme,
+    applyUiScale,
+    applyFontFamily,
+    theme,
+  } from '../stores/theme.svelte';
   import { installMarkdownPluginBridge } from '../lib/markdown';
   import { initUpdater } from '../stores/updater.svelte';
 
@@ -31,7 +37,7 @@
 
   // The design v2 settings view owns its own chrome (logo + Settings + session
   // chips + back) — hide the app tab bar / status strip on /settings routes.
-  const isSettings = $derived($page.url.pathname.startsWith('/settings'))
+  const isSettings = $derived($page.url.pathname.startsWith('/settings'));
 
   onMount(() => {
     installMarkdownPluginBridge();
@@ -51,7 +57,14 @@
   // Re-apply the family×mode token set whenever the user changes it; also
   // reacts to matchSystem/reduceMotion/uiScale/fontFamily so <html> attributes stay in sync.
   $effect(() => {
-    const _ = [theme.family, theme.mode, theme.matchSystem, theme.reduceMotion, theme.uiScale, theme.fontFamily];
+    const _ = [
+      theme.family,
+      theme.mode,
+      theme.matchSystem,
+      theme.reduceMotion,
+      theme.uiScale,
+      theme.fontFamily,
+    ];
     applyTheme();
     applyUiScale();
     applyFontFamily();

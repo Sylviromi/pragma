@@ -1,27 +1,27 @@
 <script lang="ts">
-  import { page } from '$app/stores'
-  import { goto } from '$app/navigation'
-  import { plugins } from '../../stores/plugins.svelte'
-  import { updater } from '../../stores/updater.svelte'
-  import { providerState, loadProviders } from '../../stores/providers.svelte'
-  import { sessions, openTab, loadSessions, restoreTabs } from '../../stores/sessions.svelte'
-  import { chat, STATUS_META, type AgentStatus } from '../../stores/chat.svelte'
-  import Logo from '../../components/Logo.svelte'
-  import Icon from '../../components/Icon.svelte'
-  let { children } = $props()
+  import { page } from '$app/stores';
+  import { goto } from '$app/navigation';
+  import { plugins } from '../../stores/plugins.svelte';
+  import { updater } from '../../stores/updater.svelte';
+  import { providerState, loadProviders } from '../../stores/providers.svelte';
+  import { sessions, openTab, loadSessions, restoreTabs } from '../../stores/sessions.svelte';
+  import { chat, STATUS_META, type AgentStatus } from '../../stores/chat.svelte';
+  import Logo from '../../components/Logo.svelte';
+  import Icon from '../../components/Icon.svelte';
+  let { children } = $props();
 
   // Deep-linked settings (e.g. an opened route) may arrive before the app view
   // ever mounted — load + restore sessions so the chips and back targets work.
-  import { onMount } from 'svelte'
+  import { onMount } from 'svelte';
   onMount(async () => {
     if (sessions.list.length === 0) {
-      await loadSessions()
-      restoreTabs()
+      await loadSessions();
+      restoreTabs();
     }
     // Providers drive the nav count badge — load them lazily (ModelPicker
     // only loads them when the composer mounts).
-    if (providerState.providers.length === 0) loadProviders().catch(() => {})
-  })
+    if (providerState.providers.length === 0) loadProviders().catch(() => {});
+  });
 
   // Design settings nav (v2 `settingsNav`): icon rows with neutral mono count
   // badges — Providers = provider count, Plugins = plugin count, General = '1'
@@ -33,7 +33,12 @@
       label: 'CONFIGURATION',
       items: [
         { label: 'General', href: '/settings/general', icon: 'tune' },
-        { label: 'Providers', href: '/settings/providers', icon: 'key', badge: () => String(providerState.providers.length) },
+        {
+          label: 'Providers',
+          href: '/settings/providers',
+          icon: 'key',
+          badge: () => String(providerState.providers.length),
+        },
         { label: 'Verification', href: '/settings/verification', icon: 'fact_check' },
         { label: 'Shortcuts', href: '/settings/shortcuts', icon: 'keyboard' },
         { label: 'Appearance', href: '/settings/appearance', icon: 'palette' },
@@ -43,42 +48,48 @@
       label: 'EXTENSIONS',
       items: [
         { label: 'Marketplace', href: '/settings/marketplace', icon: 'storefront' },
-        { label: 'Plugins', href: '/settings/plugins', icon: 'extension', badge: () => String(plugins.list.length) },
+        {
+          label: 'Plugins',
+          href: '/settings/plugins',
+          icon: 'extension',
+          badge: () => String(plugins.list.length),
+        },
       ],
     },
-  ]
+  ];
   const isActive = (href: string) =>
-    $page.url.pathname === href || ($page.url.pathname.startsWith('/settings/plugin/') && href === '/settings/plugins')
+    $page.url.pathname === href ||
+    ($page.url.pathname.startsWith('/settings/plugin/') && href === '/settings/plugins');
 
   // General nav badge: '1' while a Pragma update is available (design).
-  const generalBadge = $derived(updater.available ? '1' : '')
+  const generalBadge = $derived(updater.available ? '1' : '');
 
   // Session chips: up to 4 open sessions, dot + name; click returns to it.
   function returnToSession(id: string) {
-    openTab(id)
-    goto('/')
+    openTab(id);
+    goto('/');
   }
   const sessionChips = $derived(
     sessions.openTabs.slice(0, 4).map((id) => {
-      const s = sessions.list.find((x) => x.id === id)
-      const status = (chat.status[id] ?? 'idle') as AgentStatus
-      const meta = STATUS_META[status]
+      const s = sessions.list.find((x) => x.id === id);
+      const status = (chat.status[id] ?? 'idle') as AgentStatus;
+      const meta = STATUS_META[status];
       return {
         id,
         name: s?.name ?? id,
         live: status !== 'idle',
         dot: meta.color,
         title: `${s?.name ?? id} — ${meta.label}`,
-      }
-    })
-  )
+      };
+    }),
+  );
 
   // Build info pinned at the nav bottom (design `buildInfo`) — version +
   // runtime only; the config path was dropped (couldn't fit the 212px column).
   const buildInfo = $derived([
     { k: 'version', v: updater.currentVersion || 'dev' },
     { k: 'runtime', v: 'tauri' },
-  ])
+  ]);
 </script>
 
 <div class="shell">
@@ -93,8 +104,18 @@
       {#if sessionChips.length > 0}
         <span class="return-label">Return to</span>
         {#each sessionChips as c (c.id)}
-          <button class="chip" class:active={c.id === sessions.activeTabId} title={c.title} onclick={() => returnToSession(c.id)}>
-            <span class="chip-dot" class:live={c.live} style={`background:${c.dot}`} aria-hidden="true"></span>
+          <button
+            class="chip"
+            class:active={c.id === sessions.activeTabId}
+            title={c.title}
+            onclick={() => returnToSession(c.id)}
+          >
+            <span
+              class="chip-dot"
+              class:live={c.live}
+              style={`background:${c.dot}`}
+              aria-hidden="true"
+            ></span>
             <span class="chip-name">{c.name}</span>
           </button>
         {/each}
@@ -117,7 +138,9 @@
             class:active={isActive(item.href)}
             aria-current={isActive(item.href) ? 'page' : undefined}
           >
-            <span class="item-ico" aria-hidden="true"><Icon name={item.icon as never} size={17} /></span>
+            <span class="item-ico" aria-hidden="true"
+              ><Icon name={item.icon as never} size={17} /></span
+            >
             <span class="item-label">{item.label}</span>
             {#if item.label === 'General'}
               {#if generalBadge}<span class="nav-badge">{generalBadge}</span>{/if}
@@ -213,7 +236,9 @@
     font-family: var(--font-body);
     font-size: 12.5px;
     cursor: pointer;
-    transition: border-color 0.18s ease, color 0.18s ease;
+    transition:
+      border-color 0.18s ease,
+      color 0.18s ease;
   }
   .chip:hover {
     border-color: var(--accent);
@@ -256,7 +281,9 @@
     text-transform: uppercase;
     flex: none;
     align-self: center;
-    transition: color 0.18s ease, border-color 0.18s ease;
+    transition:
+      color 0.18s ease,
+      border-color 0.18s ease;
   }
   .back:hover {
     color: var(--text-primary);
@@ -313,7 +340,10 @@
     color: var(--text-secondary);
     text-decoration: none;
     cursor: pointer;
-    transition: background 0.2s ease, color 0.2s ease, border-color 0.2s ease;
+    transition:
+      background 0.2s ease,
+      color 0.2s ease,
+      border-color 0.2s ease;
   }
   .item:hover {
     color: var(--text-primary);

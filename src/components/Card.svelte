@@ -1,17 +1,17 @@
 <script lang="ts">
   // Settings card — elevated bordered card (audit C1). Previously duplicated
   // across general / providers / shortcuts / verification.
-  import type { Snippet } from 'svelte'
+  import type { Snippet } from 'svelte';
 
   let {
     children,
     class: klass = '',
     style,
   }: {
-    children?: Snippet
-    class?: string
-    style?: string
-  } = $props()
+    children?: Snippet;
+    class?: string;
+    style?: string;
+  } = $props();
 </script>
 
 <div class={`card${klass ? ' ' + klass : ''}`} {style}>

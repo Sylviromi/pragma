@@ -1,48 +1,48 @@
 <script lang="ts">
-  import { sendMessage, stopTurn, chat } from '../stores/chat.svelte'
-  import ModelPicker from './ModelPicker.svelte'
-  import Icon from './Icon.svelte'
-  import SlotStack from './SlotStack.svelte'
-  import Toggle from './Toggle.svelte'
-  import { getSession } from '../stores/sessions.svelte'
-  import { updateSession } from '../lib/tauri'
-  import { pushToast } from '../stores/toast.svelte'
-  import type { ThinkingPref } from '../lib/types'
+  import { sendMessage, stopTurn, chat } from '../stores/chat.svelte';
+  import ModelPicker from './ModelPicker.svelte';
+  import Icon from './Icon.svelte';
+  import SlotStack from './SlotStack.svelte';
+  import Toggle from './Toggle.svelte';
+  import { getSession } from '../stores/sessions.svelte';
+  import { updateSession } from '../lib/tauri';
+  import { pushToast } from '../stores/toast.svelte';
+  import type { ThinkingPref } from '../lib/types';
 
-  let { sessionId }: { sessionId: string } = $props()
+  let { sessionId }: { sessionId: string } = $props();
 
-  let text = $state('')
-  let model = $state('')
-  let provider = $state('')
+  let text = $state('');
+  let model = $state('');
+  let provider = $state('');
   // User preference: how much thinking the model may do ('auto' = model default
   // level, 'off' = no thinking at all, explicit low/medium/high where the model
   // supports graduated levels). Lives in the chat store per session so it
   // survives HMR and is picked up by sendMessage.
-  let thinking = $state<ThinkingPref>('auto') // hydrated from chat.thinking on first effect run
-  let thinkingHydrated = $state(false)
+  let thinking = $state<ThinkingPref>('auto'); // hydrated from chat.thinking on first effect run
+  let thinkingHydrated = $state(false);
   $effect(() => {
     if (!thinkingHydrated) {
-      thinkingHydrated = true
-      thinking = chat.thinking[sessionId] ?? 'auto'
+      thinkingHydrated = true;
+      thinking = chat.thinking[sessionId] ?? 'auto';
     }
-    chat.thinking[sessionId] = thinking
-  })
+    chat.thinking[sessionId] = thinking;
+  });
   // Becomes true once the session's stored model/provider have been loaded,
   // so we never persist transient defaults (mount / HMR resets) over the real
   // selection.
-  let hydrated = $state(false)
+  let hydrated = $state(false);
   // Which session id the local model/provider were hydrated from. Prevents the
   // hydration effect (below) from re-applying the stored values over the
   // user's fresh pick from the model picker.
-  let hydratedFor: string | null = null
+  let hydratedFor: string | null = null;
   // Auto-grow the textarea from 1 to ~6 lines; taller content scrolls.
-  let ta = $state<HTMLTextAreaElement | null>(null)
+  let ta = $state<HTMLTextAreaElement | null>(null);
 
-  const session = $derived(getSession(sessionId))
-  const running = $derived(chat.running[sessionId] ?? false)
+  const session = $derived(getSession(sessionId));
+  const running = $derived(chat.running[sessionId] ?? false);
   // Selected model's thinking capability — exposed by the ModelPicker for the
   // design's inline effort chips (neurology icon + low/med/high).
-  let thinkingSupported = $state(false)
+  let thinkingSupported = $state(false);
 
   // Initialise model/provider from persisted session — but only once per
   // session (or after a reset such as HMR, when model is ''). Never clobber a
@@ -50,29 +50,29 @@
   // change, and without the hydratedFor guard it would immediately reset the
   // freshly-picked model back to the stored one.
   $effect(() => {
-    const s = getSession(sessionId)
-    if (!s) return
-    if (hydratedFor === s.id && model !== '') return
-    if (s.model && model !== s.model) model = s.model
-    if (s.provider && provider !== s.provider) provider = s.provider
-    hydratedFor = s.id
-    hydrated = true
-  })
+    const s = getSession(sessionId);
+    if (!s) return;
+    if (hydratedFor === s.id && model !== '') return;
+    if (s.model && model !== s.model) model = s.model;
+    if (s.provider && provider !== s.provider) provider = s.provider;
+    hydratedFor = s.id;
+    hydrated = true;
+  });
 
   // Persist model/provider when they change — but only after hydration and
   // only when they actually differ from what's stored.
   $effect(() => {
-    const s = getSession(sessionId)
-    if (!hydrated || !s) return
-    if (model === s.model && provider === s.provider) return
-    updateSession(sessionId, model, provider, s.workingDir ?? '').catch(() => {})
-  })
+    const s = getSession(sessionId);
+    if (!hydrated || !s) return;
+    if (model === s.model && provider === s.provider) return;
+    updateSession(sessionId, model, provider, s.workingDir ?? '').catch(() => {});
+  });
 
   async function submit() {
-    const content = text.trim()
-    if (!content || running) return
-    text = ''
-    if (ta) ta.style.height = 'auto'
+    const content = text.trim();
+    if (!content || running) return;
+    text = '';
+    if (ta) ta.style.height = 'auto';
     await sendMessage(
       sessionId,
       content,
@@ -80,43 +80,43 @@
       provider,
       session?.workingDir ?? '',
       chat.autoApprove[sessionId] ?? false,
-      thinking
-    )
+      thinking,
+    );
   }
 
   function onKeydown(e: KeyboardEvent) {
     if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault()
-      submit()
+      e.preventDefault();
+      submit();
     }
   }
 
   // Auto-grow the textarea (1 → ~6 lines ≈ 144px), scrolling beyond.
   function autoresize(el: HTMLTextAreaElement) {
     const grow = () => {
-      el.style.height = 'auto'
-      el.style.height = Math.min(el.scrollHeight, 144) + 'px'
-    }
-    grow()
-    el.addEventListener('input', grow)
-    return { destroy: () => el.removeEventListener('input', grow) }
+      el.style.height = 'auto';
+      el.style.height = Math.min(el.scrollHeight, 144) + 'px';
+    };
+    grow();
+    el.addEventListener('input', grow);
+    return { destroy: () => el.removeEventListener('input', grow) };
   }
 
   // Esc interrupts the running turn wherever the focus is.
   $effect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape' && (chat.running[sessionId] ?? false)) {
-        e.preventDefault()
-        stopTurn(sessionId)
+        e.preventDefault();
+        stopTurn(sessionId);
       }
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  })
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  });
 
-  const autoApprove = $derived(chat.autoApprove[sessionId] ?? false)
+  const autoApprove = $derived(chat.autoApprove[sessionId] ?? false);
   function toggleAuto() {
-    chat.autoApprove[sessionId] = !autoApprove
+    chat.autoApprove[sessionId] = !autoApprove;
   }
 
   // Inline effort chips (design `effortOptions`): shown when the selected
@@ -126,11 +126,11 @@
     { key: 'low', label: 'low' },
     { key: 'medium', label: 'med' },
     { key: 'high', label: 'high' },
-  ]
-  const thinkingOn = $derived(thinkingSupported && thinking !== 'off')
+  ];
+  const thinkingOn = $derived(thinkingSupported && thinking !== 'off');
   function setEffort(level: 'low' | 'medium' | 'high') {
-    if (!thinkingSupported) return
-    thinking = level
+    if (!thinkingSupported) return;
+    thinking = level;
   }
 </script>
 
@@ -143,8 +143,7 @@
     disabled={running}
     aria-label="Message input"
     aria-multiline="true"
-    use:autoresize
-  ></textarea>
+    use:autoresize></textarea>
 
   <div class="footer">
     <ModelPicker bind:model bind:provider bind:thinking bind:thinkingSupported />
@@ -159,8 +158,8 @@
             class="effort-chip"
             class:active={thinkingOn && thinking === l.key}
             onclick={() => setEffort(l.key)}
-            aria-pressed={thinkingOn && thinking === l.key}
-          >{l.label}</button>
+            aria-pressed={thinkingOn && thinking === l.key}>{l.label}</button
+          >
         {/each}
       </div>
     {/if}
@@ -288,7 +287,9 @@
     background: transparent;
     color: var(--text-muted);
     cursor: pointer;
-    transition: background 0.22s ease, color 0.22s ease;
+    transition:
+      background 0.22s ease,
+      color 0.22s ease;
   }
   .effort-chip:hover {
     color: var(--text-primary);

@@ -1,4 +1,8 @@
-*, *::before, *::after { box-sizing: border-box; }
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
 body {
   margin: 0;
   font-family: var(--font-body);
@@ -25,23 +29,50 @@ body {
   outline-offset: 2px;
 }
 @media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
 }
-code, pre, .mono { font-family: var(--font-mono); }
-button { cursor: pointer; font-family: inherit; font-size: inherit; }
-.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); border: 0; }
+code,
+pre,
+.mono {
+  font-family: var(--font-mono);
+}
+button {
+  cursor: pointer;
+  font-family: inherit;
+  font-size: inherit;
+}
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  border: 0;
+}
 
 /* Thin, square, themed scrollbars (design spec) — Firefox + WebKit/WebKitGTK. */
 * {
   scrollbar-width: thin;
   scrollbar-color: color-mix(in oklch, var(--text-muted) 45%, transparent) transparent;
 }
-::-webkit-scrollbar { width: 10px; height: 10px; }
-::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
 ::-webkit-scrollbar-thumb {
   background: color-mix(in oklch, var(--text-muted) 38%, transparent);
-  border: 3px solid transparent;   /* inset padding */
-  background-clip: content-box;    /* keeps the border transparent */
+  border: 3px solid transparent; /* inset padding */
+  background-clip: content-box; /* keeps the border transparent */
   border-radius: 0;
   transition: background-color 0.2s ease;
 }
@@ -53,7 +84,9 @@ button { cursor: pointer; font-family: inherit; font-size: inherit; }
   background: var(--accent);
   background-clip: content-box;
 }
-::-webkit-scrollbar-corner { background: transparent; }
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
 
 /* ── Markdown prose (model output) — shared by persisted ChatMessage
    bubbles and the streaming live bubble (MessageList). Rendered via
@@ -89,7 +122,9 @@ button { cursor: pointer; font-family: inherit; font-size: inherit; }
   color: var(--text-secondary);
   line-height: 1.5;
 }
-.md-prose h1, .md-prose h2, .md-prose h3,
+.md-prose h1,
+.md-prose h2,
+.md-prose h3,
 .md-prose h4 {
   font-family: var(--font-heading);
   color: var(--text-primary);
@@ -97,15 +132,26 @@ button { cursor: pointer; font-family: inherit; font-size: inherit; }
   margin: 0.9em 0 0.4em;
   font-weight: 600;
 }
-.md-prose h1 { font-size: 1.25em; }
-.md-prose h2 { font-size: 1.15em; }
-.md-prose h3 { font-size: 1.05em; }
-.md-prose h4 { font-size: 1em; }
-.md-prose h1:first-child, .md-prose h2:first-child,
-.md-prose h3:first-child, .md-prose h4:first-child {
+.md-prose h1 {
+  font-size: 1.25em;
+}
+.md-prose h2 {
+  font-size: 1.15em;
+}
+.md-prose h3 {
+  font-size: 1.05em;
+}
+.md-prose h4 {
+  font-size: 1em;
+}
+.md-prose h1:first-child,
+.md-prose h2:first-child,
+.md-prose h3:first-child,
+.md-prose h4:first-child {
   margin-top: 0;
 }
-.md-prose ul, .md-prose ol {
+.md-prose ul,
+.md-prose ol {
   margin: 0.5em 0;
   padding-left: 1.4em;
 }
@@ -118,7 +164,8 @@ button { cursor: pointer; font-family: inherit; font-size: inherit; }
 .md-prose ul {
   list-style: disc;
 }
-.md-prose li > ul, .md-prose li > ol {
+.md-prose li > ul,
+.md-prose li > ol {
   margin: 0.15em 0;
 }
 .md-prose blockquote {
@@ -145,14 +192,19 @@ button { cursor: pointer; font-family: inherit; font-size: inherit; }
   border-top: 1px solid var(--border-default);
   margin: 0.9em 0;
 }
-.md-prose strong { font-weight: 600; }
-.md-prose em { font-style: italic; }
+.md-prose strong {
+  font-weight: 600;
+}
+.md-prose em {
+  font-style: italic;
+}
 .md-prose table {
   border-collapse: collapse;
   margin: 0.6em 0;
   font-size: 0.93em;
 }
-.md-prose th, .md-prose td {
+.md-prose th,
+.md-prose td {
   border: 1px solid var(--border-default);
   padding: 4px 9px;
   text-align: left;

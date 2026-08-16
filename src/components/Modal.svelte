@@ -3,7 +3,7 @@
   // and UpdateDialog each hand-rolled the same blur backdrop + centered card +
   // ESC/outside-click close. This owns the shell; header/body/footer are
   // snippets so each dialog keeps its own content layout.
-  import type { Snippet } from 'svelte'
+  import type { Snippet } from 'svelte';
 
   let {
     onclose,
@@ -19,41 +19,41 @@
     class: klass = '',
   }: {
     /** Close callback — ESC, backdrop click and any explicit close button. */
-    onclose: () => void
+    onclose: () => void;
     /** Dialog aria-label. */
-    label: string
-    closeOnBackdrop?: boolean
-    closeOnEsc?: boolean
+    label: string;
+    closeOnBackdrop?: boolean;
+    closeOnEsc?: boolean;
     /** 16px card padding (confirm dialogs). Set false for full-bleed cards
      *  with their own section padding/borders (UpdateDialog). */
-    padded?: boolean
+    padded?: boolean;
     /** Overlay z-index (update dialog floats above everything). */
-    zIndex?: number
+    zIndex?: number;
     /** Extra class on the footer row (callers style their own actions). */
-    footClass?: string
-    header?: Snippet
-    children?: Snippet
-    footer?: Snippet
-    class?: string
-  } = $props()
+    footClass?: string;
+    header?: Snippet;
+    children?: Snippet;
+    footer?: Snippet;
+    class?: string;
+  } = $props();
 
   // Outside click closes the dialog (the card's own click handler stops
   // propagation so clicks inside never reach the overlay listener).
   function onDocClick(e: MouseEvent) {
-    if (closeOnBackdrop && !(e.target as Element)?.closest?.('.modal')) onclose()
+    if (closeOnBackdrop && !(e.target as Element)?.closest?.('.modal')) onclose();
   }
 
   $effect(() => {
-    if (!closeOnEsc) return
+    if (!closeOnEsc) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
-        e.preventDefault()
-        onclose()
+        e.preventDefault();
+        onclose();
       }
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  })
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  });
 </script>
 
 <div class="overlay" role="presentation" onclick={onDocClick} style={`z-index:${zIndex}`}>
@@ -69,7 +69,9 @@
   >
     {#if header}{@render header?.()}{/if}
     {#if children}{@render children?.()}{/if}
-    {#if footer}<div class={`modal-foot${footClass ? ' ' + footClass : ''}`}>{@render footer?.()}</div>{/if}
+    {#if footer}<div class={`modal-foot${footClass ? ' ' + footClass : ''}`}>
+        {@render footer?.()}
+      </div>{/if}
   </div>
 </div>
 
@@ -86,8 +88,12 @@
     animation: fade-in 140ms ease-out;
   }
   @keyframes fade-in {
-    from { opacity: 0; }
-    to   { opacity: 1; }
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
   }
 
   .modal {
@@ -109,8 +115,14 @@
     overflow-y: auto;
   }
   @keyframes modal-in {
-    from { opacity: 0; transform: translateY(8px) scale(0.97); }
-    to   { opacity: 1; transform: translateY(0) scale(1); }
+    from {
+      opacity: 0;
+      transform: translateY(8px) scale(0.97);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0) scale(1);
+    }
   }
 
   .modal-foot {

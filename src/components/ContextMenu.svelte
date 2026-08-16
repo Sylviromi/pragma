@@ -1,15 +1,15 @@
 <script lang="ts">
-  import { uiScaleFactor } from '../stores/theme.svelte'
+  import { uiScaleFactor } from '../stores/theme.svelte';
 
-  export type MenuIcon = 'copy' | 'transcript' | 'return'
+  export type MenuIcon = 'copy' | 'transcript' | 'return';
 
   export interface MenuItem {
-    label: string
-    hint?: string
-    icon?: MenuIcon
-    danger?: boolean
-    disabled?: boolean
-    onSelect: () => void
+    label: string;
+    hint?: string;
+    icon?: MenuIcon;
+    danger?: boolean;
+    disabled?: boolean;
+    onSelect: () => void;
   }
 
   let {
@@ -18,48 +18,48 @@
     items,
     onclose,
   }: {
-    x: number
-    y: number
-    items: MenuItem[]
-    onclose: () => void
-  } = $props()
+    x: number;
+    y: number;
+    items: MenuItem[];
+    onclose: () => void;
+  } = $props();
 
-  let menuEl = $state<HTMLElement | null>(null)
-  let pos = $state({ x: 0, y: 0 })
+  let menuEl = $state<HTMLElement | null>(null);
+  let pos = $state({ x: 0, y: 0 });
 
   // Clamp to the viewport once we know our own size. The menu is
   // position:fixed; under the app's interface-scale transform (#app) fixed
   // anchors to the app's layout box, so viewport (visual) coordinates and
   // sizes are divided by the scale factor.
   $effect(() => {
-    const el = menuEl
-    if (!el) return
-    const s = uiScaleFactor()
-    const r = el.getBoundingClientRect()
-    const nx = Math.min(x / s, (window.innerWidth - r.width - 8) / s)
-    const ny = Math.min(y / s, (window.innerHeight - r.height - 8) / s)
-    pos = { x: Math.max(8 / s, nx), y: Math.max(8 / s, ny) }
-  })
+    const el = menuEl;
+    if (!el) return;
+    const s = uiScaleFactor();
+    const r = el.getBoundingClientRect();
+    const nx = Math.min(x / s, (window.innerWidth - r.width - 8) / s);
+    const ny = Math.min(y / s, (window.innerHeight - r.height - 8) / s);
+    pos = { x: Math.max(8 / s, nx), y: Math.max(8 / s, ny) };
+  });
 
   // Close on outside click, Escape, window blur, or any scroll.
   $effect(() => {
     const onPointer = (e: PointerEvent) => {
-      if (menuEl && !menuEl.contains(e.target as Node)) onclose()
-    }
+      if (menuEl && !menuEl.contains(e.target as Node)) onclose();
+    };
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onclose()
-    }
-    window.addEventListener('pointerdown', onPointer)
-    window.addEventListener('keydown', onKey)
-    window.addEventListener('blur', onclose)
-    window.addEventListener('scroll', onclose, true)
+      if (e.key === 'Escape') onclose();
+    };
+    window.addEventListener('pointerdown', onPointer);
+    window.addEventListener('keydown', onKey);
+    window.addEventListener('blur', onclose);
+    window.addEventListener('scroll', onclose, true);
     return () => {
-      window.removeEventListener('pointerdown', onPointer)
-      window.removeEventListener('keydown', onKey)
-      window.removeEventListener('blur', onclose)
-      window.removeEventListener('scroll', onclose, true)
-    }
-  })
+      window.removeEventListener('pointerdown', onPointer);
+      window.removeEventListener('keydown', onKey);
+      window.removeEventListener('blur', onclose);
+      window.removeEventListener('scroll', onclose, true);
+    };
+  });
 </script>
 
 <div
@@ -77,25 +77,52 @@
       role="menuitem"
       disabled={item.disabled}
       onclick={(e) => {
-        e.stopPropagation()
-        item.onSelect()
+        e.stopPropagation();
+        item.onSelect();
       }}
     >
       <span class="ic" class:ic-danger={item.danger} aria-hidden="true">
         {#if item.icon === 'copy'}
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <rect x="9" y="9" width="13" height="13" rx="2"/>
-            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+          <svg
+            width="15"
+            height="15"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <rect x="9" y="9" width="13" height="13" rx="2" />
+            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
           </svg>
         {:else if item.icon === 'transcript'}
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <rect x="3" y="4" width="7" height="16" rx="1.5"/>
-            <rect x="14" y="4" width="7" height="16" rx="1.5"/>
+          <svg
+            width="15"
+            height="15"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <rect x="3" y="4" width="7" height="16" rx="1.5" />
+            <rect x="14" y="4" width="7" height="16" rx="1.5" />
           </svg>
         {:else}
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M3 7v6h6"/>
-            <path d="M3 13a9 9 0 1 0 3-7.7L2.99 5"/>
+          <svg
+            width="15"
+            height="15"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <path d="M3 7v6h6" />
+            <path d="M3 13a9 9 0 1 0 3-7.7L2.99 5" />
           </svg>
         {/if}
       </span>
@@ -118,7 +145,9 @@
     background: var(--color-bg-elevated);
     border: 1px solid var(--color-border-default);
     border-radius: 10px;
-    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45), 0 2px 8px rgba(0, 0, 0, 0.2);
+    box-shadow:
+      0 12px 40px rgba(0, 0, 0, 0.45),
+      0 2px 8px rgba(0, 0, 0, 0.2);
     padding: 6px;
     display: flex;
     flex-direction: column;
@@ -127,8 +156,14 @@
     transform-origin: top left;
   }
   @keyframes menu-in {
-    from { opacity: 0; transform: translateY(-4px) scale(0.97); }
-    to   { opacity: 1; transform: translateY(0) scale(1); }
+    from {
+      opacity: 0;
+      transform: translateY(-4px) scale(0.97);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0) scale(1);
+    }
   }
 
   .ctx-header {

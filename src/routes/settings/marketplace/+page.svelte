@@ -1,12 +1,12 @@
 <script lang="ts">
-  import { plugins, loadPlugins, installFromSource } from '../../../stores/plugins.svelte'
-  import { pushToast } from '../../../stores/toast.svelte'
-  import { onMount } from 'svelte'
-  import SettingsHeader from '../../../components/SettingsHeader.svelte'
-  import SectionHeader from '../../../components/SectionHeader.svelte'
-  import SearchInput from '../../../components/SearchInput.svelte'
-  import EmptyState from '../../../components/EmptyState.svelte'
-  import Icon from '../../../components/Icon.svelte'
+  import { plugins, loadPlugins, installFromSource } from '../../../stores/plugins.svelte';
+  import { pushToast } from '../../../stores/toast.svelte';
+  import { onMount } from 'svelte';
+  import SettingsHeader from '../../../components/SettingsHeader.svelte';
+  import SectionHeader from '../../../components/SectionHeader.svelte';
+  import SearchInput from '../../../components/SearchInput.svelte';
+  import EmptyState from '../../../components/EmptyState.svelte';
+  import Icon from '../../../components/Icon.svelte';
 
   // Design registry (`Pragma UI Kit v2.dc.html` → "Install a plugin"): a
   // bordered search panel over row-based npm results — mono initial, name +
@@ -14,53 +14,53 @@
   // Search UX: the input starts EMPTY and the fetched pool narrows live as you
   // type (npm's search API is not a strict AND, so narrowing happens locally).
 
-  const DEFAULT_QUERY = 'keywords:pragma-plugin'
-  const SEARCH_URL = 'https://registry.npmjs.org/-/v1/search'
+  const DEFAULT_QUERY = 'keywords:pragma-plugin';
+  const SEARCH_URL = 'https://registry.npmjs.org/-/v1/search';
 
   interface NpmPlugin {
-    name: string
-    displayName: string
-    version: string
-    description?: string
-    author?: string
-    source: string // npm:<name>
+    name: string;
+    displayName: string;
+    version: string;
+    description?: string;
+    author?: string;
+    source: string; // npm:<name>
   }
 
-  let query = $state('')
+  let query = $state('');
   /** The fetched npm pool (all pragma-plugin-* matches). */
-  let all = $state<NpmPlugin[]>([])
+  let all = $state<NpmPlugin[]>([]);
   /** What the user sees: the pool filtered live by the search term. */
   const visible = $derived.by(() => {
-    const term = query.trim().toLowerCase()
-    if (!term) return all
+    const term = query.trim().toLowerCase();
+    if (!term) return all;
     return all.filter(
       (p) =>
         p.name.toLowerCase().includes(term) ||
         p.displayName.toLowerCase().includes(term) ||
-        (p.description ?? '').toLowerCase().includes(term)
-    )
-  })
-  let searching = $state(false)
-  let searched = $state(false)
-  let installingId = $state<string | null>(null)
+        (p.description ?? '').toLowerCase().includes(term),
+    );
+  });
+  let searching = $state(false);
+  let searched = $state(false);
+  let installingId = $state<string | null>(null);
 
   onMount(() => {
-    loadPlugins()
-    search()
-  })
+    loadPlugins();
+    search();
+  });
 
   async function search() {
-    const term = query.trim()
+    const term = query.trim();
     // The keyword qualifier is ALWAYS applied, so the marketplace never
     // wanders into unrelated npm packages — the input is free text, not a
     // raw npm query. Results are additionally gated on the pragma-plugin-
     // naming convention, so only real plugins can ever be listed.
-    const q = term ? `${term} keywords:pragma-plugin` : DEFAULT_QUERY
-    searching = true
+    const q = term ? `${term} keywords:pragma-plugin` : DEFAULT_QUERY;
+    searching = true;
     try {
-      const res = await fetch(`${SEARCH_URL}?text=${encodeURIComponent(q)}&size=50`)
-      if (!res.ok) throw new Error(`HTTP ${res.status}`)
-      const data = await res.json()
+      const res = await fetch(`${SEARCH_URL}?text=${encodeURIComponent(q)}&size=50`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
       all = (data.objects ?? [])
         .map((o: { package: any }) => o.package)
         // Only ACTUAL plugins: the pragma-plugin keyword, the pragma-plugin-*
@@ -71,7 +71,7 @@
           (p: any) =>
             (p.keywords ?? []).includes('pragma-plugin') ||
             /(^|\/)pragma-plugin-/.test(p.name) ||
-            /^@pragma\//.test(p.name)
+            /^@pragma\//.test(p.name),
         )
         .map((p: any) => ({
           name: p.name,
@@ -79,32 +79,32 @@
           version: p.version,
           description: p.description ?? '',
           author: typeof p.author === 'string' ? p.author : (p.author?.name ?? ''),
-          source: `npm:${p.name}`
-        }))
-      searched = true
+          source: `npm:${p.name}`,
+        }));
+      searched = true;
     } catch (err) {
-      pushToast(`Search failed: ${String(err)}`, 'error')
-      searched = true // leave the loading state — empty state with toast explains
+      pushToast(`Search failed: ${String(err)}`, 'error');
+      searched = true; // leave the loading state — empty state with toast explains
     } finally {
-      searching = false
+      searching = false;
     }
   }
 
   // Installed detection by recorded source (npm:name) — the manifest id and
   // the npm package name are separate, so match on the source.
   const installed = $derived(
-    new Map(plugins.list.filter((p) => p.source).map((p) => [p.source as string, p.version]))
-  )
+    new Map(plugins.list.filter((p) => p.source).map((p) => [p.source as string, p.version])),
+  );
 
   async function install(p: NpmPlugin) {
-    installingId = p.name
+    installingId = p.name;
     try {
-      await installFromSource(p.source)
-      pushToast(`Installed ${p.displayName} — enabled`, 'success')
+      await installFromSource(p.source);
+      pushToast(`Installed ${p.displayName} — enabled`, 'success');
     } catch (err) {
-      pushToast(`Install failed: ${String(err)}`, 'error')
+      pushToast(`Install failed: ${String(err)}`, 'error');
     } finally {
-      installingId = null
+      installingId = null;
     }
   }
 </script>
@@ -128,7 +128,7 @@
         placeholder="Search plugins"
         label="Search plugins"
         onkeydown={(e) => {
-          if (e.key === 'Enter') search()
+          if (e.key === 'Enter') search();
         }}
       >
         {#snippet trailing()}
@@ -168,7 +168,12 @@
           {#if installedVer}
             <span class="btn installed"><Icon name="check" size={15} />Installed</span>
           {:else}
-            <button class="btn" class:busy={isInstalling} onclick={() => install(p)} disabled={isInstalling}>
+            <button
+              class="btn"
+              class:busy={isInstalling}
+              onclick={() => install(p)}
+              disabled={isInstalling}
+            >
               <Icon name={isInstalling ? 'progress_activity' : 'download'} size={16} />
               {isInstalling ? 'Installing…' : 'Install'}
             </button>
@@ -277,7 +282,9 @@
     font-family: var(--font-body);
     font-size: 12.5px;
     cursor: pointer;
-    transition: border-color 0.18s ease, color 0.18s ease;
+    transition:
+      border-color 0.18s ease,
+      color 0.18s ease;
   }
   .btn:hover:not(:disabled) {
     border-color: var(--accent);

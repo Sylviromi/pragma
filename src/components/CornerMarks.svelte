@@ -19,10 +19,10 @@
     /** Border thickness the lines align with (px). */
     thickness = 1,
   }: {
-    color?: string
-    length?: number
-    thickness?: number
-  } = $props()
+    color?: string;
+    length?: number;
+    thickness?: number;
+  } = $props();
 </script>
 
 <div

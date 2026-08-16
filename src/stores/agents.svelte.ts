@@ -1,4 +1,4 @@
-import type { AgentStatus } from './chat.svelte'
+import type { AgentStatus } from './chat.svelte';
 
 /// Live sub-agents + detached processes for the sidebar's Agents pane.
 ///
@@ -10,22 +10,16 @@ import type { AgentStatus } from './chat.svelte'
 ///   - `process:spawned` / `process:log` / `process:exit` → nodes + log lines
 ///   - keep `selectedId` + `follow` as the console's view state.
 
-export type AgentNodeState =
-  | 'running'
-  | 'thinking'
-  | 'detached'
-  | 'done'
-  | 'exited'
-  | 'failed'
+export type AgentNodeState = 'running' | 'thinking' | 'detached' | 'done' | 'exited' | 'failed';
 
 export interface AgentNode {
-  id: string
-  kind: 'agent' | 'process'
-  name: string
-  meta: string
-  state: AgentNodeState
+  id: string;
+  kind: 'agent' | 'process';
+  name: string;
+  meta: string;
+  state: AgentNodeState;
   /** Tree depth for indent (sub-agents of sub-agents). */
-  depth: number
+  depth: number;
 }
 
 export const agents = $state({
@@ -34,21 +28,21 @@ export const agents = $state({
   logs: {} as Record<string, string[]>,
   selectedId: null as string | null,
   follow: true,
-})
+});
 
 export function selectNode(id: string) {
-  agents.selectedId = id
+  agents.selectedId = id;
 }
 
 export function toggleFollow() {
-  agents.follow = !agents.follow
+  agents.follow = !agents.follow;
 }
 
 /// Convenience summary for the pane header badge: "n live · m proc".
 export function agentsSummary(): string {
-  const live = agents.nodes.filter((n) => n.kind === 'agent' && n.state === 'running').length
+  const live = agents.nodes.filter((n) => n.kind === 'agent' && n.state === 'running').length;
   const procs = agents.nodes.filter(
-    (n) => n.kind === 'process' && (n.state === 'running' || n.state === 'detached')
-  ).length
-  return `${live} live · ${procs} proc`
+    (n) => n.kind === 'process' && (n.state === 'running' || n.state === 'detached'),
+  ).length;
+  return `${live} live · ${procs} proc`;
 }

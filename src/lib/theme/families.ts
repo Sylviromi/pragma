@@ -1,4 +1,4 @@
-import type { ThemeFamily } from './palette-engine'
+import type { ThemeFamily } from './palette-engine';
 
 /// Theme families available in the picker (Settings → Appearance).
 /// The first is the default. `highContrast` is authored on top of the family
@@ -11,8 +11,8 @@ export const THEME_FAMILIES: ThemeFamily[] = [
   { key: 'violet', name: 'Violet', hue: 300, chroma: 0.1 },
   // Authored for accessibility: max text/surface contrast, full borders.
   { key: 'high-contrast', name: 'High Contrast', hue: 250, chroma: 0.06, highContrast: true },
-]
+];
 
 export function familyByKey(key: string | null | undefined): ThemeFamily {
-  return THEME_FAMILIES.find((f) => f.key === key) ?? THEME_FAMILIES[0]
+  return THEME_FAMILIES.find((f) => f.key === key) ?? THEME_FAMILIES[0];
 }

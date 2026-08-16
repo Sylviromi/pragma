@@ -1,28 +1,30 @@
 <script lang="ts">
-  import { renderMarkdown, segmentsOf, tidy, withCaret } from '../lib/markdown'
-  import Icon from './Icon.svelte'
+  import { renderMarkdown, segmentsOf, tidy, withCaret } from '../lib/markdown';
+  import Icon from './Icon.svelte';
 
   let {
     text,
     showCaret = false,
   }: {
-    text: string
+    text: string;
     /** Blinking cursor at the end of the last prose segment (streaming only). */
-    showCaret?: boolean
-  } = $props()
+    showCaret?: boolean;
+  } = $props();
 
   // ONE render path for assistant text — used by both the persisted turn
   // (ChatMessage) and the streaming live bubble (MessageList), so the two can
   // never drift apart again (trailing-newline gaps, style mismatches, …).
   // tidy() strips trailing whitespace BEFORE markdown so pre-wrap never adds
   // a phantom empty line at the bubble's end.
-  const segs = $derived(segmentsOf(tidy(text)))
-  const last = $derived(segs.length - 1)
+  const segs = $derived(segmentsOf(tidy(text)));
+  const last = $derived(segs.length - 1);
 
   async function copyCode(code: string) {
     try {
-      await navigator.clipboard.writeText(code)
-    } catch { /* clipboard unavailable */ }
+      await navigator.clipboard.writeText(code);
+    } catch {
+      /* clipboard unavailable */
+    }
   }
 </script>
 
@@ -31,7 +33,9 @@
     {#each segs as seg, si (seg.kind + seg.text.slice(0, 40))}
       {#if seg.kind === 'prose' && seg.text.trim()}
         <div class="md-prose">
-          {@html showCaret && si === last ? withCaret(renderMarkdown(seg.text)) : renderMarkdown(seg.text)}
+          {@html showCaret && si === last
+            ? withCaret(renderMarkdown(seg.text))
+            : renderMarkdown(seg.text)}
         </div>
       {:else if seg.kind === 'code' && seg.text.trim()}
         <div class="code-block">
@@ -39,8 +43,8 @@
             class="copy"
             aria-label="Copy code"
             title="Copy code"
-            onclick={() => copyCode(seg.text)}
-          ><Icon name="content_copy" size={14} /></button>
+            onclick={() => copyCode(seg.text)}><Icon name="content_copy" size={14} /></button
+          >
           <pre>{seg.text.trimEnd()}</pre>
         </div>
       {/if}

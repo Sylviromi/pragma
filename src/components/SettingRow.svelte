@@ -1,7 +1,7 @@
 <script lang="ts">
   // Settings row — label + desc left, control right (audit C2). Previously
   // duplicated across general / verification / appearance.
-  import type { Snippet } from 'svelte'
+  import type { Snippet } from 'svelte';
 
   let {
     label,
@@ -10,13 +10,13 @@
     children,
     class: klass = '',
   }: {
-    label: string
-    desc?: string
+    label: string;
+    desc?: string;
     /** Page-level row (appearance): border-top, no card padding. */
-    bare?: boolean
-    children?: Snippet
-    class?: string
-  } = $props()
+    bare?: boolean;
+    children?: Snippet;
+    class?: string;
+  } = $props();
 </script>
 
 <div class={`row${bare ? ' bare' : ''}${klass ? ' ' + klass : ''}`}>

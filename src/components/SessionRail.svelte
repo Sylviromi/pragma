@@ -1,78 +1,81 @@
 <script lang="ts">
-  import { sessions, openTab, closeTab, newSession } from '../stores/sessions.svelte'
-  import { chat, STATUS_META, type AgentStatus } from '../stores/chat.svelte'
-  import { ui } from '../stores/ui.svelte'
-  import { sessionTint } from '../lib/tint'
-  import Icon from './Icon.svelte'
-  import StatusDot from './StatusDot.svelte'
+  import { sessions, openTab, closeTab, newSession } from '../stores/sessions.svelte';
+  import { chat, STATUS_META, type AgentStatus } from '../stores/chat.svelte';
+  import { ui } from '../stores/ui.svelte';
+  import { sessionTint } from '../lib/tint';
+  import Icon from './Icon.svelte';
+  import StatusDot from './StatusDot.svelte';
 
   // Design session rail (`Pragma UI Kit v2.dc.html`): sessions grouped by
   // working directory, tinted per-session accents, "New session" on top.
   // Width toggles like the right sidebar (224px / 200px narrow + slide).
 
-  const NARROW = typeof window !== 'undefined' ? window.innerWidth < 900 : false
-  let narrow = $state(NARROW)
+  const NARROW = typeof window !== 'undefined' ? window.innerWidth < 900 : false;
+  let narrow = $state(NARROW);
   $effect(() => {
-    const onResize = () => (narrow = window.innerWidth < 900)
-    window.addEventListener('resize', onResize)
-    return () => window.removeEventListener('resize', onResize)
-  })
+    const onResize = () => (narrow = window.innerWidth < 900);
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  });
 
-  const open = $derived(ui.railOpen)
-  const railW = $derived(narrow ? 200 : 224)
+  const open = $derived(ui.railOpen);
+  const railW = $derived(narrow ? 200 : 224);
 
   // Compact relative age ("2m", "1h", "yest", "3d") for idle sessions —
   // matches the rail's mono meta column.
   function relTime(iso: string): string {
-    if (!iso) return ''
-    const t = new Date(iso).getTime()
-    if (!Number.isFinite(t)) return ''
-    const mins = Math.max(0, Math.round((Date.now() - t) / 60000))
-    if (mins < 1) return 'now'
-    if (mins < 60) return `${mins}m`
-    const hrs = Math.round(mins / 60)
-    if (hrs < 24) return `${hrs}h`
-    const days = Math.round(hrs / 24)
-    if (days === 1) return 'yest'
-    if (days < 7) return `${days}d`
-    return new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+    if (!iso) return '';
+    const t = new Date(iso).getTime();
+    if (!Number.isFinite(t)) return '';
+    const mins = Math.max(0, Math.round((Date.now() - t) / 60000));
+    if (mins < 1) return 'now';
+    if (mins < 60) return `${mins}m`;
+    const hrs = Math.round(mins / 60);
+    if (hrs < 24) return `${hrs}h`;
+    const days = Math.round(hrs / 24);
+    if (days === 1) return 'yest';
+    if (days < 7) return `${days}d`;
+    return new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
   }
 
   // Group open sessions by working dir (design `railGroups`): active dir first
   // with an open-folder icon, then the rest in insertion order.
   const groups = $derived.by(() => {
-    const order: string[] = []
-    const byDir = new Map<string, { id: string; name: string; dir: string }[]>()
+    const order: string[] = [];
+    const byDir = new Map<string, { id: string; name: string; dir: string }[]>();
     for (const id of sessions.openTabs) {
-      const s = sessions.list.find((x) => x.id === id)
-      if (!s) continue
-      const dir = s.workingDir || ''
+      const s = sessions.list.find((x) => x.id === id);
+      if (!s) continue;
+      const dir = s.workingDir || '';
       if (!byDir.has(dir)) {
-        byDir.set(dir, [])
-        order.push(dir)
+        byDir.set(dir, []);
+        order.push(dir);
       }
-      byDir.get(dir)!.push({ id, name: s.name, dir })
+      byDir.get(dir)!.push({ id, name: s.name, dir });
     }
     return order.map((dir) => ({
       dir,
       count: byDir.get(dir)!.length,
       sessions: byDir.get(dir)!.map((s) => {
-        const status = (chat.status[s.id] ?? 'idle') as AgentStatus
-        const meta = STATUS_META[status]
-        const active = sessions.activeTabId === s.id
-        const tint = sessionTint(s.id)
+        const status = (chat.status[s.id] ?? 'idle') as AgentStatus;
+        const meta = STATUS_META[status];
+        const active = sessions.activeTabId === s.id;
+        const tint = sessionTint(s.id);
         return {
           ...s,
           status,
           live: status !== 'idle',
-          meta: status === 'idle' ? relTime(sessions.list.find((x) => x.id === s.id)?.createdAt ?? '') : meta.label,
+          meta:
+            status === 'idle'
+              ? relTime(sessions.list.find((x) => x.id === s.id)?.createdAt ?? '')
+              : meta.label,
           active,
           tint,
           dot: status === 'idle' ? tint : meta.color,
-        }
+        };
       }),
-    }))
-  })
+    }));
+  });
 </script>
 
 <aside class="rail" class:closed={!open} style={`--rail-w:${railW}px`} aria-label="Sessions">
@@ -87,8 +90,12 @@
       {#each groups as g, gi (g.dir)}
         <div class="group stagger" style={`--i:${gi}`}>
           <div class="group-head">
-            <span class="g-icon" class:active={!g.dir} aria-hidden="true"><Icon name={g.dir ? 'folder' : 'folder_open'} size={14} /></span>
-            <span class="g-dir" title={g.dir || 'No working directory'}>{g.dir || 'no directory'}</span>
+            <span class="g-icon" class:active={!g.dir} aria-hidden="true"
+              ><Icon name={g.dir ? 'folder' : 'folder_open'} size={14} /></span
+            >
+            <span class="g-dir" title={g.dir || 'No working directory'}
+              >{g.dir || 'no directory'}</span
+            >
             <span class="g-count">{g.count}</span>
           </div>
           <div class="g-rows">
@@ -103,8 +110,8 @@
                 onclick={() => openTab(row.id)}
                 onkeydown={(e) => {
                   if (e.key === 'Enter' || e.key === ' ') {
-                    e.preventDefault()
-                    openTab(row.id)
+                    e.preventDefault();
+                    openTab(row.id);
                   }
                 }}
               >
@@ -116,10 +123,10 @@
                   aria-label={`Close ${row.name}`}
                   title="Close session"
                   onclick={(e) => {
-                    e.stopPropagation()
-                    closeTab(row.id)
-                  }}
-                ><Icon name="close" size={14} /></button>
+                    e.stopPropagation();
+                    closeTab(row.id);
+                  }}><Icon name="close" size={14} /></button
+                >
               </div>
             {/each}
           </div>
@@ -147,13 +154,17 @@
     display: flex;
     flex-direction: column;
     min-height: 0;
-    transition: width 0.34s cubic-bezier(0.22, 0.8, 0.3, 1), border-right-width 0.34s step-start;
+    transition:
+      width 0.34s cubic-bezier(0.22, 0.8, 0.3, 1),
+      border-right-width 0.34s step-start;
   }
   .rail.closed {
     width: 0;
     border-right-width: 0;
     pointer-events: none;
-    transition: width 0.34s cubic-bezier(0.22, 0.8, 0.3, 1), border-right-width 0.34s step-end;
+    transition:
+      width 0.34s cubic-bezier(0.22, 0.8, 0.3, 1),
+      border-right-width 0.34s step-end;
   }
   .rail-inner {
     flex: none;
@@ -186,7 +197,10 @@
     font-family: var(--font-body);
     font-size: 12.5px;
     cursor: pointer;
-    transition: border-color 0.2s ease, color 0.2s ease, background 0.2s ease;
+    transition:
+      border-color 0.2s ease,
+      color 0.2s ease,
+      background 0.2s ease;
   }
   .new-session:hover {
     border-color: var(--accent);
@@ -257,7 +271,9 @@
     border-left: 2px solid color-mix(in oklch, var(--tint) 40%, transparent);
     cursor: pointer;
     color: var(--text-primary);
-    transition: background 0.2s ease, border-color 0.2s ease;
+    transition:
+      background 0.2s ease,
+      border-color 0.2s ease;
   }
   .s-row:hover {
     background: var(--surface-hover);
@@ -291,7 +307,9 @@
     display: flex;
     border-radius: 2px;
     opacity: 0.45;
-    transition: opacity 0.2s ease, color 0.2s ease;
+    transition:
+      opacity 0.2s ease,
+      color 0.2s ease;
   }
   .s-close:hover {
     opacity: 1;

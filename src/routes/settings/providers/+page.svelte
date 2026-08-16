@@ -1,47 +1,47 @@
 <script lang="ts">
-  import { onMount } from 'svelte'
-  import SettingsHeader from '../../../components/SettingsHeader.svelte'
-  import Card from '../../../components/Card.svelte'
-  import Button from '../../../components/Button.svelte'
-  import { saveApiKeys, getApiKeys } from '../../../lib/tauri'
-  import { providerState, loadProviders } from '../../../stores/providers.svelte'
+  import { onMount } from 'svelte';
+  import SettingsHeader from '../../../components/SettingsHeader.svelte';
+  import Card from '../../../components/Card.svelte';
+  import Button from '../../../components/Button.svelte';
+  import { saveApiKeys, getApiKeys } from '../../../lib/tauri';
+  import { providerState, loadProviders } from '../../../stores/providers.svelte';
 
-  let keys = $state<Record<string, string[]>>({})
+  let keys = $state<Record<string, string[]>>({});
   // Working draft per provider — saved on Save (rotation order, first = primary).
-  let drafts = $state<Record<string, string[]>>({})
-  let saved = $state<Record<string, boolean>>({})
+  let drafts = $state<Record<string, string[]>>({});
+  let saved = $state<Record<string, boolean>>({});
 
   onMount(async () => {
-    await loadProviders()
-    keys = await getApiKeys()
+    await loadProviders();
+    keys = await getApiKeys();
     for (const p of providerState.providers) {
-      drafts[p.id] = [...(keys[p.id] ?? [])]
+      drafts[p.id] = [...(keys[p.id] ?? [])];
     }
-  })
+  });
 
   function addKey(id: string) {
-    if (!drafts[id]) drafts[id] = []
-    drafts[id].push('')
+    if (!drafts[id]) drafts[id] = [];
+    drafts[id].push('');
   }
 
   function removeKey(id: string, idx: number) {
-    drafts[id].splice(idx, 1)
+    drafts[id].splice(idx, 1);
   }
 
   async function save(id: string) {
-    const cleaned = (drafts[id] ?? []).map((k) => k.trim()).filter((k) => k.length > 0)
-    await saveApiKeys(id, cleaned)
-    keys[id] = cleaned
-    saved[id] = true
+    const cleaned = (drafts[id] ?? []).map((k) => k.trim()).filter((k) => k.length > 0);
+    await saveApiKeys(id, cleaned);
+    keys[id] = cleaned;
+    saved[id] = true;
     setTimeout(() => {
-      saved[id] = false
-    }, 2000)
+      saved[id] = false;
+    }, 2000);
   }
 
   function maskKey(k: string): string {
-    if (!k) return ''
-    if (k.length <= 8) return '•'.repeat(8)
-    return `${k.slice(0, 5)}${'•'.repeat(12)}${k.slice(-3)}`
+    if (!k) return '';
+    if (k.length <= 8) return '•'.repeat(8);
+    return `${k.slice(0, 5)}${'•'.repeat(12)}${k.slice(-3)}`;
   }
 </script>
 
@@ -62,7 +62,9 @@
             {p.name}
           </div>
           <span class="status-tag">
-            {list.length > 0 ? `${list.length} key${list.length !== 1 ? 's' : ''} · rotates on 429` : 'no key'}
+            {list.length > 0
+              ? `${list.length} key${list.length !== 1 ? 's' : ''} · rotates on 429`
+              : 'no key'}
           </span>
         </div>
 
@@ -91,18 +93,28 @@
 
         <div class="btn-row">
           <button class="add-btn" onclick={() => addKey(p.id)}>+ Add key</button>
-          <Button variant="primary" class="save-btn" onclick={() => save(p.id)} ariaLabel="Save {p.name} API keys">
+          <Button
+            variant="primary"
+            class="save-btn"
+            onclick={() => save(p.id)}
+            ariaLabel="Save {p.name} API keys"
+          >
             {saved[p.id] ? 'Saved ✓' : 'Save'}
           </Button>
         </div>
         {#if list.length > 1}
-          <div class="hint">First key is primary (used for model discovery); the others are tried in order after a 429.</div>
+          <div class="hint">
+            First key is primary (used for model discovery); the others are tried in order after a
+            429.
+          </div>
         {/if}
       </div>
     {/each}
 
     {#if providerState.providers.filter((p) => p.source !== 'builtin').length > 0}
-      <div class="hint">Plugin-contributed providers are managed on each plugin's settings page.</div>
+      <div class="hint">
+        Plugin-contributed providers are managed on each plugin's settings page.
+      </div>
     {/if}
   </Card>
 </div>

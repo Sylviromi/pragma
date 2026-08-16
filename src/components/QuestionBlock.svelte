@@ -1,7 +1,7 @@
 <script lang="ts">
-  import CornerMarks from './CornerMarks.svelte'
-  import Icon from './Icon.svelte'
-  import Pill from './Pill.svelte'
+  import CornerMarks from './CornerMarks.svelte';
+  import Icon from './Icon.svelte';
+  import Pill from './Pill.svelte';
   // Design "Input requested" block (`Pragma UI Kit v2.dc.html` → buildBlock
   // kind 'question'): accent-bordered card with blueprint corner marks, a
   // header (icon + mono label + count + "run paused · k/n" pill), per-question
@@ -14,14 +14,14 @@
   // rows, single submit) — TODO(agents): wire when the backend sends several
   // questions per pause. Until then it degrades to the single live question.
   export interface QuestionRow {
-    id: string
-    text: string
-    kind: 'choice' | 'scale' | 'input'
-    options?: string[]
-    placeholder?: string
-    unit?: string
-    lo?: string
-    hi?: string
+    id: string;
+    text: string;
+    kind: 'choice' | 'scale' | 'input';
+    options?: string[];
+    placeholder?: string;
+    unit?: string;
+    lo?: string;
+    hi?: string;
   }
 
   let {
@@ -33,60 +33,65 @@
     onSubmit,
   }: {
     /** Intro text shown under the header (the question itself). */
-    text?: string
+    text?: string;
     /** Single-question options (live path) — auto-detects choice vs scale. */
-    options?: string[]
+    options?: string[];
     /** Picked / recovered answer for the single-question path. */
-    answer?: string | null
+    answer?: string | null;
     /** Pick callback (single question, live) — resolves the paused loop. */
-    onSelect?: (option: string) => void
+    onSelect?: (option: string) => void;
     /** Future multi-question shape. */
-    questions?: QuestionRow[] | null
+    questions?: QuestionRow[] | null;
     /** Future multi-question submit. */
-    onSubmit?: (answers: Record<string, string>) => void
-  } = $props()
+    onSubmit?: (answers: Record<string, string>) => void;
+  } = $props();
 
-  const answered = $derived(answer !== null && answer !== undefined && answer !== '')
+  const answered = $derived(answer !== null && answer !== undefined && answer !== '');
 
   // Kind detection for the single-question path: all-numeric/short keys with
   // ≥3 options reads as a scale; no options reads as free-text input.
   function detectKind(opts: string[]): 'choice' | 'scale' | 'input' {
-    if (opts.length === 0) return 'input'
-    if (opts.length >= 3 && opts.every((o) => /^\d+(\.\d+)?(k|m)?$/i.test(o.trim()))) return 'scale'
-    return 'choice'
+    if (opts.length === 0) return 'input';
+    if (opts.length >= 3 && opts.every((o) => /^\d+(\.\d+)?(k|m)?$/i.test(o.trim())))
+      return 'scale';
+    return 'choice';
   }
 
   const rows = $derived.by<QuestionRow[]>(() => {
-    if (questions && questions.length > 0) return questions
-    return [{ id: 'q1', text, kind: detectKind(options), options, placeholder: 'Type your answer…' }]
-  })
+    if (questions && questions.length > 0) return questions;
+    return [
+      { id: 'q1', text, kind: detectKind(options), options, placeholder: 'Type your answer…' },
+    ];
+  });
 
   // Multi-question draft answers (only used by the future `questions` shape).
-  let drafts = $state<Record<string, string>>({})
+  let drafts = $state<Record<string, string>>({});
   function pick(q: QuestionRow, value: string) {
-    drafts = { ...drafts, [q.id]: value }
+    drafts = { ...drafts, [q.id]: value };
   }
-  const multiFilled = $derived(rows.filter((q) => {
-    const v = drafts[q.id]
-    return v != null && String(v).trim() !== ''
-  }).length)
-  const multiComplete = $derived(multiFilled === rows.length)
+  const multiFilled = $derived(
+    rows.filter((q) => {
+      const v = drafts[q.id];
+      return v != null && String(v).trim() !== '';
+    }).length,
+  );
+  const multiComplete = $derived(multiFilled === rows.length);
 
   const keyFor = (q: QuestionRow, oi: number) =>
-    q.kind === 'scale' ? String(q.options?.[oi] ?? oi + 1) : String.fromCharCode(65 + oi)
+    q.kind === 'scale' ? String(q.options?.[oi] ?? oi + 1) : String.fromCharCode(65 + oi);
 
   // isPicked: single-question path uses `answer`; multi path uses drafts.
   const isPicked = (q: QuestionRow, label: string) =>
-    questions ? drafts[q.id] === label : answer === label
+    questions ? drafts[q.id] === label : answer === label;
 
   const isAnsweredRow = (q: QuestionRow) => {
-    if (!questions) return answered
-    const v = drafts[q.id]
-    return v != null && String(v).trim() !== ''
-  }
+    if (!questions) return answered;
+    const v = drafts[q.id];
+    return v != null && String(v).trim() !== '';
+  };
 
   function submit() {
-    if (questions) onSubmit?.(drafts)
+    if (questions) onSubmit?.(drafts);
     // single path: picking already resolved via onSelect
   }
 </script>
@@ -97,12 +102,16 @@
   <CornerMarks color={answered ? 'var(--border-default)' : 'var(--accent)'} />
 
   <div class="q-head">
-    <span class="q-ico" aria-hidden="true"><Icon name={answered ? 'task_alt' : 'contact_support'} size={16} /></span>
+    <span class="q-ico" aria-hidden="true"
+      ><Icon name={answered ? 'task_alt' : 'contact_support'} size={16} /></span
+    >
     <span class="q-label">{answered ? 'Answers recorded' : 'Input requested'}</span>
     <span class="q-count">{rows.length === 1 ? '1 question' : `${rows.length} questions`}</span>
     <Pill class="q-pill">
       {answered
-        ? (rows.length === 1 ? '1/1 answered' : `${multiFilled}/${rows.length} answered`)
+        ? rows.length === 1
+          ? '1/1 answered'
+          : `${multiFilled}/${rows.length} answered`
         : `run paused · ${rows.length === 1 ? 0 : multiFilled}/${rows.length}`}
     </Pill>
   </div>
@@ -140,9 +149,9 @@
               oninput={(e) => questions && pick(q, (e.target as HTMLInputElement).value)}
               onkeydown={(e) => {
                 if (e.key === 'Enter' && !questions) {
-                  e.preventDefault()
-                  const v = (e.target as HTMLInputElement).value.trim()
-                  if (v) onSelect?.(v)
+                  e.preventDefault();
+                  const v = (e.target as HTMLInputElement).value.trim();
+                  if (v) onSelect?.(v);
                 }
               }}
             />
@@ -152,15 +161,16 @@
           <!-- scale: key squares + lo/hi caps -->
           <div class="q-scale">
             <div class="q-scale-keys">
-              {#each (q.options ?? []) as label, oi (label)}
+              {#each q.options ?? [] as label, oi (label)}
                 <button
                   class="q-key"
                   class:picked={isPicked(q, label)}
                   aria-pressed={isPicked(q, label)}
                   title={label}
                   disabled={answered && !questions}
-                  onclick={() => questions ? pick(q, label) : onSelect?.(label)}
-                >{keyFor(q, oi)}</button>
+                  onclick={() => (questions ? pick(q, label) : onSelect?.(label))}
+                  >{keyFor(q, oi)}</button
+                >
               {/each}
             </div>
             {#if q.lo || q.hi}
@@ -170,17 +180,19 @@
         {:else}
           <!-- choice: full-width option rows with letter key column + check -->
           <div class="q-choices">
-            {#each (q.options ?? []) as label, oi (label)}
+            {#each q.options ?? [] as label, oi (label)}
               <button
                 class="q-opt"
                 class:picked={isPicked(q, label)}
                 aria-pressed={isPicked(q, label)}
                 disabled={answered && !questions}
-                onclick={() => questions ? pick(q, label) : onSelect?.(label)}
+                onclick={() => (questions ? pick(q, label) : onSelect?.(label))}
               >
                 <span class="q-opt-key">{keyFor(q, oi)}</span>
                 <span class="q-opt-label">{label}</span>
-                {#if isPicked(q, label)}<span class="q-opt-check" aria-hidden="true"><Icon name="check" size={15} /></span>{/if}
+                {#if isPicked(q, label)}<span class="q-opt-check" aria-hidden="true"
+                    ><Icon name="check" size={15} /></span
+                  >{/if}
               </button>
             {/each}
           </div>
@@ -194,7 +206,9 @@
       {answered
         ? 'Answers sent — the run resumed from here.'
         : questions
-          ? (multiComplete ? 'All set — send the answers back.' : 'Answer every question to resume the run.')
+          ? multiComplete
+            ? 'All set — send the answers back.'
+            : 'Answer every question to resume the run.'
           : 'Answer to resume the run.'}
     </span>
     {#if questions}
@@ -202,8 +216,8 @@
         class="q-submit"
         class:ready={multiComplete}
         disabled={!multiComplete}
-        onclick={submit}
-      >{multiComplete ? 'Send answers' : 'Send answers'}</button>
+        onclick={submit}>{multiComplete ? 'Send answers' : 'Send answers'}</button
+      >
     {/if}
   </div>
 </div>
@@ -353,7 +367,9 @@
     border: 1px solid var(--border-default);
     background: transparent;
     border-radius: 0;
-    transition: border-color 0.18s ease, background 0.18s ease;
+    transition:
+      border-color 0.18s ease,
+      background 0.18s ease;
   }
   .q-opt:hover:not(:disabled) {
     border-color: var(--accent);
@@ -423,7 +439,9 @@
     font-family: var(--font-mono);
     font-size: 12px;
     color: var(--text-secondary);
-    transition: border-color 0.18s ease, background 0.18s ease;
+    transition:
+      border-color 0.18s ease,
+      background 0.18s ease;
   }
   .q-key:hover:not(:disabled) {
     border-color: var(--accent);
@@ -517,7 +535,9 @@
     letter-spacing: 0.06em;
     text-transform: uppercase;
     cursor: default;
-    transition: background 0.2s ease, border-color 0.2s ease;
+    transition:
+      background 0.2s ease,
+      border-color 0.2s ease;
   }
   .q-submit.ready {
     border-color: var(--accent);

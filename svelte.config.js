@@ -3,16 +3,16 @@ import { vitePreprocess } from '@sveltejs/vite-plugin-svelte';
 
 /** @type {import('@sveltejs/kit').Config} */
 const config = {
-	preprocess: vitePreprocess(),
-	kit: {
-		// Tauri serves the built SPA statically; use SPA fallback mode
-		adapter: adapter({
-			fallback: 'index.html'
-		}),
-		paths: {
-			base: ''
-		}
-	}
+  preprocess: vitePreprocess(),
+  kit: {
+    // Tauri serves the built SPA statically; use SPA fallback mode
+    adapter: adapter({
+      fallback: 'index.html',
+    }),
+    paths: {
+      base: '',
+    },
+  },
 };
 
 export default config;

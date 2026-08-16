@@ -1,32 +1,32 @@
 <script lang="ts">
-  import { onMount } from 'svelte'
-  import ChatPanel from '../components/ChatPanel.svelte'
-  import DirBar from '../components/DirBar.svelte'
-  import SessionRail from '../components/SessionRail.svelte'
-  import SidebarPanel from '../components/SidebarPanel.svelte'
-  import { loadSessions, sessions, restoreTabs } from '../stores/sessions.svelte'
-  import { ui } from '../stores/ui.svelte'
+  import { onMount } from 'svelte';
+  import ChatPanel from '../components/ChatPanel.svelte';
+  import DirBar from '../components/DirBar.svelte';
+  import SessionRail from '../components/SessionRail.svelte';
+  import SidebarPanel from '../components/SidebarPanel.svelte';
+  import { loadSessions, sessions, restoreTabs } from '../stores/sessions.svelte';
+  import { ui } from '../stores/ui.svelte';
 
-  let narrow = $state(false)
+  let narrow = $state(false);
 
   onMount(async () => {
-    await loadSessions()
+    await loadSessions();
     // Reopen every session tab that was open before the app restarted,
     // including the previously active one.
-    restoreTabs()
-  })
+    restoreTabs();
+  });
 
   $effect(() => {
     const onResize = () => {
-      narrow = window.innerWidth < 900
+      narrow = window.innerWidth < 900;
       // Don't force-close here: the sidebar stays open by default at any
       // window size (on narrow windows it becomes an overlay until the user
       // toggles it).
-    }
-    onResize()
-    window.addEventListener('resize', onResize)
-    return () => window.removeEventListener('resize', onResize)
-  })
+    };
+    onResize();
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  });
 </script>
 
 {#if sessions.activeTabId}
@@ -75,7 +75,9 @@
     width: 300px;
     overflow: hidden;
     opacity: 1;
-    transition: width 0.34s cubic-bezier(0.22, 0.8, 0.3, 1), opacity 0.26s ease;
+    transition:
+      width 0.34s cubic-bezier(0.22, 0.8, 0.3, 1),
+      opacity 0.26s ease;
   }
   .sidebar-inner {
     display: flex;

@@ -7,11 +7,11 @@
     blurb = '',
     meta = '',
   }: {
-    kicker: string
-    title: string
-    blurb?: string
-    meta?: string
-  } = $props()
+    kicker: string;
+    title: string;
+    blurb?: string;
+    meta?: string;
+  } = $props();
 </script>
 
 <div class="header">

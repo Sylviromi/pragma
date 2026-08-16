@@ -5,51 +5,85 @@
 // tinted with the family hue (at graded, much lower chroma than the accent) so
 // switching family recolors the whole UI, not just the accent.
 
-export type ThemeMode = 'light' | 'mid' | 'dark'
+export type ThemeMode = 'light' | 'mid' | 'dark';
 
 export interface ThemeTokens {
-  [name: string]: string
+  [name: string]: string;
 }
 
 const MODE_BASE: Record<ThemeMode, Record<string, number>> = {
   light: {
-    bg: 96.5, bgEl: 99.5, bgOv: 92.5, hover: 94,
-    text: 18, text2: 36, textM: 50,
-    surfC: 0.5, textC: 0.35, borderL: 20, borderA: 0.2, borderSubA: 0.09, shadowA: 0.14,
+    bg: 96.5,
+    bgEl: 99.5,
+    bgOv: 92.5,
+    hover: 94,
+    text: 18,
+    text2: 36,
+    textM: 50,
+    surfC: 0.5,
+    textC: 0.35,
+    borderL: 20,
+    borderA: 0.2,
+    borderSubA: 0.09,
+    shadowA: 0.14,
   },
   mid: {
-    bg: 33, bgEl: 39, bgOv: 45, hover: 43,
-    text: 94, text2: 79, textM: 62,
-    surfC: 0.55, textC: 0.3, borderL: 92, borderA: 0.2, borderSubA: 0.1, shadowA: 0.3,
+    bg: 33,
+    bgEl: 39,
+    bgOv: 45,
+    hover: 43,
+    text: 94,
+    text2: 79,
+    textM: 62,
+    surfC: 0.55,
+    textC: 0.3,
+    borderL: 92,
+    borderA: 0.2,
+    borderSubA: 0.1,
+    shadowA: 0.3,
   },
   dark: {
-    bg: 16, bgEl: 21, bgOv: 27, hover: 25,
-    text: 96, text2: 82, textM: 61,
-    surfC: 0.6, textC: 0.3, borderL: 94, borderA: 0.18, borderSubA: 0.09, shadowA: 0.42,
+    bg: 16,
+    bgEl: 21,
+    bgOv: 27,
+    hover: 25,
+    text: 96,
+    text2: 82,
+    textM: 61,
+    surfC: 0.6,
+    textC: 0.3,
+    borderL: 94,
+    borderA: 0.18,
+    borderSubA: 0.09,
+    shadowA: 0.42,
   },
-}
+};
 
 const ACCENT_L: Record<ThemeMode, [number, number, number]> = {
-  light: [45, 36, 28], mid: [68, 76, 86], dark: [72, 80, 88],
-}
-const ACCENT_ON_L: Record<ThemeMode, number> = { light: 98, mid: 12, dark: 12 }
-const STATUS_L: Record<ThemeMode, number> = { light: 44, mid: 68, dark: 72 }
+  light: [45, 36, 28],
+  mid: [68, 76, 86],
+  dark: [72, 80, 88],
+};
+const ACCENT_ON_L: Record<ThemeMode, number> = { light: 98, mid: 12, dark: 12 };
+const STATUS_L: Record<ThemeMode, number> = { light: 44, mid: 68, dark: 72 };
 
 const c = (l: number, chroma: number, hue: number, a?: number) =>
-  a == null ? `oklch(${l}% ${chroma.toFixed(4)} ${hue})` : `oklch(${l}% ${chroma.toFixed(4)} ${hue} / ${a})`
+  a == null
+    ? `oklch(${l}% ${chroma.toFixed(4)} ${hue})`
+    : `oklch(${l}% ${chroma.toFixed(4)} ${hue} / ${a})`;
 
 export function buildTheme(hue: number, chroma: number, mode: ThemeMode): ThemeTokens {
-  const m = MODE_BASE[mode]
-  const [aB, aH, aA] = ACCENT_L[mode]
-  const sL = STATUS_L[mode]
+  const m = MODE_BASE[mode];
+  const [aB, aH, aA] = ACCENT_L[mode];
+  const sL = STATUS_L[mode];
   // Surface + text chroma scale off the family's own chroma so a muted family
   // (Steel) stays near-neutral while a saturated one (Amber) reads clearly warm.
-  const surf = Math.min(chroma * m.surfC, 0.035)
-  const txt = Math.min(chroma * m.textC, 0.02)
+  const surf = Math.min(chroma * m.surfC, 0.035);
+  const txt = Math.min(chroma * m.textC, 0.02);
   const accentOn =
     mode === 'light'
       ? c(ACCENT_ON_L[mode], chroma * 0.15, hue)
-      : c(ACCENT_ON_L[mode], chroma * 0.35, hue)
+      : c(ACCENT_ON_L[mode], chroma * 0.35, hue);
   return {
     'bg-base': c(m.bg, surf, hue),
     'bg-elevated': c(m.bgEl, surf * 0.85, hue),
@@ -73,7 +107,7 @@ export function buildTheme(hue: number, chroma: number, mode: ThemeMode): ThemeT
     'shadow-sm': `0 1px 2px oklch(12% ${(chroma * 0.5).toFixed(4)} ${hue} / ${mode === 'light' ? m.shadowA * 0.5 : m.shadowA})`,
     'shadow-md': `0 4px 14px oklch(12% ${(chroma * 0.5).toFixed(4)} ${hue} / ${m.shadowA})`,
     'shadow-lg': `0 16px 40px oklch(12% ${(chroma * 0.5).toFixed(4)} ${hue} / ${m.shadowA + 0.1})`,
-  }
+  };
 }
 
 /// High-contrast pass on top of a family: maximizes text/surface contrast
@@ -81,16 +115,16 @@ export function buildTheme(hue: number, chroma: number, mode: ThemeMode): ThemeT
 /// the dedicated "High contrast" family so it takes on whichever family hue
 /// the user picks alongside it.
 export function applyHighContrast(t: ThemeTokens, hue: number, mode: ThemeMode): ThemeTokens {
-  const bg = { light: 99.5, mid: 22, dark: 8 }[mode]
-  const bgEl = { light: 100, mid: 27, dark: 12 }[mode]
-  const bgOv = { light: 95, mid: 33, dark: 17 }[mode]
-  const hover = { light: 94, mid: 31, dark: 15 }[mode]
-  const text = { light: 8, mid: 97, dark: 99 }[mode]
-  const text2 = { light: 16, mid: 88, dark: 92 }[mode]
-  const textM = { light: 30, mid: 74, dark: 78 }[mode]
-  const borderA = { light: 0.55, mid: 0.5, dark: 0.5 }[mode]
-  const borderSubA = 0.32
-  const shadowA = 0.5
+  const bg = { light: 99.5, mid: 22, dark: 8 }[mode];
+  const bgEl = { light: 100, mid: 27, dark: 12 }[mode];
+  const bgOv = { light: 95, mid: 33, dark: 17 }[mode];
+  const hover = { light: 94, mid: 31, dark: 15 }[mode];
+  const text = { light: 8, mid: 97, dark: 99 }[mode];
+  const text2 = { light: 16, mid: 88, dark: 92 }[mode];
+  const textM = { light: 30, mid: 74, dark: 78 }[mode];
+  const borderA = { light: 0.55, mid: 0.5, dark: 0.5 }[mode];
+  const borderSubA = 0.32;
+  const shadowA = 0.5;
   return {
     ...t,
     'bg-base': `oklch(${bg}% 0.01 ${hue})`,
@@ -106,13 +140,13 @@ export function applyHighContrast(t: ThemeTokens, hue: number, mode: ThemeMode):
     'shadow-sm': '0 1px 2px rgba(0,0,0,0.55)',
     'shadow-md': '0 4px 14px rgba(0,0,0,0.55)',
     'shadow-lg': `0 16px 40px oklch(12% 0.02 ${hue} / ${shadowA + 0.05})`,
-  }
+  };
 }
 
 /// First-paint bootstrap: the Steel/dark design reference generated by the
 /// engine itself (not a hand-copied duplicate) — tokens.css's `:root` block
 /// is the actual first-paint fallback and this must stay in sync with it.
-export const BOOTSTRAP_THEME: ThemeTokens = buildTheme(250, 0.055, 'dark')
+export const BOOTSTRAP_THEME: ThemeTokens = buildTheme(250, 0.055, 'dark');
 
 /// Static (family-independent) tokens — radii, sizes. Typography is NOT here:
 /// fonts live in tokens.css (`--font-body: var(--font-ui)` + roles) and are
@@ -123,7 +157,7 @@ export const STATIC_TOKENS: ThemeTokens = {
   'radius-sm': '2px',
   'radius-md': '4px',
   'radius-lg': '7px',
-}
+};
 
 /// Legacy alias map: every `--color-*` / `--font-sans` name current components
 /// and older plugins already use, wired to the new design tokens so nothing
@@ -145,32 +179,31 @@ export const LEGACY_ALIASES: Record<string, string> = {
   'color-accent-danger': 'var(--danger)',
   'color-accent-error': 'var(--danger)',
   'font-sans': 'var(--font-body)',
-}
+};
 
 /// Serialize a token map to a CSS custom-property declaration string.
 export function toVars(tokens: ThemeTokens): string {
   return Object.entries(tokens)
     .map(([k, v]) => `--${k}: ${v};`)
-    .join(' ')
+    .join(' ');
 }
 
 /// Full token set for a family+mode (including static + legacy aliases), as a
 /// flat record of `--name → value` ready for `style.setProperty`.
 export function themeVarEntries(family: ThemeFamily, mode: ThemeMode): Array<[string, string]> {
-  const built =
-    family.highContrast
-      ? applyHighContrast(buildTheme(family.hue, family.chroma, mode), family.hue, mode)
-      : buildTheme(family.hue, family.chroma, mode)
-  const all: Record<string, string> = { ...built, ...STATIC_TOKENS }
-  for (const [alias, ref] of Object.entries(LEGACY_ALIASES)) all[alias] = ref
-  return Object.entries(all)
+  const built = family.highContrast
+    ? applyHighContrast(buildTheme(family.hue, family.chroma, mode), family.hue, mode)
+    : buildTheme(family.hue, family.chroma, mode);
+  const all: Record<string, string> = { ...built, ...STATIC_TOKENS };
+  for (const [alias, ref] of Object.entries(LEGACY_ALIASES)) all[alias] = ref;
+  return Object.entries(all);
 }
 
 export interface ThemeFamily {
-  key: string
-  name: string
-  hue: number
-  chroma: number
+  key: string;
+  name: string;
+  hue: number;
+  chroma: number;
   /** High-contrast variant — maximizes text/surface/border contrast. */
-  highContrast?: boolean
+  highContrast?: boolean;
 }

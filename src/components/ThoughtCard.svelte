@@ -1,6 +1,6 @@
 <script lang="ts">
-  import Icon from './Icon.svelte'
-  import Collapsible from './Collapsible.svelte'
+  import Icon from './Icon.svelte';
+  import Collapsible from './Collapsible.svelte';
 
   // Design thought card (`Pragma UI Kit.dc.html` → buildBlock kind 'thought'):
   // bordered slot-tinted card with a left rail, mono uppercase title, collapse
@@ -15,14 +15,14 @@
     streaming = false,
     children,
   }: {
-    title?: string
-    meta?: string
-    streaming?: boolean
-    children?: import('svelte').Snippet
-  } = $props()
+    title?: string;
+    meta?: string;
+    streaming?: boolean;
+    children?: import('svelte').Snippet;
+  } = $props();
 
   // Design shows thought blocks open by default; the chevron collapses them.
-  let open = $state(true)
+  let open = $state(true);
 </script>
 
 <Collapsible
@@ -34,7 +34,9 @@
   class="thought-card"
 >
   {#snippet header()}
-    <span class="t-icon" class:streaming aria-hidden="true"><Icon name="neurology" size={16} /></span>
+    <span class="t-icon" class:streaming aria-hidden="true"
+      ><Icon name="neurology" size={16} /></span
+    >
     <span class="t-title" class:streaming>{title}</span>
     {#if meta}<span class="t-meta">{meta}</span>{/if}
   {/snippet}
@@ -51,7 +53,9 @@
   :global(.thought-card) {
     border: 1px solid color-mix(in oklch, var(--slot) 26%, transparent);
     background: color-mix(in oklch, var(--slot) 7%, transparent);
-    transition: border-color 0.3s ease, background 0.3s ease;
+    transition:
+      border-color 0.3s ease,
+      background 0.3s ease;
   }
 
   .t-icon {

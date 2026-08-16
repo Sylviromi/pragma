@@ -97,18 +97,18 @@
     verified: 'verified',
     vertical_align_bottom: 'vertical_align_bottom',
     warning: 'warning',
-  } as const
+  } as const;
 
   let {
     name,
     size = 18,
     fill = false,
   }: {
-    name: keyof typeof ICONS
-    size?: number
+    name: keyof typeof ICONS;
+    size?: number;
     /** Filled icon variant (FILL axis = 1). */
-    fill?: boolean
-  } = $props()
+    fill?: boolean;
+  } = $props();
 </script>
 
 <span
@@ -116,12 +116,15 @@
   class:fill
   style:font-size={`${size}px`}
   style:font-variation-settings={fill ? "'FILL' 1, 'wght' 400, 'GRAD' 0, 'opsz' 24" : undefined}
-  aria-hidden="true"
-  >{ICONS[name]}</span
+  aria-hidden="true">{ICONS[name]}</span
 >
 
 <style>
   .fill {
-    font-variation-settings: 'FILL' 1, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+    font-variation-settings:
+      'FILL' 1,
+      'wght' 400,
+      'GRAD' 0,
+      'opsz' 24;
   }
 </style>

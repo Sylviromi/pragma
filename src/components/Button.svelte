@@ -7,8 +7,8 @@
   // uppercase label style (settings header actions, plugin actions, follow…).
   // `icon` renders a Material glyph; `loading` swaps it for a spinner.
   // `href` renders an <a> with the same skin (back links, plugin cards…).
-  import Icon from './Icon.svelte'
-  import type { Snippet } from 'svelte'
+  import Icon from './Icon.svelte';
+  import type { Snippet } from 'svelte';
 
   let {
     variant = 'ghost',
@@ -27,51 +27,67 @@
     class: klass = '',
     ...restProps
   }: {
-    variant?: 'primary' | 'ghost' | 'danger' | 'danger-solid' | 'warning' | 'quiet'
-    size?: 'xs' | 'sm' | 'md'
-    mono?: boolean
+    variant?: 'primary' | 'ghost' | 'danger' | 'danger-solid' | 'warning' | 'quiet';
+    size?: 'xs' | 'sm' | 'md';
+    mono?: boolean;
     /** Borderless ghost (the old settings-page `.ghost` — hover = bg-overlay). */
-    flat?: boolean
-    icon?: string
-    iconRight?: boolean
-    loading?: boolean
-    disabled?: boolean
-    href?: string
-    title?: string
-    ariaLabel?: string
-    onclick?: (e: MouseEvent) => void
-    children?: Snippet
-    class?: string
+    flat?: boolean;
+    icon?: string;
+    iconRight?: boolean;
+    loading?: boolean;
+    disabled?: boolean;
+    href?: string;
+    title?: string;
+    ariaLabel?: string;
+    onclick?: (e: MouseEvent) => void;
+    children?: Snippet;
+    class?: string;
     /** Remaining attributes forwarded to the <button>/<a> (aria-*, etc.). */
-    [key: string]: unknown
-  } = $props()
+    [key: string]: unknown;
+  } = $props();
 
-  const iconSize = $derived(size === 'xs' ? 14 : 15)
-  const iconName = $derived((loading ? 'progress_activity' : icon) as never)
-  const showIcon = $derived(!!icon || loading)
+  const iconSize = $derived(size === 'xs' ? 14 : 15);
+  const iconName = $derived((loading ? 'progress_activity' : icon) as never);
+  const showIcon = $derived(!!icon || loading);
   const cls = $derived(
-    `btn v-${variant} s-${size}${mono ? ' mono' : ''}${flat ? ' flat' : ''}${klass ? ` ${klass}` : ''}`
-  )
+    `btn v-${variant} s-${size}${mono ? ' mono' : ''}${flat ? ' flat' : ''}${klass ? ` ${klass}` : ''}`,
+  );
 </script>
 
 {#if href}
   <a {href} class={cls} {title} aria-label={ariaLabel} {onclick} {...restProps}>
     {#if showIcon && !iconRight}
-      <span class="ico" class:spin={loading} aria-hidden="true"><Icon name={iconName} size={iconSize} /></span>
+      <span class="ico" class:spin={loading} aria-hidden="true"
+        ><Icon name={iconName} size={iconSize} /></span
+      >
     {/if}
     {@render children?.()}
     {#if showIcon && iconRight}
-      <span class="ico" class:spin={loading} aria-hidden="true"><Icon name={iconName} size={iconSize} /></span>
+      <span class="ico" class:spin={loading} aria-hidden="true"
+        ><Icon name={iconName} size={iconSize} /></span
+      >
     {/if}
   </a>
 {:else}
-  <button class={cls} {disabled} {title} aria-label={ariaLabel} aria-busy={loading} {onclick} {...restProps}>
+  <button
+    class={cls}
+    {disabled}
+    {title}
+    aria-label={ariaLabel}
+    aria-busy={loading}
+    {onclick}
+    {...restProps}
+  >
     {#if showIcon && !iconRight}
-      <span class="ico" class:spin={loading} aria-hidden="true"><Icon name={iconName} size={iconSize} /></span>
+      <span class="ico" class:spin={loading} aria-hidden="true"
+        ><Icon name={iconName} size={iconSize} /></span
+      >
     {/if}
     {@render children?.()}
     {#if showIcon && iconRight}
-      <span class="ico" class:spin={loading} aria-hidden="true"><Icon name={iconName} size={iconSize} /></span>
+      <span class="ico" class:spin={loading} aria-hidden="true"
+        ><Icon name={iconName} size={iconSize} /></span
+      >
     {/if}
   </button>
 {/if}
@@ -88,7 +104,10 @@
     white-space: nowrap;
     flex: none;
     text-decoration: none;
-    transition: background 0.18s ease, border-color 0.18s ease, color 0.18s ease;
+    transition:
+      background 0.18s ease,
+      border-color 0.18s ease,
+      color 0.18s ease;
   }
   .btn:disabled {
     opacity: 0.5;

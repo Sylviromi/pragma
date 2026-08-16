@@ -1,6 +1,6 @@
 <script lang="ts">
-  import PluginSlot from './PluginSlot.svelte'
-  import { plugins } from '../stores/plugins.svelte'
+  import PluginSlot from './PluginSlot.svelte';
+  import { plugins } from '../stores/plugins.svelte';
 
   // Slots the vanilla layout places explicitly (anchored). Any slot a plugin
   // claims OUTSIDE this set is free-floating: the app mounts the plugin in a
@@ -17,21 +17,18 @@
     'sidebar-section',
     'chat-view',
     'settings-page',
-  ])
+  ]);
 
   const free = $derived(
     plugins.list.filter(
-      (p) =>
-        p.enabled &&
-        p.hasComponent &&
-        p.contributes.slots.some((s) => !ANCHORED_SLOTS.has(s))
-    )
-  )
+      (p) => p.enabled && p.hasComponent && p.contributes.slots.some((s) => !ANCHORED_SLOTS.has(s)),
+    ),
+  );
 
   // Each free plugin mounts once, tagged with its first unanchored slot so
   // the component can tell which surface it's occupying.
   const slotFor = (p: (typeof plugins.list)[number]): string =>
-    p.contributes.slots.find((s) => !ANCHORED_SLOTS.has(s)) ?? p.contributes.slots[0] ?? 'free'
+    p.contributes.slots.find((s) => !ANCHORED_SLOTS.has(s)) ?? p.contributes.slots[0] ?? 'free';
 </script>
 
 {#if free.length}

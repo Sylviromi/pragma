@@ -9,17 +9,17 @@
   // land. Data shape mirrors the design's TURN_SCRIPTS.
   // Card shell (rail + chevron + collapse) lives in Collapsible; the agent
   // mark is the shared AgentMark component (was inlined before the audit).
-  import AgentMark from './AgentMark.svelte'
-  import Collapsible from './Collapsible.svelte'
-  import Icon from './Icon.svelte'
-  import Pill from './Pill.svelte'
-  import { toolIcon } from '../lib/toolIcons'
+  import AgentMark from './AgentMark.svelte';
+  import Collapsible from './Collapsible.svelte';
+  import Icon from './Icon.svelte';
+  import Pill from './Pill.svelte';
+  import { toolIcon } from '../lib/toolIcons';
 
   export interface SubagentStep {
-    tool: string
-    label: string
-    detail?: string
-    state?: 'running' | 'done' | 'pending'
+    tool: string;
+    label: string;
+    detail?: string;
+    state?: 'running' | 'done' | 'pending';
   }
 
   let {
@@ -32,19 +32,19 @@
     tokens = '',
     result = '',
   }: {
-    name: string
-    tint?: string
-    meta?: string
-    runState?: 'running' | 'done'
-    task?: string
-    steps?: SubagentStep[]
-    tokens?: string
-    result?: string
-  } = $props()
+    name: string;
+    tint?: string;
+    meta?: string;
+    runState?: 'running' | 'done';
+    task?: string;
+    steps?: SubagentStep[];
+    tokens?: string;
+    result?: string;
+  } = $props();
 
-  let open = $state(true)
+  let open = $state(true);
 
-  const running = $derived(runState === 'running')
+  const running = $derived(runState === 'running');
 </script>
 
 <Collapsible
@@ -57,7 +57,7 @@
   style={`--tint:${tint}`}
 >
   {#snippet header()}
-    <span class="mark" aria-hidden="true"><AgentMark tint={tint} size={15} /></span>
+    <span class="mark" aria-hidden="true"><AgentMark {tint} size={15} /></span>
     <span class="name">{name}</span>
     <Pill>sub-agent</Pill>
     {#if meta}<span class="meta">{meta}</span>{/if}

@@ -1,6 +1,6 @@
 <script lang="ts">
-  import SettingsHeader from '../../../components/SettingsHeader.svelte'
-  import Card from '../../../components/Card.svelte'
+  import SettingsHeader from '../../../components/SettingsHeader.svelte';
+  import Card from '../../../components/Card.svelte';
   // Static keymap — the harness's built-in shortcuts. (Remapping UI + plugin
   // shortcut registration is tracked in TODO.md.)
   const shortcuts = [
@@ -13,8 +13,8 @@
     { keys: ['Ctrl', 'Tab'], action: 'Switch session tab' },
     { keys: ['Ctrl', ','], action: 'Open shortcuts' },
     { keys: ['Ctrl', 'K'], action: 'Command palette' },
-    { keys: ['Ctrl', '.'], action: 'Toggle skills' }
-  ]
+    { keys: ['Ctrl', '.'], action: 'Toggle skills' },
+  ];
 </script>
 
 <div class="page">

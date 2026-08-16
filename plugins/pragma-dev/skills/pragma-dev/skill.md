@@ -94,6 +94,7 @@ plugins/pragma-dev/                this plugin (first-party, symlinked into the 
 ## Key data flows
 
 **Agentic loop** (`commands/agentic.rs::run_agentic_loop`):
+
 1. Load DB history → strip denied tool exchanges → prepend system prompt + loaded-skill docs
 2. Loop: call provider → emit Token/ToolCall/Thinking events → plain tools queue for batch flush; inline tools (load_skill/change_directory/ask_question/sidecar) resolve approval and execute immediately. `ask_question` pauses for a user answer (notification).
 3. `change_directory` is special-cased (updates DB + emits `WorkingDirChanged`) before `executor.execute()`.

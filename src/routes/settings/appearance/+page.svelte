@@ -1,28 +1,37 @@
 <script lang="ts">
-  import { theme, setFamily, setMode, setMatchSystem, setReduceMotion, setUiScale, setFontFamily, THEME_FAMILIES } from '../../../stores/theme.svelte'
-  import Toggle from '../../../components/Toggle.svelte'
-  import SettingRow from '../../../components/SettingRow.svelte'
-  import Segmented from '../../../components/Segmented.svelte'
-  import { buildTheme, applyHighContrast } from '../../../lib/theme/palette-engine'
-  import type { ThemeMode } from '../../../lib/theme/palette-engine'
-  import SettingsHeader from '../../../components/SettingsHeader.svelte'
+  import {
+    theme,
+    setFamily,
+    setMode,
+    setMatchSystem,
+    setReduceMotion,
+    setUiScale,
+    setFontFamily,
+    THEME_FAMILIES,
+  } from '../../../stores/theme.svelte';
+  import Toggle from '../../../components/Toggle.svelte';
+  import SettingRow from '../../../components/SettingRow.svelte';
+  import Segmented from '../../../components/Segmented.svelte';
+  import { buildTheme, applyHighContrast } from '../../../lib/theme/palette-engine';
+  import type { ThemeMode } from '../../../lib/theme/palette-engine';
+  import SettingsHeader from '../../../components/SettingsHeader.svelte';
 
   // Preview colors for each family card under the current mode — the design
   // shows the actual family swatch (bg base + accent ring), not the active one.
   function previewFor(key: string, mode: ThemeMode): string {
-    const f = THEME_FAMILIES.find((x) => x.key === key)!
+    const f = THEME_FAMILIES.find((x) => x.key === key)!;
     const t = f.highContrast
       ? applyHighContrast(buildTheme(f.hue, f.chroma, mode), f.hue, mode)
-      : buildTheme(f.hue, f.chroma, mode)
-    return `--preview-bg: ${t['bg-base']}; --preview-accent: ${t.accent};`
+      : buildTheme(f.hue, f.chroma, mode);
+    return `--preview-bg: ${t['bg-base']}; --preview-accent: ${t.accent};`;
   }
 </script>
 
 <SettingsHeader
-    kicker="Interface"
-    title="Appearance"
-    blurb="Theme, density and the chrome around the conversation."
-  />
+  kicker="Interface"
+  title="Appearance"
+  blurb="Theme, density and the chrome around the conversation."
+/>
 
 <div class="label">Theme</div>
 <div class="family-row">
@@ -87,7 +96,6 @@
 <SettingRow bare label="Reduce motion" desc="Disable transitions and streaming cursor blink">
   <Toggle checked={theme.reduceMotion} onChange={setReduceMotion} label="Reduce motion" />
 </SettingRow>
-
 
 <style>
   .label {

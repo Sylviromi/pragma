@@ -1,106 +1,109 @@
 <script lang="ts">
-  import { page } from '$app/stores'
-  import { onMount } from 'svelte'
-  import { plugins, loadPlugins, setEnabled, uninstallPlugin, updatePlugin, checkUpdates } from '../../../../stores/plugins.svelte'
-  import { openPluginFolder, getPluginConfig, setPluginConfig } from '../../../../lib/tauri'
-  import { pushToast } from '../../../../stores/toast.svelte'
-  import SlotStack from '../../../../components/SlotStack.svelte'
-  import Toggle from '../../../../components/Toggle.svelte'
-  import Button from '../../../../components/Button.svelte'
-  import SectionHeader from '../../../../components/SectionHeader.svelte'
-  import EmptyState from '../../../../components/EmptyState.svelte'
-  import Pill from '../../../../components/Pill.svelte'
+  import { page } from '$app/stores';
+  import { onMount } from 'svelte';
+  import {
+    plugins,
+    loadPlugins,
+    setEnabled,
+    uninstallPlugin,
+    updatePlugin,
+    checkUpdates,
+  } from '../../../../stores/plugins.svelte';
+  import { openPluginFolder, getPluginConfig, setPluginConfig } from '../../../../lib/tauri';
+  import { pushToast } from '../../../../stores/toast.svelte';
+  import SlotStack from '../../../../components/SlotStack.svelte';
+  import Toggle from '../../../../components/Toggle.svelte';
+  import Button from '../../../../components/Button.svelte';
+  import SectionHeader from '../../../../components/SectionHeader.svelte';
+  import EmptyState from '../../../../components/EmptyState.svelte';
+  import Pill from '../../../../components/Pill.svelte';
 
   // Design v2 plugin detail (`Pragma UI Kit v2.dc.html` → isSectionPluginDetail):
   // back link, head card with bordered mono initial + status pill + enable
   // toggle, section cards (Skills / plugin settings), and footer actions
   // (Update / Open folder / Uninstall).
 
-  const pluginId = $derived($page.params.id as string)
-  const plugin = $derived(plugins.list.find((p) => p.id === pluginId))
+  const pluginId = $derived($page.params.id as string);
+  const plugin = $derived(plugins.list.find((p) => p.id === pluginId));
   const update = $derived(
-    plugins.updates?.find((u) => u.id === pluginId && u.updateAvailable) ?? null
-  )
-  let busy = $state('') // '' | 'update' | 'uninstall'
+    plugins.updates?.find((u) => u.id === pluginId && u.updateAvailable) ?? null,
+  );
+  let busy = $state(''); // '' | 'update' | 'uninstall'
   // Plugin config (config.json) — rendered as editable key/value rows below.
-  let config = $state<Record<string, unknown>>({})
-  let configLoaded = $state(false)
-  const saveTimers = new Map<string, ReturnType<typeof setTimeout>>()
+  let config = $state<Record<string, unknown>>({});
+  let configLoaded = $state(false);
+  const saveTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
   onMount(async () => {
-    await loadPlugins()
-    if (plugins.checkedAt === null) checkUpdates().catch(() => {})
-    config = await getPluginConfig(pluginId)
-    configLoaded = true
-  })
+    await loadPlugins();
+    if (plugins.checkedAt === null) checkUpdates().catch(() => {});
+    config = await getPluginConfig(pluginId);
+    configLoaded = true;
+  });
 
   function setConfigValue(key: string, value: string) {
-    config = { ...config, [key]: value }
-    const t = saveTimers.get(key)
-    if (t) clearTimeout(t)
+    config = { ...config, [key]: value };
+    const t = saveTimers.get(key);
+    if (t) clearTimeout(t);
     saveTimers.set(
       key,
       setTimeout(() => {
-        saveTimers.delete(key)
+        saveTimers.delete(key);
         setPluginConfig(pluginId, config).catch(() =>
-          pushToast('Could not save plugin config', 'error')
-        )
-      }, 400)
-    )
+          pushToast('Could not save plugin config', 'error'),
+        );
+      }, 400),
+    );
   }
 
   async function toggle() {
-    if (!plugin) return
-    const next = !plugin.enabled
+    if (!plugin) return;
+    const next = !plugin.enabled;
     try {
-      await setEnabled(plugin.id, next)
-      pushToast(`${next ? 'Enabled' : 'Disabled'} ${plugin.name}`, 'success')
+      await setEnabled(plugin.id, next);
+      pushToast(`${next ? 'Enabled' : 'Disabled'} ${plugin.name}`, 'success');
     } catch (err) {
-      pushToast(String(err), 'error')
+      pushToast(String(err), 'error');
     }
   }
 
   function reveal() {
-    openPluginFolder(pluginId).catch((e) => pushToast(String(e), 'error'))
+    openPluginFolder(pluginId).catch((e) => pushToast(String(e), 'error'));
   }
 
   async function doUpdate() {
-    if (!plugin) return
-    busy = 'update'
+    if (!plugin) return;
+    busy = 'update';
     try {
-      await updatePlugin(plugin.id)
-      pushToast(`Updated ${plugin.name}`, 'success')
-      await checkUpdates()
+      await updatePlugin(plugin.id);
+      pushToast(`Updated ${plugin.name}`, 'success');
+      await checkUpdates();
     } catch (err) {
-      pushToast(String(err), 'error')
+      pushToast(String(err), 'error');
     } finally {
-      busy = ''
+      busy = '';
     }
   }
 
   async function doUninstall() {
-    if (!plugin) return
-    busy = 'uninstall'
+    if (!plugin) return;
+    busy = 'uninstall';
     try {
-      await uninstallPlugin(plugin.id)
-      pushToast(`Uninstalled ${plugin.name}`, 'success')
+      await uninstallPlugin(plugin.id);
+      pushToast(`Uninstalled ${plugin.name}`, 'success');
     } catch (err) {
-      pushToast(String(err), 'error')
+      pushToast(String(err), 'error');
     } finally {
-      busy = ''
+      busy = '';
     }
   }
 </script>
 
 <div class="page">
   {#if plugin}
-    <Button
-      variant="quiet"
-      mono
-      href="/settings/plugins"
-      icon="chevron_left"
-      class="crumb"
-    >All plugins</Button>
+    <Button variant="quiet" mono href="/settings/plugins" icon="chevron_left" class="crumb"
+      >All plugins</Button
+    >
 
     <!-- head card -->
     <div class="head">
@@ -109,10 +112,12 @@
         <div class="title-row">
           <span class="title">{plugin.name}</span>
           <span class="ver">v{plugin.version}</span>
-          <Pill
-            tone={!plugin.enabled ? 'muted' : update ? 'warning' : 'success'}
-          >
-            {!plugin.enabled ? 'disabled' : update ? `update available — v${update.latest}` : 'loaded'}
+          <Pill tone={!plugin.enabled ? 'muted' : update ? 'warning' : 'success'}>
+            {!plugin.enabled
+              ? 'disabled'
+              : update
+                ? `update available — v${update.latest}`
+                : 'loaded'}
           </Pill>
         </div>
         <div class="desc-lead">{plugin.description || 'No description'}</div>
@@ -138,12 +143,20 @@
 
     <!-- skills section: per-skill toggles (skills belong to their plugin) -->
     <section class="sec">
-      <SectionHeader icon="auto_awesome" title="Skills" note={plugin.skills.length ? 'enable with the plugin' : 'this plugin contributes none'} />
+      <SectionHeader
+        icon="auto_awesome"
+        title="Skills"
+        note={plugin.skills.length ? 'enable with the plugin' : 'this plugin contributes none'}
+      />
       {#if plugin.skills.length === 0}
         <div class="no-skills">No skills contributed.</div>
       {:else}
         {#each plugin.skills as sk, i (sk.id)}
-          <div class="skill-row" class:last={i === plugin.skills.length - 1} class:dim={!plugin.enabled}>
+          <div
+            class="skill-row"
+            class:last={i === plugin.skills.length - 1}
+            class:dim={!plugin.enabled}
+          >
             <div class="skill-copy">
               <div class="skill-name">{sk.name}</div>
               <div class="skill-desc">{sk.description || '—'}</div>
@@ -171,7 +184,9 @@
             </div>
           {/each}
         {:else}
-          <div class="no-skills">No config yet — this plugin's own settings screen (if it provides one) renders below.</div>
+          <div class="no-skills">
+            No config yet — this plugin's own settings screen (if it provides one) renders below.
+          </div>
         {/if}
       {/if}
       <SlotStack slot="settings-page" context={pluginId} />

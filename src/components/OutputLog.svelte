@@ -12,32 +12,32 @@
     lineLimit = 300,
     anchorBottom = false,
   }: {
-    lines?: string[]
+    lines?: string[];
     /** Per-line color override; undefined falls back to text-secondary. */
-    colorFor?: (line: string) => string | undefined
-    maxHeight?: number
-    charLimit?: number
-    lineLimit?: number
+    colorFor?: (line: string) => string | undefined;
+    maxHeight?: number;
+    charLimit?: number;
+    lineLimit?: number;
     /** Pin short content to the bottom (live console follow mode). */
-    anchorBottom?: boolean
-  } = $props()
+    anchorBottom?: boolean;
+  } = $props();
 
   // Split the FULL text into one <div> per line is bounded so the scrollable
   // list stays small: tool results can be tens of KB to MBs (git diffs, file
   // reads, command output). Cap both characters and line count.
   const rendered = $derived.by(() => {
-    const raw = lines.join('\n')
-    const sliced = raw.trimEnd().slice(0, charLimit)
-    const all = sliced.split('\n')
-    const clipped = all.length > lineLimit
-    const shown = clipped ? all.slice(0, lineLimit) : all
+    const raw = lines.join('\n');
+    const sliced = raw.trimEnd().slice(0, charLimit);
+    const all = sliced.split('\n');
+    const clipped = all.length > lineLimit;
+    const shown = clipped ? all.slice(0, lineLimit) : all;
     return {
       rows: shown.map((t) => ({ text: t, color: colorFor?.(t) ?? 'var(--text-secondary)' })),
       charsTruncated: raw.length > charLimit,
       linesTruncated: clipped,
       hiddenLines: all.length - shown.length,
-    }
-  })
+    };
+  });
 </script>
 
 <div class="output-log" class:anchor={anchorBottom} style={`max-height:${maxHeight}px`}>

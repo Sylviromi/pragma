@@ -1,23 +1,28 @@
 <script lang="ts">
   // Inline alert row — icon + message (audit D3). Previously the error-row and
   // notice-row were hand-rolled inside MessageList.
-  import Icon from './Icon.svelte'
-  import type { Snippet } from 'svelte'
+  import Icon from './Icon.svelte';
+  import type { Snippet } from 'svelte';
 
   let {
     kind = 'error',
     icon,
     children,
   }: {
-    kind?: 'error' | 'info'
-    icon?: string
-    children?: Snippet
-  } = $props()
+    kind?: 'error' | 'info';
+    icon?: string;
+    children?: Snippet;
+  } = $props();
 
-  const ico = $derived(icon ?? (kind === 'error' ? 'error' : 'info'))
+  const ico = $derived(icon ?? (kind === 'error' ? 'error' : 'info'));
 </script>
 
-<div class="inline-alert" class:error={kind === 'error'} class:info={kind === 'info'} role={kind === 'error' ? 'alert' : 'status'}>
+<div
+  class="inline-alert"
+  class:error={kind === 'error'}
+  class:info={kind === 'info'}
+  role={kind === 'error' ? 'alert' : 'status'}
+>
   <span class="ia-ico" aria-hidden="true"><Icon name={ico as never} size={14} /></span>
   <span class="ia-text">{@render children?.()}</span>
 </div>

@@ -1,6 +1,6 @@
 <script lang="ts">
-  import { toasts, dismissToast } from '../stores/toast.svelte'
-  import Icon from './Icon.svelte'
+  import { toasts, dismissToast } from '../stores/toast.svelte';
+  import Icon from './Icon.svelte';
 
   // Design toast (`Pragma UI Kit v2.dc.html` → `toasts`): 340px elevated card,
   // 3px colored rail, status icon, title + mono source, optional desc + action
@@ -13,44 +13,44 @@
     warning: ['warning', 'var(--warning)'],
     info: ['info', 'var(--accent)'],
     progress: ['sync', 'var(--slot)'],
-  }
+  };
 
   // Ids currently playing their exit animation (toastOut) — keep mounted.
-  const exiting = $state<Set<number>>(new Set())
-  const timers = new Map<number, ReturnType<typeof setTimeout>>()
+  const exiting = $state<Set<number>>(new Set());
+  const timers = new Map<number, ReturnType<typeof setTimeout>>();
 
   function scheduleAutoDismiss(t: { id: number; life?: number }) {
-    const life = t.life ?? 3200
-    if (life <= 0) return
-    const timer = setTimeout(() => animateOut(t.id), life)
-    timers.set(t.id, timer)
+    const life = t.life ?? 3200;
+    if (life <= 0) return;
+    const timer = setTimeout(() => animateOut(t.id), life);
+    timers.set(t.id, timer);
   }
 
   function animateOut(id: number) {
-    if (exiting.has(id)) return
-    const timer = timers.get(id)
+    if (exiting.has(id)) return;
+    const timer = timers.get(id);
     if (timer) {
-      clearTimeout(timer)
-      timers.delete(id)
+      clearTimeout(timer);
+      timers.delete(id);
     }
-    exiting.add(id)
+    exiting.add(id);
     setTimeout(() => {
-      exiting.delete(id)
-      dismissToast(id)
-    }, 240)
+      exiting.delete(id);
+      dismissToast(id);
+    }, 240);
   }
 
   function dismiss(id: number) {
     // Instant removal on click (still polite: short exit).
-    animateOut(id)
+    animateOut(id);
   }
 
   $effect(() => {
     // Start lifetime timers for newly-pushed toasts.
     for (const t of toasts) {
-      if (!timers.has(t.id)) scheduleAutoDismiss(t)
+      if (!timers.has(t.id)) scheduleAutoDismiss(t);
     }
-  })
+  });
 </script>
 
 <div class="toast-stack" role="status" aria-live="polite">
@@ -58,7 +58,12 @@
     {@const [icon, color] = META[t.kind] ?? META.info}
     <div class="toast" class:exiting={exiting.has(t.id)} style={`--tcolor:${color}`} role="status">
       <span class="rail" aria-hidden="true"></span>
-      <span class="t-ico" class:spin={t.kind === 'progress'} style={`color:${color}`} aria-hidden="true">
+      <span
+        class="t-ico"
+        class:spin={t.kind === 'progress'}
+        style={`color:${color}`}
+        aria-hidden="true"
+      >
         <Icon name={icon as never} size={17} />
       </span>
       <div class="t-copy">
@@ -73,21 +78,20 @@
               <button
                 class="t-action"
                 onclick={() => {
-                  animateOut(t.id)
-                  a.onClick?.()
-                }}
-              >{a.label}</button>
+                  animateOut(t.id);
+                  a.onClick?.();
+                }}>{a.label}</button
+              >
             {/each}
           </div>
         {/if}
       </div>
-      <button
-        class="t-dismiss"
-        aria-label="Dismiss"
-        onclick={() => dismiss(t.id)}
-      ><Icon name="close" size={15} /></button>
+      <button class="t-dismiss" aria-label="Dismiss" onclick={() => dismiss(t.id)}
+        ><Icon name="close" size={15} /></button
+      >
       {#if t.life && !exiting.has(t.id)}
-        <span class="timer" style={`--life:${t.life}ms; --tcolor:${color}`} aria-hidden="true"></span>
+        <span class="timer" style={`--life:${t.life}ms; --tcolor:${color}`} aria-hidden="true"
+        ></span>
       {/if}
     </div>
   {/each}
@@ -229,15 +233,31 @@
   }
 
   @keyframes toastIn {
-    from { opacity: 0; transform: translateY(12px) scale(0.97); }
-    to { opacity: 1; transform: none; }
+    from {
+      opacity: 0;
+      transform: translateY(12px) scale(0.97);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
   }
   @keyframes toastOut {
-    from { opacity: 1; transform: none; }
-    to { opacity: 0; transform: translateY(10px) scale(0.97); }
+    from {
+      opacity: 1;
+      transform: none;
+    }
+    to {
+      opacity: 0;
+      transform: translateY(10px) scale(0.97);
+    }
   }
   @keyframes toastTimer {
-    from { transform: scaleX(1); }
-    to { transform: scaleX(0); }
+    from {
+      transform: scaleX(1);
+    }
+    to {
+      transform: scaleX(0);
+    }
   }
 </style>

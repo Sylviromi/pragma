@@ -1,91 +1,100 @@
 <script lang="ts">
-  import { plugins, loadPlugins, setEnabled, installFromSource, checkUpdates } from '../../../stores/plugins.svelte'
-  import { openPluginFolder } from '../../../lib/tauri'
-  import { pushToast } from '../../../stores/toast.svelte'
-  import { onMount } from 'svelte'
-  import { open } from '@tauri-apps/plugin-dialog'
-  import type { PluginUpdateInfo } from '../../../lib/tauri'
-  import SettingsHeader from '../../../components/SettingsHeader.svelte'
-  import CornerMarks from '../../../components/CornerMarks.svelte'
-  import Button from '../../../components/Button.svelte'
-  import SearchInput from '../../../components/SearchInput.svelte'
-  import Segmented from '../../../components/Segmented.svelte'
-  import SectionHeader from '../../../components/SectionHeader.svelte'
-  import EmptyState from '../../../components/EmptyState.svelte'
-  import Icon from '../../../components/Icon.svelte'
-  import StatusDot from '../../../components/StatusDot.svelte'
-  import Pill from '../../../components/Pill.svelte'
+  import {
+    plugins,
+    loadPlugins,
+    setEnabled,
+    installFromSource,
+    checkUpdates,
+  } from '../../../stores/plugins.svelte';
+  import { openPluginFolder } from '../../../lib/tauri';
+  import { pushToast } from '../../../stores/toast.svelte';
+  import { onMount } from 'svelte';
+  import { open } from '@tauri-apps/plugin-dialog';
+  import type { PluginUpdateInfo } from '../../../lib/tauri';
+  import SettingsHeader from '../../../components/SettingsHeader.svelte';
+  import CornerMarks from '../../../components/CornerMarks.svelte';
+  import Button from '../../../components/Button.svelte';
+  import SearchInput from '../../../components/SearchInput.svelte';
+  import Segmented from '../../../components/Segmented.svelte';
+  import SectionHeader from '../../../components/SectionHeader.svelte';
+  import EmptyState from '../../../components/EmptyState.svelte';
+  import Icon from '../../../components/Icon.svelte';
+  import StatusDot from '../../../components/StatusDot.svelte';
+  import Pill from '../../../components/Pill.svelte';
 
   // Design v2 plugin page (`Pragma UI Kit v2.dc.html`): search + filter pills
   // over a grid of click-through cards (→ plugin detail), and an "Install a
   // plugin" panel at the bottom. Per-plugin actions (update/uninstall) live
   // on the detail page.
 
-  let query = $state('')
-  let filter = $state<'all' | 'on' | 'off' | 'updates'>('all')
-  let checking = $state(false)
-  let installing = $state(false)
-  let showInstall = $state(false)
-  let sourceInput = $state('')
+  let query = $state('');
+  let filter = $state<'all' | 'on' | 'off' | 'updates'>('all');
+  let checking = $state(false);
+  let installing = $state(false);
+  let showInstall = $state(false);
+  let sourceInput = $state('');
 
   onMount(async () => {
-    await loadPlugins()
+    await loadPlugins();
     // If the startup check hasn't run yet (or failed), check now so the
     // badges render — the store dedupes a concurrent in-flight check.
-    if (plugins.checkedAt === null) checkUpdates().catch(() => {})
-  })
+    if (plugins.checkedAt === null) checkUpdates().catch(() => {});
+  });
 
   const updateFor = (id: string): PluginUpdateInfo | undefined =>
-    plugins.updates?.find((u) => u.id === id && u.updateAvailable)
+    plugins.updates?.find((u) => u.id === id && u.updateAvailable);
 
   const filtered = $derived.by(() => {
-    const q = query.trim().toLowerCase()
+    const q = query.trim().toLowerCase();
     return plugins.list.filter((p) => {
-      if (filter === 'on' && !p.enabled) return false
-      if (filter === 'off' && p.enabled) return false
-      if (filter === 'updates' && !updateFor(p.id)) return false
-      if (!q) return true
-      return (p.name + ' ' + p.id + ' ' + p.description + ' ' + (p.author ?? '')).toLowerCase().includes(q)
-    })
-  })
+      if (filter === 'on' && !p.enabled) return false;
+      if (filter === 'off' && p.enabled) return false;
+      if (filter === 'updates' && !updateFor(p.id)) return false;
+      if (!q) return true;
+      return (p.name + ' ' + p.id + ' ' + p.description + ' ' + (p.author ?? ''))
+        .toLowerCase()
+        .includes(q);
+    });
+  });
 
   const filters = $derived([
     { value: 'all' as const, label: `All ${plugins.list.length}` },
     { value: 'on' as const, label: 'Enabled' },
     { value: 'off' as const, label: 'Disabled' },
     { value: 'updates' as const, label: 'Updates' },
-  ])
+  ]);
 
   async function checkForUpdates() {
-    checking = true
+    checking = true;
     try {
-      const updates = await checkUpdates()
-      if (!updates.some((u) => u.updateAvailable)) pushToast('All plugins are up to date', 'success')
+      const updates = await checkUpdates();
+      if (!updates.some((u) => u.updateAvailable))
+        pushToast('All plugins are up to date', 'success');
     } catch (err) {
-      pushToast(String(err), 'error')
+      pushToast(String(err), 'error');
     } finally {
-      checking = false
+      checking = false;
     }
   }
 
   async function browseFolder() {
-    const path = await open({ multiple: false, directory: true })
-    if (path) sourceInput = path
+    const path = await open({ multiple: false, directory: true });
+    if (path) sourceInput = path;
   }
 
   async function install() {
-    const spec = sourceInput.trim()
-    if (!spec) return
-    installing = true
+    const spec = sourceInput.trim();
+    if (!spec) return;
+    installing = true;
     try {
-      await installFromSource(spec)
-      pushToast('Plugin installed — enabled', 'success')
-      sourceInput = ''
-      showInstall = false
+      await installFromSource(spec);
+      pushToast('Plugin installed — enabled', 'success');
+      sourceInput = '';
+      showInstall = false;
     } catch (err) {
-      pushToast(`Install failed: ${String(err)}`, 'error')
+      pushToast(`Install failed: ${String(err)}`, 'error');
     } finally {
-      installing = false
+      installing = false;
     }
   }
 </script>
@@ -101,7 +110,13 @@
       <Button variant="ghost" mono icon="sync" loading={checking} onclick={checkForUpdates}>
         {checking ? 'Checking…' : 'Check for updates'}
       </Button>
-      <Button variant="ghost" mono icon="add" onclick={() => (showInstall = !showInstall)} aria-expanded={showInstall}>
+      <Button
+        variant="ghost"
+        mono
+        icon="add"
+        onclick={() => (showInstall = !showInstall)}
+        aria-expanded={showInstall}
+      >
         Install
       </Button>
     </div>
@@ -134,17 +149,27 @@
           placeholder="npm:pragma-plugin-…  ·  /path/to/folder"
           aria-label="Plugin source"
           onkeydown={(e) => {
-            if (e.key === 'Enter') install()
+            if (e.key === 'Enter') install();
             if (e.key === 'Escape') {
-              showInstall = false
-              sourceInput = ''
+              showInstall = false;
+              sourceInput = '';
             }
           }}
         />
-        <Button variant="ghost" icon="folder_open" onclick={browseFolder} title="Pick a local plugin folder">
+        <Button
+          variant="ghost"
+          icon="folder_open"
+          onclick={browseFolder}
+          title="Pick a local plugin folder"
+        >
           Browse…
         </Button>
-        <Button variant="primary" class="go" onclick={install} disabled={installing || !sourceInput.trim()}>
+        <Button
+          variant="primary"
+          class="go"
+          onclick={install}
+          disabled={installing || !sourceInput.trim()}
+        >
           {installing ? 'Installing…' : 'Install'}
         </Button>
       </div>
@@ -172,8 +197,17 @@
     <div class="grid">
       {#each filtered as p, i (p.id)}
         {@const up = updateFor(p.id)}
-        {@const statusColor = !p.enabled ? 'var(--text-muted)' : up ? 'var(--warning)' : 'var(--success)'}
-        <a class="card stagger" style={`--i:${Math.min(i, 10)}`} href={`/settings/plugin/${p.id}`} class:off={!p.enabled}>
+        {@const statusColor = !p.enabled
+          ? 'var(--text-muted)'
+          : up
+            ? 'var(--warning)'
+            : 'var(--success)'}
+        <a
+          class="card stagger"
+          style={`--i:${Math.min(i, 10)}`}
+          href={`/settings/plugin/${p.id}`}
+          class:off={!p.enabled}
+        >
           <CornerMarks />
 
           <div class="card-top">
@@ -186,7 +220,11 @@
           </div>
           <p class="desc">{p.description || 'No description'}</p>
           <div class="card-foot">
-            <Pill>{p.skills.length ? `${p.skills.length} skill${p.skills.length > 1 ? 's' : ''}` : 'no skills'}</Pill>
+            <Pill
+              >{p.skills.length
+                ? `${p.skills.length} skill${p.skills.length > 1 ? 's' : ''}`
+                : 'no skills'}</Pill
+            >
             <span class="status-text" style={`color:${statusColor}`}>
               {!p.enabled ? 'disabled' : up ? `update available — v${up.latest}` : 'active'}
             </span>

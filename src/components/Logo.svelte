@@ -2,9 +2,9 @@
   // Brand mark (single source in src/lib/logo.svg) — inlined raw so the
   // theme tokens in the SVG resolve against the active family×mode. Used by
   // the main tab bar and the settings shell (was duplicated in both).
-  import logo from '$lib/logo.svg?raw'
+  import logo from '$lib/logo.svg?raw';
 
-  let { label = 'Pragma' }: { label?: string } = $props()
+  let { label = 'Pragma' }: { label?: string } = $props();
 </script>
 
 <span class="logo" aria-label={label}>

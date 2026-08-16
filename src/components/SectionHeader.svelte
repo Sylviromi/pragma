@@ -2,17 +2,17 @@
   // Section header — icon + mono uppercase title + right-aligned note (audit
   // C3). Previously duplicated across the plugins install panel, marketplace
   // registry and plugin-detail section cards.
-  import Icon from './Icon.svelte'
+  import Icon from './Icon.svelte';
 
   let {
     icon,
     title,
     note = '',
   }: {
-    icon?: string
-    title: string
-    note?: string
-  } = $props()
+    icon?: string;
+    title: string;
+    note?: string;
+  } = $props();
 </script>
 
 <div class="sec-head">

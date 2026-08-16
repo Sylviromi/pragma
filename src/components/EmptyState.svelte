@@ -2,18 +2,18 @@
   // Empty / missing state — centered muted block with optional icon (audit F).
   // Previously duplicated across the plugins page, marketplace, plugin detail
   // and the session rail.
-  import Icon from './Icon.svelte'
-  import type { Snippet } from 'svelte'
+  import Icon from './Icon.svelte';
+  import type { Snippet } from 'svelte';
 
   let {
     icon,
     children,
     class: klass = '',
   }: {
-    icon?: string
-    children?: Snippet
-    class?: string
-  } = $props()
+    icon?: string;
+    children?: Snippet;
+    class?: string;
+  } = $props();
 </script>
 
 <div class={`empty-state${klass ? ' ' + klass : ''}`}>

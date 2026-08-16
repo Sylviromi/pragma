@@ -1,41 +1,41 @@
 <script lang="ts">
-  import Toggle from '../../../components/Toggle.svelte'
-  import SettingsHeader from '../../../components/SettingsHeader.svelte'
-  import Card from '../../../components/Card.svelte'
-  import SettingRow from '../../../components/SettingRow.svelte'
-  import Button from '../../../components/Button.svelte'
-  import Changelog from '../../../components/Changelog.svelte'
-  import { getNotificationsEnabled, setNotificationsEnabled } from '../../../lib/tauri'
-  import { updater, checkForUpdates, installUpdate } from '../../../stores/updater.svelte'
+  import Toggle from '../../../components/Toggle.svelte';
+  import SettingsHeader from '../../../components/SettingsHeader.svelte';
+  import Card from '../../../components/Card.svelte';
+  import SettingRow from '../../../components/SettingRow.svelte';
+  import Button from '../../../components/Button.svelte';
+  import Changelog from '../../../components/Changelog.svelte';
+  import { getNotificationsEnabled, setNotificationsEnabled } from '../../../lib/tauri';
+  import { updater, checkForUpdates, installUpdate } from '../../../stores/updater.svelte';
 
-  let enterSend = $state(true)
-  let restoreTabs = $state(true)
-  let notifications = $state(true)
+  let enterSend = $state(true);
+  let restoreTabs = $state(true);
+  let notifications = $state(true);
 
   async function checkNow() {
-    await checkForUpdates()
+    await checkForUpdates();
   }
 
   $effect(() => {
-    enterSend = localStorage.getItem('pragma:enterSend') !== 'false'
-    restoreTabs = localStorage.getItem('pragma:restoreTabs') !== 'false'
+    enterSend = localStorage.getItem('pragma:enterSend') !== 'false';
+    restoreTabs = localStorage.getItem('pragma:restoreTabs') !== 'false';
     // OS notification preference lives in settings.json (Rust side); sync it in
     // here and fall back to localStorage in the browser mock.
     getNotificationsEnabled().then((v) => {
-      notifications = v ?? localStorage.getItem('pragma:notifications') !== 'false'
-    })
+      notifications = v ?? localStorage.getItem('pragma:notifications') !== 'false';
+    });
     if (!localStorage.getItem('pragma:notifications')) {
-      localStorage.setItem('pragma:notifications', 'true')
+      localStorage.setItem('pragma:notifications', 'true');
     }
-  })
+  });
 
   function toggle(key: string, value: boolean) {
-    localStorage.setItem(`pragma:${key}`, String(value))
+    localStorage.setItem(`pragma:${key}`, String(value));
   }
 
   function toggleNotifications(value: boolean) {
-    toggle('notifications', value)
-    setNotificationsEnabled(value)
+    toggle('notifications', value);
+    setNotificationsEnabled(value);
   }
 </script>
 
@@ -62,7 +62,10 @@
         onChange={(v) => toggle('restoreTabs', v)}
       />
     </SettingRow>
-    <SettingRow label="System notifications" desc="OS-level alerts when the agent finishes, asks a question, or errors out — only when the window isn’t focused">
+    <SettingRow
+      label="System notifications"
+      desc="OS-level alerts when the agent finishes, asks a question, or errors out — only when the window isn’t focused"
+    >
       <Toggle
         label="System notifications"
         bind:checked={notifications}
@@ -76,7 +79,9 @@
   <Card>
     <SettingRow label="Version" desc={`Pragma ${updater.currentVersion || '—'}`}>
       {#if updater.available}
-        <span class="status avail" title={`Update available: ${updater.available.version}`}>Update available</span>
+        <span class="status avail" title={`Update available: ${updater.available.version}`}
+          >Update available</span
+        >
       {:else}
         <span class="status">Up to date</span>
       {/if}
@@ -88,21 +93,40 @@
         <div class="update-head">
           <span class="upd-title">Pragma {avail.version}</span>
           <span class="upd-actions">
-            <Button variant="ghost" flat class="gen-btn" onclick={checkNow} disabled={updater.checking}>
+            <Button
+              variant="ghost"
+              flat
+              class="gen-btn"
+              onclick={checkNow}
+              disabled={updater.checking}
+            >
               {updater.checking ? 'Checking…' : 'Check'}
             </Button>
-            <Button variant="primary" class="gen-btn" onclick={installUpdate} disabled={updater.installing || updater.checking}>
+            <Button
+              variant="primary"
+              class="gen-btn"
+              onclick={installUpdate}
+              disabled={updater.installing || updater.checking}
+            >
               {updater.installing ? 'Downloading…' : 'Install & restart'}
             </Button>
           </span>
         </div>
         <div class="changelog-box">
-          <Changelog body={avail.body ?? ''} empty="This version’s release notes weren’t published." />
+          <Changelog
+            body={avail.body ?? ''}
+            empty="This version’s release notes weren’t published."
+          />
         </div>
-        {#if updater.failed}<p class="err">Update failed — check your connection and try again.</p>{/if}
+        {#if updater.failed}<p class="err">
+            Update failed — check your connection and try again.
+          </p>{/if}
       </div>
     {:else}
-      <SettingRow label="Automatic updates" desc="Pragma checks for updates silently and notifies you when one is available.">
+      <SettingRow
+        label="Automatic updates"
+        desc="Pragma checks for updates silently and notifies you when one is available."
+      >
         <Button variant="ghost" flat class="gen-btn" onclick={checkNow} disabled={updater.checking}>
           {updater.checking ? 'Checking…' : 'Check for updates'}
         </Button>
@@ -143,8 +167,16 @@
     gap: 12px;
     margin-bottom: 8px;
   }
-  .upd-title { font-size: 13.5px; font-weight: 600; color: var(--text-primary); }
-  .upd-actions { display: flex; gap: 8px; flex: none; }
+  .upd-title {
+    font-size: 13.5px;
+    font-weight: 600;
+    color: var(--text-primary);
+  }
+  .upd-actions {
+    display: flex;
+    gap: 8px;
+    flex: none;
+  }
   .changelog-box {
     max-height: 200px;
     overflow: auto;
@@ -156,11 +188,17 @@
     border-radius: var(--radius-md);
   }
   /* Restore the page's original changelog heading size. */
-  .changelog-box :global(h1), .changelog-box :global(h2), .changelog-box :global(h3) {
+  .changelog-box :global(h1),
+  .changelog-box :global(h2),
+  .changelog-box :global(h3) {
     font-size: 13px;
     color: var(--text-primary);
   }
-  .err { color: var(--danger); font-size: 12.5px; margin: 6px 0 0; }
+  .err {
+    color: var(--danger);
+    font-size: 12.5px;
+    margin: 6px 0 0;
+  }
   /* Restore the page's original button skin (6px radius, 600 weight). */
   :global(.btn.gen-btn) {
     border-radius: 6px;

@@ -4,8 +4,8 @@
   // .status-tag, .status-pill, .verified, .pane-badge …). Tones map to the
   // design's status colors; `color` accepts a raw CSS color for dynamic
   // states; `outline` swaps the tinted fill for a border.
-  import Icon from './Icon.svelte'
-  import type { Snippet } from 'svelte'
+  import Icon from './Icon.svelte';
+  import type { Snippet } from 'svelte';
 
   let {
     tone = 'muted',
@@ -17,16 +17,16 @@
     children,
     class: klass = '',
   }: {
-    tone?: 'muted' | 'accent' | 'slot' | 'success' | 'warning' | 'danger'
+    tone?: 'muted' | 'accent' | 'slot' | 'success' | 'warning' | 'danger';
     /** Raw CSS color override (dynamic states, e.g. --pcolor). */
-    color?: string
-    outline?: boolean
-    radius?: 'square' | 'pill'
-    icon?: string
-    title?: string
-    children?: Snippet
-    class?: string
-  } = $props()
+    color?: string;
+    outline?: boolean;
+    radius?: 'square' | 'pill';
+    icon?: string;
+    title?: string;
+    children?: Snippet;
+    class?: string;
+  } = $props();
 </script>
 
 <span
@@ -66,11 +66,21 @@
     color: var(--text-muted);
     background: var(--bg-overlay);
   }
-  .pill.accent { --pill-color: var(--accent); }
-  .pill.slot { --pill-color: var(--slot); }
-  .pill.success { --pill-color: var(--success); }
-  .pill.warning { --pill-color: var(--warning); }
-  .pill.danger { --pill-color: var(--danger); }
+  .pill.accent {
+    --pill-color: var(--accent);
+  }
+  .pill.slot {
+    --pill-color: var(--slot);
+  }
+  .pill.success {
+    --pill-color: var(--success);
+  }
+  .pill.warning {
+    --pill-color: var(--warning);
+  }
+  .pill.danger {
+    --pill-color: var(--danger);
+  }
   .pill.outline {
     background: transparent;
     border-color: color-mix(in oklch, var(--pill-color) 45%, var(--border-default));

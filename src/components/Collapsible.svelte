@@ -3,8 +3,8 @@
   // SubagentCard, ToolCard and ProcessCard (audit A1). Owns the header row
   // (optional left rail + clickable head + right actions + rotating chevron)
   // and the grid-rows 0fr↔1fr body collapse that all four used to re-implement.
-  import Icon from './Icon.svelte'
-  import type { Snippet } from 'svelte'
+  import Icon from './Icon.svelte';
+  import type { Snippet } from 'svelte';
 
   let {
     open = $bindable(true),
@@ -23,43 +23,43 @@
     style,
   }: {
     /** Open state — bindable; cards default open, ProcessCard starts closed. */
-    open?: boolean
+    open?: boolean;
     /** 2px tinted left rail (thought / sub-agent cards). */
-    rail?: boolean
-    railColor?: string
+    rail?: boolean;
+    railColor?: string;
     /** Streaming variant: pulsing rail. */
-    streaming?: boolean
+    streaming?: boolean;
     /** Whole head clickable (thought/sub-agent/process) vs. chevron-only (tool). */
-    clickable?: boolean
+    clickable?: boolean;
     /** Tight header padding (tool-card strip). */
-    dense?: boolean
+    dense?: boolean;
     /** Show the collapse chevron (hidden while a tool waits for approval). */
-    chevron?: boolean
+    chevron?: boolean;
     /** Aria-label for the toggle control. */
-    label?: string
+    label?: string;
     /** Left side of the header (icon + title + meta). */
-    header?: Snippet
+    header?: Snippet;
     /** Right side of the header, before the chevron (status glyphs, buttons). */
-    actions?: Snippet
+    actions?: Snippet;
     /** Row rendered below the collapsible body (process action buttons). */
-    footer?: Snippet
+    footer?: Snippet;
     /** Collapsible body. */
-    children?: Snippet
+    children?: Snippet;
     /** Extra classes on the card root (per-card theming). */
-    class?: string
+    class?: string;
     /** Extra styles on the card root (e.g. --tint for sub-agent cards). */
-    style?: string
-  } = $props()
+    style?: string;
+  } = $props();
 
   function toggle() {
-    open = !open
+    open = !open;
   }
 </script>
 
 <div
   class:streaming
   class:dense
-  class:open={open}
+  class:open
   class={`collapsible${klass ? ' ' + klass : ''}`}
   {style}
 >
@@ -85,7 +85,13 @@
     {/if}
 
     {#if chevron}
-      <button class="chev" class:open onclick={toggle} aria-label={label ?? 'Toggle'} aria-expanded={open}>
+      <button
+        class="chev"
+        class:open
+        onclick={toggle}
+        aria-label={label ?? 'Toggle'}
+        aria-expanded={open}
+      >
         <Icon name="expand_more" size={16} />
       </button>
     {/if}
@@ -173,7 +179,9 @@
     padding: 1px;
     color: var(--text-muted);
     cursor: pointer;
-    transition: transform 0.25s cubic-bezier(0.22, 0.8, 0.3, 1), color 0.2s ease;
+    transition:
+      transform 0.25s cubic-bezier(0.22, 0.8, 0.3, 1),
+      color 0.2s ease;
   }
   .chev:hover {
     color: var(--text-primary);

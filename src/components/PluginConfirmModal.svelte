@@ -1,41 +1,43 @@
 <script lang="ts">
-  import { listen } from '@tauri-apps/api/event'
-  import { respondPluginConfirmation } from '../lib/tauri'
-  import Modal from './Modal.svelte'
-  import Button from './Button.svelte'
-  import { onMount } from 'svelte'
+  import { listen } from '@tauri-apps/api/event';
+  import { respondPluginConfirmation } from '../lib/tauri';
+  import Modal from './Modal.svelte';
+  import Button from './Button.svelte';
+  import { onMount } from 'svelte';
 
   interface ConfirmRequest {
-    requestId: string
-    pluginId: string
-    title: string
-    message: string
+    requestId: string;
+    pluginId: string;
+    title: string;
+    message: string;
   }
 
-  let request = $state<ConfirmRequest | null>(null)
+  let request = $state<ConfirmRequest | null>(null);
 
   onMount(() => {
     const unlisten = listen<ConfirmRequest>('plugin:confirm-request', (e) => {
-      request = e.payload
-    })
-    return () => { unlisten.then((f) => f()) }
-  })
+      request = e.payload;
+    });
+    return () => {
+      unlisten.then((f) => f());
+    };
+  });
 
   function respond(accepted: boolean) {
-    if (!request) return
-    respondPluginConfirmation(request.requestId, accepted)
-    request = null
+    if (!request) return;
+    respondPluginConfirmation(request.requestId, accepted);
+    request = null;
   }
 
   // Enter accepts (the shared Modal already handles ESC → dismiss).
   $effect(() => {
-    if (!request) return
+    if (!request) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Enter') respond(true)
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  })
+      if (e.key === 'Enter') respond(true);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  });
 </script>
 
 {#if request}
@@ -44,10 +46,19 @@
     {#snippet header()}
       <div class="head">
         <span class="badge" aria-hidden="true">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <circle cx="12" cy="12" r="10"/>
-            <line x1="12" y1="8" x2="12" y2="12"/>
-            <line x1="12" y1="16" x2="12.01" y2="16"/>
+          <svg
+            width="18"
+            height="18"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <circle cx="12" cy="12" r="10" />
+            <line x1="12" y1="8" x2="12" y2="12" />
+            <line x1="12" y1="16" x2="12.01" y2="16" />
           </svg>
         </span>
         <div>
@@ -84,8 +95,16 @@
     color: var(--warning);
     flex-shrink: 0;
   }
-  h2 { margin: 0; font-size: var(--font-size-lg); font-weight: 600; }
-  .sub { margin: 2px 0 0; font-size: var(--font-size-sm); color: var(--text-muted); }
+  h2 {
+    margin: 0;
+    font-size: var(--font-size-lg);
+    font-weight: 600;
+  }
+  .sub {
+    margin: 2px 0 0;
+    font-size: var(--font-size-sm);
+    color: var(--text-muted);
+  }
 
   .message {
     font-size: var(--font-size-sm);

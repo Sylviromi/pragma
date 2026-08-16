@@ -7,17 +7,17 @@
   // renderer branches stay inert until detached-process events land.
   // Card shell (chevron + collapse) lives in Collapsible; the log is the
   // shared OutputLog pane (audit D4).
-  import Icon from './Icon.svelte'
-  import Collapsible from './Collapsible.svelte'
-  import OutputLog from './OutputLog.svelte'
-  import Button from './Button.svelte'
-  import StatusDot from './StatusDot.svelte'
-  import Pill from './Pill.svelte'
+  import Icon from './Icon.svelte';
+  import Collapsible from './Collapsible.svelte';
+  import OutputLog from './OutputLog.svelte';
+  import Button from './Button.svelte';
+  import StatusDot from './StatusDot.svelte';
+  import Pill from './Pill.svelte';
 
   export interface ProcessAction {
-    label: string
-    icon: string
-    onClick?: () => void
+    label: string;
+    icon: string;
+    onClick?: () => void;
   }
 
   let {
@@ -28,30 +28,36 @@
     log = [] as string[],
     actions = [] as ProcessAction[],
   }: {
-    cmd: string
-    runState?: 'running' | 'detached' | 'exited' | 'failed'
-    exitCode?: number | null
-    meta?: string
-    log?: string[]
-    actions?: ProcessAction[]
-  } = $props()
+    cmd: string;
+    runState?: 'running' | 'detached' | 'exited' | 'failed';
+    exitCode?: number | null;
+    meta?: string;
+    log?: string[];
+    actions?: ProcessAction[];
+  } = $props();
 
-  let open = $state(false)
+  let open = $state(false);
 
   const color = $derived(
-    runState === 'exited' ? 'var(--text-muted)'
-      : runState === 'failed' ? 'var(--danger)'
-        : runState === 'detached' ? 'var(--accent)' : 'var(--success)'
-  )
+    runState === 'exited'
+      ? 'var(--text-muted)'
+      : runState === 'failed'
+        ? 'var(--danger)'
+        : runState === 'detached'
+          ? 'var(--accent)'
+          : 'var(--success)',
+  );
   const stateLabel = $derived(
-    runState === 'detached' ? 'detached'
-      : runState === 'exited' ? `exited ${exitCode ?? 0}`
-        : runState
-  )
-  const icon = $derived(runState === 'detached' ? 'open_in_new' : 'terminal')
+    runState === 'detached'
+      ? 'detached'
+      : runState === 'exited'
+        ? `exited ${exitCode ?? 0}`
+        : runState,
+  );
+  const icon = $derived(runState === 'detached' ? 'open_in_new' : 'terminal');
 
   function colorFor(line: string): string | undefined {
-    return /error|fail/i.test(line) ? 'var(--danger)' : undefined
+    return /error|fail/i.test(line) ? 'var(--danger)' : undefined;
   }
 </script>
 
@@ -66,8 +72,8 @@
   {#snippet header()}
     <span class="p-ico" aria-hidden="true"><Icon name={icon as never} size={15} /></span>
     <span class="p-cmd">{cmd}</span>
-    <Pill color={color}>
-      <StatusDot color={color} live={runState === 'running'} size={5} />{stateLabel}
+    <Pill {color}>
+      <StatusDot {color} live={runState === 'running'} size={5} />{stateLabel}
     </Pill>
     {#if meta}<span class="p-meta">{meta}</span>{/if}
   {/snippet}
@@ -80,7 +86,9 @@
 
   {#snippet footer()}
     {#each actions as act (act.label)}
-      <Button size="xs" variant="ghost" icon={act.icon as never} onclick={act.onClick}>{act.label}</Button>
+      <Button size="xs" variant="ghost" icon={act.icon as never} onclick={act.onClick}
+        >{act.label}</Button
+      >
     {/each}
   {/snippet}
 </Collapsible>
