@@ -33,8 +33,6 @@
     download: 'download',
     // folder — browse
     folder: 'folder_open',
-    // assistant avatar spark
-    sparkle: 'auto_awesome',
     // thought block (design)
     neurology: 'neurology',
     // question block (design)

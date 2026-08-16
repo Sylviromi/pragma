@@ -123,16 +123,6 @@
     transform: none;
   }
 }
-@keyframes outputIn {
-  from {
-    opacity: 0;
-    max-height: 0;
-  }
-  to {
-    opacity: 1;
-    max-height: 320px;
-  }
-}
 @keyframes dotPulse {
   0%,
   100% {
@@ -142,33 +132,6 @@
   50% {
     opacity: 0.45;
     transform: scale(0.82);
-  }
-}
-@keyframes barFill {
-  from {
-    transform: scaleX(0);
-  }
-  to {
-    transform: scaleX(1);
-  }
-}
-@keyframes panelIn {
-  from {
-    opacity: 0;
-    transform: translateX(14px);
-  }
-  to {
-    opacity: 1;
-    transform: none;
-  }
-}
-@keyframes tabPulse {
-  0%,
-  100% {
-    box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent, #58a6ff) 55%, transparent);
-  }
-  50% {
-    box-shadow: 0 0 0 5px color-mix(in srgb, var(--accent, #58a6ff) 0%, transparent);
   }
 }
 /* Design kit additions — remaining keyframes from `Pragma UI Kit.dc.html`,
@@ -243,26 +206,6 @@
     transform: translateY(10px) scale(0.985);
   }
 }
-@keyframes dropIn {
-  from {
-    opacity: 0;
-    transform: translateY(8px) scale(0.98);
-  }
-  to {
-    opacity: 1;
-    transform: none;
-  }
-}
-@keyframes dropOut {
-  from {
-    opacity: 1;
-    transform: none;
-  }
-  to {
-    opacity: 0;
-    transform: translateY(6px) scale(0.98);
-  }
-}
 @keyframes fadeIn {
   from {
     opacity: 0;
@@ -296,15 +239,6 @@
 .stagger {
   animation: rowIn 0.34s cubic-bezier(0.22, 0.8, 0.3, 1) both;
   animation-delay: calc(var(--i) * 45ms);
-}
-
-/* Mono uppercase label — the design's caption style (10px, letterspaced). */
-.mono-label {
-  font-family: var(--font-mono);
-  font-size: 10px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--text-muted);
 }
 
 @media (prefers-reduced-motion: reduce) {

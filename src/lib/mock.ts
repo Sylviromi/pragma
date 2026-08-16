@@ -1,7 +1,7 @@
 // Browser-only mock data — used when the frontend runs without the Tauri
 // backend (plain `vite dev` in a browser, design iteration, plugin dev).
 // Guarded by tauri.ts: never active inside the real app.
-import type { Message, ProviderInfo, Session, PluginInfo, SessionStats, SkillInfo } from './types';
+import type { Message, ProviderInfo, Session, PluginInfo, SessionStats } from './types';
 
 export const isBrowserMock =
   typeof window !== 'undefined' &&
@@ -237,36 +237,6 @@ export const mockPlugins: PluginInfo[] = [
     skills: [],
     source: null,
     contributes: { providers: ['zen-warp'], slots: [], commands: [], skills: [] },
-  },
-];
-
-export const mockSkills: SkillInfo[] = [
-  {
-    id: 'git',
-    name: 'git',
-    source: 'native',
-    pluginId: null,
-    description: 'Version control: git status, diff, log, add, commit',
-    hasTools: true,
-    hasHandler: false,
-  },
-  {
-    id: 'web',
-    name: 'web',
-    source: 'native',
-    pluginId: null,
-    description: 'Web search + fetch for external documentation',
-    hasTools: true,
-    hasHandler: false,
-  },
-  {
-    id: 'frontend-dev/frontend-dev',
-    name: 'frontend-dev',
-    source: 'plugin-skill',
-    pluginId: 'frontend-dev',
-    description: 'Frontend Developer skill: live localhost server with tool control',
-    hasTools: true,
-    hasHandler: true,
   },
 ];
 

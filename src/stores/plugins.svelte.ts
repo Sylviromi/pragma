@@ -6,7 +6,6 @@ import {
   uninstallPlugin as apiUninstallPlugin,
   checkPluginUpdates as apiCheckUpdates,
   updatePlugin as apiUpdatePlugin,
-  readPluginSkill as apiReadSkill,
 } from '../lib/tauri';
 import type { PluginInfo, PluginUpdateInfo } from '../lib/tauri';
 import { isBrowserMock } from '../lib/mock';
@@ -32,11 +31,11 @@ export async function loadPlugins() {
   }
 }
 
-export function bumpPlugin(id: string) {
+function bumpPlugin(id: string) {
   plugins.cacheKey[id] = Date.now();
 }
 
-export function bumpAll() {
+function bumpAll() {
   plugins.cacheKey['*'] = Date.now();
 }
 
@@ -85,14 +84,10 @@ export async function checkUpdates(): Promise<PluginUpdateInfo[]> {
   }
 }
 
-/** Plugins with a newer version available, per the last check. */
-export function updatesAvailable(): PluginUpdateInfo[] {
-  return (plugins.updates ?? []).filter((u) => u.updateAvailable);
-}
-
 /** Re-check at most every 10 minutes; silent (no toast) — startup checks must
  *  never interrupt, the manual button still reports errors. */
 const AUTO_CHECK_MS = 10 * 60 * 1000;
+
 export async function autoCheckUpdates() {
   if (isBrowserMock) return;
   if (plugins.checkedAt && Date.now() - plugins.checkedAt < AUTO_CHECK_MS) return;
@@ -109,14 +104,6 @@ export async function updatePlugin(id: string) {
   await loadPlugins();
   bumpAll();
   await loadProviders();
-}
-
-export async function skillFor(id: string): Promise<string> {
-  try {
-    return await apiReadSkill(id);
-  } catch {
-    return '';
-  }
 }
 
 /** Plugins that claim a given slot and can actually mount a component. */

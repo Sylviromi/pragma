@@ -78,16 +78,11 @@ export function hasSeen(v: string): boolean {
   return persisted.seenVersions.includes(v);
 }
 
-export function markSeen(v: string) {
+function markSeen(v: string) {
   if (!persisted.seenVersions.includes(v)) {
     persisted.seenVersions.push(v);
     persist();
   }
-}
-
-export function clearSeen(v: string) {
-  persisted.seenVersions = persisted.seenVersions.filter((x) => x !== v);
-  persist();
 }
 
 /** Download + install + relaunch. Sets failed on error so UI can show it. */

@@ -17,7 +17,6 @@ import {
   mockMessages,
   mockProviders,
   mockPlugins,
-  mockSkills,
   mockStats,
 } from './mock';
 
@@ -32,7 +31,7 @@ function mock<T>(fallback: T, cmd: string): Promise<T> {
 
 // Contributes as serialized by Rust (all camelCase) — shared with the plugin
 // store (which imports from this module for compatibility).
-import type { PluginContributes, PluginInfo, PluginUpdateInfo, SkillInfo } from './types';
+import type { PluginContributes, PluginInfo, PluginUpdateInfo } from './types';
 export type { PluginContributes, PluginInfo, PluginUpdateInfo } from './types';
 
 export const listSessions = () => mock<Session[]>(mockSessions, 'list_sessions');
@@ -121,42 +120,7 @@ export const readPluginComponent = (id: string) =>
         }
       }`)
     : tauriInvoke<string>('read_plugin_component', { id });
-export const readPluginSkill = (id: string) => tauriInvoke<string>('read_plugin_skill', { id });
-export const listSkills = () => mock<SkillInfo[]>(mockSkills, 'list_skills');
 export const openPluginFolder = (id: string) => tauriInvoke<void>('open_plugin_folder', { id });
-
-// ── Plugin skill sidecars ───────────────────────────────────────────────────
-// Bridge for UI widgets to see model-driven skill sidecars and drive their
-// tools (used by the pragma-dev status-bar widget).
-export interface SkillSidecarInfo {
-  skillId: string;
-  pid: number;
-  running: boolean;
-  tools: string[];
-}
-
-export const skillSidecarStatus = (): Promise<SkillSidecarInfo[]> =>
-  isBrowserMock ? Promise.resolve([]) : tauriInvoke<SkillSidecarInfo[]>('skill_sidecar_status');
-
-export const callSkillTool = (skillId: string, name: string, args: Record<string, unknown> = {}) =>
-  isBrowserMock
-    ? Promise.resolve('{}')
-    : tauriInvoke<string>('call_skill_tool', { skillId, name, arguments: args });
-
-// ── Plugin process management ────────────────────────────────────────────────
-export const spawnPluginProcess = (
-  pluginId: string,
-  program: string,
-  args: string[],
-  cwd?: string | null,
-) => tauriInvoke<number>('spawn_plugin_process', { pluginId, program, args, cwd: cwd ?? null });
-export const stopPluginProcess = (pluginId: string) =>
-  tauriInvoke<void>('stop_plugin_process', { pluginId });
-export const pluginProcessStatus = (pluginId: string) =>
-  tauriInvoke<{ running: boolean; pid: number | null }>('plugin_process_status', { pluginId });
-export const writePluginStdin = (pluginId: string, data: string) =>
-  tauriInvoke<void>('write_plugin_stdin', { pluginId, data });
-export const probePort = (port: number) => tauriInvoke<boolean>('probe_port', { port });
 
 // ── Plugin config ────────────────────────────────────────────────────────────
 export const getPluginConfig = (pluginId: string) =>

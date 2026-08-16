@@ -34,7 +34,7 @@ let _renamedUnlisten: (() => void) | null = null;
 /** Keep in-app session names in sync when the backend auto-names a fresh
  *  session from its first prompt (tabs + sidebar derive from sessions.list).
  *  Idempotent; the listener is torn down on HMR like chat.svelte.ts does. */
-export async function initSessionEvents() {
+async function initSessionEvents() {
   if (_renamedUnlisten) return;
   _renamedUnlisten = await listenSessionRenamed(({ id, name }) => {
     const s = sessions.list.find((x) => x.id === id);
