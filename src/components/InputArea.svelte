@@ -39,6 +39,9 @@
 
   const session = $derived(getSession(sessionId))
   const running = $derived(chat.running[sessionId] ?? false)
+  // Selected model's thinking capability — exposed by the ModelPicker for the
+  // design's inline effort chips (neurology icon + low/med/high).
+  let thinkingSupported = $state(false)
 
   // Initialise model/provider from persisted session — but only once per
   // session (or after a reset such as HMR, when model is ''). Never clobber a
@@ -114,6 +117,20 @@
   function toggleAuto() {
     chat.autoApprove[sessionId] = !autoApprove
   }
+
+  // Inline effort chips (design `effortOptions`): shown when the selected
+  // model supports thinking; clicking sets a graduated level and turns
+  // thinking on. Muted + disabled only when the model can't think at all.
+  const effortLevels: { key: 'low' | 'medium' | 'high'; label: string }[] = [
+    { key: 'low', label: 'low' },
+    { key: 'medium', label: 'med' },
+    { key: 'high', label: 'high' },
+  ]
+  const thinkingOn = $derived(thinkingSupported && thinking !== 'off')
+  function setEffort(level: 'low' | 'medium' | 'high') {
+    if (!thinkingSupported) return
+    thinking = level
+  }
 </script>
 
 <div class="input-area">
@@ -129,7 +146,23 @@
   ></textarea>
 
   <div class="footer">
-    <ModelPicker bind:model bind:provider bind:thinking />
+    <ModelPicker bind:model bind:provider bind:thinking bind:thinkingSupported />
+
+    <!-- Design v2: inline reasoning-effort chips (low/med/high) when the
+         model supports thinking. -->
+    {#if thinkingSupported}
+      <div class="effort" class:on={thinkingOn}>
+        <span class="effort-ico" aria-hidden="true"><span class="msr">neurology</span></span>
+        {#each effortLevels as l (l.key)}
+          <button
+            class="effort-chip"
+            class:active={thinkingOn && thinking === l.key}
+            onclick={() => setEffort(l.key)}
+            aria-pressed={thinkingOn && thinking === l.key}
+          >{l.label}</button>
+        {/each}
+      </div>
+    {/if}
 
     <!-- Plugins can contribute their own controls here (design's composer-center). -->
     <SlotStack slot="composer-center" context={sessionId} />
@@ -160,11 +193,11 @@
 </div>
 
 <style>
-  /* Design composer: elevated strip, 14px 20px 16px padding, rounded textarea. */
+  /* Design composer (v2): elevated strip, measured horizontal padding. */
   .input-area {
     border-top: 1px solid var(--border-default);
     background: var(--bg-elevated);
-    padding: 14px 20px 16px;
+    padding: 14px max(20px, calc((100% - 900px) / 2)) 16px;
     display: flex;
     flex-direction: column;
     gap: 10px;
@@ -213,6 +246,52 @@
     background: var(--border-default);
     margin: 0 2px;
     flex: none;
+  }
+  /* Design v2 reasoningWrapStyle: bordered group, slot icon + mono chips. */
+  .effort {
+    display: flex;
+    align-items: center;
+    gap: 0;
+    border: 1px solid var(--border-default);
+    border-radius: 4px;
+    overflow: hidden;
+    flex: none;
+    transition: border-color 0.3s ease;
+    animation: fadeIn 0.3s ease both;
+  }
+  .effort.on {
+    border-color: color-mix(in oklch, var(--slot) 45%, transparent);
+  }
+  .effort-ico {
+    display: flex;
+    align-items: center;
+    padding: 0 7px;
+    color: var(--slot);
+  }
+  .effort-ico .msr {
+    font-size: 15px;
+    line-height: 1;
+  }
+  .effort.on .effort-ico {
+    animation: dotPulse 2s ease-in-out infinite;
+  }
+  .effort-chip {
+    padding: 5px 10px;
+    font-size: 11px;
+    font-family: var(--font-mono);
+    letter-spacing: 0.04em;
+    border: none;
+    background: transparent;
+    color: var(--text-muted);
+    cursor: pointer;
+    transition: background 0.22s ease, color 0.22s ease;
+  }
+  .effort-chip:hover {
+    color: var(--text-primary);
+  }
+  .effort-chip.active {
+    background: color-mix(in oklch, var(--slot) 26%, transparent);
+    color: var(--text-primary);
   }
   .footer-right {
     margin-left: auto;

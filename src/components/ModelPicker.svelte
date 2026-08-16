@@ -2,6 +2,7 @@
   import { onMount } from 'svelte'
   import { fly } from 'svelte/transition'
   import { loadProviders, providerState } from '../stores/providers.svelte'
+  import { theme, uiScaleFactor } from '../stores/theme.svelte'
   import SlotStack from './SlotStack.svelte'
   import Icon from './Icon.svelte'
   import type { ProviderInfo, ThinkingPref } from '../lib/types'
@@ -9,11 +10,15 @@
   let {
     model = $bindable(''),
     provider = $bindable(''),
-    thinking = $bindable<ThinkingPref>('auto')
+    thinking = $bindable<ThinkingPref>('auto'),
+    thinkingSupported = $bindable(false)
   }: {
     model: string
     provider: string
     thinking: ThinkingPref
+    /** Exposes whether the selected model supports thinking (drives the
+     *  composer's inline effort chips in InputArea). */
+    thinkingSupported?: boolean
   } = $props()
 
   let open = $state(false)
@@ -29,7 +34,11 @@
   $effect(() => {
     if (open) {
       const r = el?.querySelector('.chip')?.getBoundingClientRect()
-      anchor = r ? { top: r.top - 6, left: r.left } : null
+      // The dropdown is position:fixed; under the app's interface-scale
+      // transform (#app) fixed anchors to the app's layout box, so viewport
+      // (visual) coordinates must be divided by the scale factor.
+      const s = uiScaleFactor()
+      anchor = r ? { top: (r.top - 6) / s, left: r.left / s } : null
       searchInput?.focus()
     }
   })
@@ -104,6 +113,13 @@
     // Close the level menu when the model changes (its options/meaning shift).
     if (model || provider) levelMenuOpen = false
   })
+
+  // Expose thinking capability to the composer's inline effort chips.
+  const thinkingSupportedDerived = $derived(current?.supportsThinking ?? false)
+  $effect(() => {
+    thinkingSupported = thinkingSupportedDerived
+  })
+  const thinkingOn = $derived(thinkingSupportedDerived && thinking !== 'off')
 </script>
 
 <svelte:window
@@ -120,6 +136,7 @@
 <div class="picker" bind:this={el}>
   <button
     class="chip"
+    class:thinking={thinkingOn}
     onclick={() => (open = !open)}
     aria-haspopup="listbox"
     aria-expanded={open}
@@ -127,6 +144,11 @@
     <span class="dot" aria-hidden="true"></span>
     <span class="mname">{current?.name ?? 'Choose model'}</span>
     {#if current}<span class="pname">· {current.pname}</span>{/if}
+    {#if thinkingOn}
+      <span class="think-badge" title="Extended thinking on">
+        <span class="msr" aria-hidden="true">neurology</span>thinking
+      </span>
+    {/if}
     <span aria-hidden="true"><Icon name="expand_more" size={14} /></span>
   </button>
 
@@ -135,7 +157,13 @@
       class="dropdown"
       style:top={anchor ? `${anchor.top}px` : 'auto'}
       style:left={anchor ? `${anchor.left}px` : '0'}
-      transition:fly={{ y: -4, duration: 200, easing: (t) => 1 - Math.pow(1 - t, 3) }}
+      transition:fly={{
+        // Design dropIn: slides down 8px + scale; JS transitions don't inherit
+        // the CSS reduce-motion kill-switch, so gate them on the theme flag.
+        y: theme.reduceMotion ? 0 : 8,
+        duration: theme.reduceMotion ? 0 : 240,
+        easing: (t) => 1 - Math.pow(1 - t, 3),
+      }}
       role="listbox"
     >
       <div class="search">
@@ -248,6 +276,28 @@
   }
   .chip:hover {
     border-color: var(--text-muted);
+  }
+  /* Design: slot-tinted border while extended thinking is on. */
+  .chip.thinking {
+    border-color: color-mix(in oklch, var(--slot) 40%, transparent);
+  }
+  /* Design thinkingBadgeStyle: neurology + slot pill. */
+  .think-badge {
+    display: flex;
+    align-items: center;
+    gap: 3px;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    letter-spacing: 0.04em;
+    color: var(--slot);
+    background: color-mix(in oklch, var(--slot) 16%, transparent);
+    border-radius: 9px;
+    padding: 2px 7px 2px 5px;
+    animation: fadeIn 0.25s ease both;
+  }
+  .think-badge .msr {
+    font-size: 12px;
+    line-height: 1;
   }
   .chip .mname {
     min-width: 0;
