@@ -349,12 +349,12 @@
       $('version').textContent = `${tag} · latest`
       $('stat-release').textContent = rel.published_at ? `${tag} · ${relTime(rel.published_at)}` : tag
 
-      // changelog — rendered as markdown (HTML-escaped + our own tags only)
+      // changelog — rendered as markdown (HTML-escaped + our own tags only).
+      // The panel scrolls, so no hard truncation needed.
       let body = (rel.body || 'No release notes published.')
       const at = body.indexOf('## Changelog')
       if (at >= 0) body = body.slice(at) // skip the install preamble in the release body
-      const short = body.length > 1200 ? body.slice(0, body.lastIndexOf('\n', 1200)) + '\n…' : body
-      $('changelog').innerHTML = renderMd(short)
+      $('changelog').innerHTML = renderMd(body)
       $('changelog-link').href = rel.html_url
 
       // download rows — short format label in the first cell, full filename in
