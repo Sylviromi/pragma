@@ -1,19 +1,49 @@
 <script lang="ts">
   import { page } from '$app/stores'
   import { onMount } from 'svelte'
-  import { plugins, loadPlugins, setEnabled } from '../../../../stores/plugins.svelte'
-  import { openPluginFolder } from '../../../../lib/tauri'
+  import { plugins, loadPlugins, setEnabled, uninstallPlugin, updatePlugin, checkUpdates } from '../../../../stores/plugins.svelte'
+  import { openPluginFolder, getPluginConfig, setPluginConfig } from '../../../../lib/tauri'
   import { pushToast } from '../../../../stores/toast.svelte'
   import SlotStack from '../../../../components/SlotStack.svelte'
   import Toggle from '../../../../components/Toggle.svelte'
-  import Icon from '../../../../components/Icon.svelte'
+
+  // Design v2 plugin detail (`Pragma UI Kit v2.dc.html` → isSectionPluginDetail):
+  // back link, head card with bordered mono initial + status pill + enable
+  // toggle, section cards (Skills / plugin settings), and footer actions
+  // (Update / Open folder / Uninstall).
 
   const pluginId = $derived($page.params.id as string)
   const plugin = $derived(plugins.list.find((p) => p.id === pluginId))
+  const update = $derived(
+    plugins.updates?.find((u) => u.id === pluginId && u.updateAvailable) ?? null
+  )
+  let busy = $state('') // '' | 'update' | 'uninstall'
+  // Plugin config (config.json) — rendered as editable key/value rows below.
+  let config = $state<Record<string, unknown>>({})
+  let configLoaded = $state(false)
+  const saveTimers = new Map<string, ReturnType<typeof setTimeout>>()
 
   onMount(async () => {
     await loadPlugins()
+    if (plugins.checkedAt === null) checkUpdates().catch(() => {})
+    config = await getPluginConfig(pluginId)
+    configLoaded = true
   })
+
+  function setConfigValue(key: string, value: string) {
+    config = { ...config, [key]: value }
+    const t = saveTimers.get(key)
+    if (t) clearTimeout(t)
+    saveTimers.set(
+      key,
+      setTimeout(() => {
+        saveTimers.delete(key)
+        setPluginConfig(pluginId, config).catch(() =>
+          pushToast('Could not save plugin config', 'error')
+        )
+      }, 400)
+    )
+  }
 
   async function toggle() {
     if (!plugin) return
@@ -29,30 +59,72 @@
   function reveal() {
     openPluginFolder(pluginId).catch((e) => pushToast(String(e), 'error'))
   }
+
+  async function doUpdate() {
+    if (!plugin) return
+    busy = 'update'
+    try {
+      await updatePlugin(plugin.id)
+      pushToast(`Updated ${plugin.name}`, 'success')
+      await checkUpdates()
+    } catch (err) {
+      pushToast(String(err), 'error')
+    } finally {
+      busy = ''
+    }
+  }
+
+  async function doUninstall() {
+    if (!plugin) return
+    busy = 'uninstall'
+    try {
+      await uninstallPlugin(plugin.id)
+      pushToast(`Uninstalled ${plugin.name}`, 'success')
+    } catch (err) {
+      pushToast(String(err), 'error')
+    } finally {
+      busy = ''
+    }
+  }
 </script>
 
 <div class="page">
   {#if plugin}
     <a class="crumb" href="/settings/plugins">
-      <Icon name="chevron_left" size={14} /> Plugins
+      <span class="msr" aria-hidden="true">chevron_left</span>All plugins
     </a>
 
+    <!-- head card -->
     <div class="head">
       <span class="initial" aria-hidden="true">{plugin.name.slice(0, 1).toUpperCase()}</span>
-      <div>
-        <div class="title">
-          {plugin.name}
+      <div class="head-copy">
+        <div class="title-row">
+          <span class="title">{plugin.name}</span>
           <span class="ver">v{plugin.version}</span>
+          <span
+            class="status-pill"
+            style={`
+              color:${!plugin.enabled ? 'var(--text-muted)' : update ? 'var(--warning)' : 'var(--success)'};
+              background:${!plugin.enabled ? 'var(--bg-overlay)' : update ? 'color-mix(in oklch, var(--warning) 13%, transparent)' : 'color-mix(in oklch, var(--success) 13%, transparent)'};
+            `}
+          >
+            {!plugin.enabled ? 'disabled' : update ? `update available — v${update.latest}` : 'loaded'}
+          </span>
         </div>
         <div class="desc-lead">{plugin.description || 'No description'}</div>
       </div>
       <Toggle label="Enable plugin" checked={plugin.enabled} onChange={toggle} />
     </div>
 
-    <div class="card fields">
+    <!-- details section -->
+    <section class="sec">
+      <div class="sec-head">
+        <span class="msr" aria-hidden="true">info</span>
+        <span class="sec-title">Details</span>
+        <span class="sec-note">contributed by this plugin</span>
+      </div>
       <div class="field"><span class="k">ID</span><span class="v">{plugin.id}</span></div>
       <div class="field"><span class="k">Version</span><span class="v">{plugin.version}</span></div>
-      <div class="field"><span class="k">Status</span><span class="v"><span class="dot" class:off={!plugin.enabled}></span> {plugin.enabled ? 'Active' : 'Disabled'}</span></div>
       <div class="field"><span class="k">Folder</span><code class="v">{plugin.folder}</code></div>
       <div class="field">
         <span class="k">Contributes</span>
@@ -60,20 +132,74 @@
           {#each plugin.contributes.providers as pr (pr)}<span class="b provider">{pr}</span>{/each}
           {#each plugin.contributes.slots as s (s)}<span class="b slot">{s}</span>{/each}
           {#each plugin.contributes.commands as c (c)}<span class="b command">{c}</span>{/each}
-          {#if plugin.hasSkill}<span class="b skill">skill</span>{/if}
         </span>
       </div>
-    </div>
+    </section>
 
+    <!-- skills section: per-skill toggles (skills belong to their plugin) -->
+    <section class="sec">
+      <div class="sec-head">
+        <span class="msr" aria-hidden="true">auto_awesome</span>
+        <span class="sec-title">Skills</span>
+        <span class="sec-note">{plugin.skills.length ? 'enable with the plugin' : 'this plugin contributes none'}</span>
+      </div>
+      {#if plugin.skills.length === 0}
+        <div class="no-skills">No skills contributed.</div>
+      {:else}
+        {#each plugin.skills as sk, i (sk.id)}
+          <div class="skill-row" class:last={i === plugin.skills.length - 1} class:dim={!plugin.enabled}>
+            <div class="skill-copy">
+              <div class="skill-name">{sk.name}</div>
+              <div class="skill-desc">{sk.description || '—'}</div>
+            </div>
+            <Toggle label={`Enable ${sk.name}`} checked={plugin.enabled} onChange={toggle} />
+          </div>
+        {/each}
+      {/if}
+    </section>
+
+    <!-- plugin settings: config.json values + the plugin's own screen (slot) -->
+    <section class="sec">
+      <div class="sec-head">
+        <span class="msr" aria-hidden="true">tune</span>
+        <span class="sec-title">Plugin settings</span>
+        <span class="sec-note">saved to config.json</span>
+      </div>
+      {#if configLoaded}
+        {#if Object.keys(config).length > 0}
+          {#each Object.entries(config) as [key, value], i (key)}
+            <div class="field cfg" class:last={i === Object.keys(config).length - 1}>
+              <span class="k">{key}</span>
+              <input
+                class="cfg-input"
+                value={String(value ?? '')}
+                oninput={(e) => setConfigValue(key, (e.target as HTMLInputElement).value)}
+                aria-label={key}
+              />
+            </div>
+          {/each}
+        {:else}
+          <div class="no-skills">No config yet — this plugin's own settings screen (if it provides one) renders below.</div>
+        {/if}
+      {/if}
+      <SlotStack slot="settings-page" context={pluginId} />
+    </section>
+
+    <!-- actions -->
     <div class="actions">
-      <button class="ghost" onclick={reveal}>Open folder</button>
+      {#if update}
+        <button class="act update" onclick={doUpdate} disabled={busy !== ''}>
+          {busy === 'update' ? 'Updating…' : `Update to v${update.latest}`}
+        </button>
+      {/if}
+      <button class="act" onclick={reveal} disabled={busy !== ''}>Open folder</button>
+      <button class="act danger" onclick={doUninstall} disabled={busy !== ''}>
+        {busy === 'uninstall' ? 'Uninstalling…' : 'Uninstall'}
+      </button>
     </div>
-
-    <!-- Plugin-provided settings screen (slot contract: settings-page). -->
-    <SlotStack slot="settings-page" context={pluginId} />
   {:else}
     <div class="missing">
-      <Icon name="extension" size={28} />
+      <span class="msr" aria-hidden="true">extension</span>
       <p>Plugin “{pluginId}” not found — is it installed and enabled?</p>
       <a href="/settings/plugins">Back to plugins</a>
     </div>
@@ -84,72 +210,123 @@
   .crumb {
     display: inline-flex;
     align-items: center;
-    gap: 2px;
+    gap: 6px;
+    background: none;
+    border: none;
+    padding: 0;
     color: var(--text-muted);
-    font-size: 12px;
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
     text-decoration: none;
-    margin-bottom: 14px;
+    cursor: pointer;
+    margin-bottom: 12px;
   }
   .crumb:hover {
-    color: var(--text-primary);
+    color: var(--accent);
   }
+  .crumb .msr {
+    font-size: 15px;
+    line-height: 1;
+  }
+
+  /* head card (design pdInitial / pdName / pdStatus / toggle) */
   .head {
     display: flex;
     align-items: center;
     gap: 14px;
-    margin-bottom: 18px;
-  }
-  .head > div:nth-child(2) {
-    flex: 1;
-    min-width: 0;
+    border: 1px solid var(--border-default);
+    padding: 14px;
+    margin-bottom: 16px;
+    background: var(--bg-elevated);
   }
   .initial {
     width: 40px;
     height: 40px;
-    border-radius: 5px;
+    flex: none;
     display: flex;
     align-items: center;
     justify-content: center;
-    font-family: var(--font-heading);
-    font-weight: 600;
-    font-size: 18px;
-    color: var(--accent-on);
-    background: var(--accent);
-    flex: none;
+    border: 1px solid var(--border-default);
+    background: var(--bg-overlay);
+    font-family: var(--font-mono);
+    font-size: 16px;
+    color: var(--accent);
+  }
+  .head-copy {
+    flex: 1;
+    min-width: 0;
+  }
+  .title-row {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    flex-wrap: wrap;
   }
   .title {
     font-family: var(--font-heading);
-    font-size: 18px;
+    font-size: 19px;
     font-weight: 600;
     color: var(--text-primary);
-    display: flex;
-    align-items: baseline;
-    gap: 8px;
   }
   .ver {
     font-family: var(--font-mono);
-    font-size: 11px;
+    font-size: 10.5px;
     color: var(--text-muted);
+  }
+  .status-pill {
+    font-family: var(--font-mono);
+    font-size: 9.5px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    padding: 2px 7px;
   }
   .desc-lead {
+    margin-top: 4px;
     color: var(--text-muted);
     font-size: 12.5px;
+    text-wrap: pretty;
   }
-  .card {
-    background: var(--bg-elevated);
+
+  /* section cards (design: border card + icon header) */
+  .sec {
     border: 1px solid var(--border-default);
-    border-radius: var(--radius-md);
-    overflow: hidden;
-    max-width: 640px;
+    background: var(--bg-elevated);
+    margin-bottom: 16px;
+    max-width: 680px;
   }
-  .fields {
-    margin-bottom: 14px;
+  .sec-head {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    padding: 9px 14px;
+    border-bottom: 1px solid var(--border-subtle);
+    background: var(--bg-overlay);
+  }
+  .sec-head .msr {
+    font-size: 15px;
+    line-height: 1;
+    color: var(--accent);
+  }
+  .sec-title {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--text-primary);
+  }
+  .sec-note {
+    margin-left: auto;
+    font-family: var(--font-body);
+    font-size: 11.5px;
+    color: var(--text-muted);
   }
   .field {
     display: flex;
     align-items: baseline;
     gap: 16px;
-    padding: 10px 16px;
+    padding: 10px 14px;
     border-bottom: 1px solid var(--border-subtle);
     font-size: 12.5px;
   }
@@ -169,21 +346,10 @@
     min-width: 0;
     overflow-wrap: anywhere;
   }
-  .field code.v {
+  code.v {
     font-family: var(--font-mono);
     font-size: 11px;
     color: var(--text-secondary);
-  }
-  .dot {
-    display: inline-block;
-    width: 7px;
-    height: 7px;
-    border-radius: 50%;
-    background: var(--success);
-    margin-right: 4px;
-  }
-  .dot.off {
-    background: var(--text-muted);
   }
   .tags {
     display: flex;
@@ -208,26 +374,102 @@
   .b.command {
     color: var(--slot);
   }
-  .b.skill {
-    color: var(--warning);
+  .skill-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+    padding: 12px 14px;
+    border-bottom: 1px solid var(--border-subtle);
+    transition: opacity 0.2s ease;
   }
+  .skill-row.last {
+    border-bottom: none;
+  }
+  .skill-row.dim {
+    opacity: 0.55;
+  }
+  .skill-copy {
+    flex: 1;
+    min-width: 0;
+  }
+  .skill-name {
+    font-family: var(--font-body);
+    font-size: 13.5px;
+    color: var(--text-primary);
+  }
+  .skill-desc {
+    font-family: var(--font-body);
+    font-size: 12px;
+    color: var(--text-muted);
+    margin-top: 2px;
+  }
+  .no-skills {
+    padding: 12px 14px;
+    font-family: var(--font-body);
+    font-size: 12px;
+    color: var(--text-muted);
+  }
+  .field.cfg {
+    align-items: center;
+  }
+  .cfg-input {
+    flex: 1;
+    min-width: 0;
+    background: var(--bg-base);
+    border: 1px solid var(--border-default);
+    padding: 7px 10px;
+    font-family: var(--font-mono);
+    font-size: 12.5px;
+    color: var(--text-primary);
+    outline: none;
+    transition: border-color 0.18s ease;
+  }
+  .cfg-input:focus {
+    border-color: var(--border-focus);
+  }
+
   .actions {
     display: flex;
-    gap: 10px;
-    margin-bottom: 18px;
+    gap: 8px;
+    flex-wrap: wrap;
+    max-width: 680px;
   }
-  .ghost {
-    background: transparent;
-    color: var(--text-primary);
+  .act {
+    padding: 6px 12px;
+    background: none;
     border: 1px solid var(--border-default);
-    border-radius: var(--radius-sm);
-    padding: 6px 14px;
-    font-size: 12px;
+    color: var(--text-secondary);
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
     cursor: pointer;
+    transition: border-color 0.18s ease, color 0.18s ease;
   }
-  .ghost:hover {
-    border-color: var(--text-muted);
+  .act:hover:not(:disabled) {
+    border-color: var(--accent);
+    color: var(--text-primary);
   }
+  .act.update {
+    color: var(--warning);
+    border-color: color-mix(in srgb, var(--warning) 45%, transparent);
+  }
+  .act.update:hover:not(:disabled) {
+    border-color: var(--warning);
+  }
+  .act.danger {
+    color: var(--danger, #e5484d);
+    border-color: color-mix(in srgb, var(--danger, #e5484d) 45%, transparent);
+  }
+  .act.danger:hover:not(:disabled) {
+    border-color: var(--danger, #e5484d);
+  }
+  .act:disabled {
+    opacity: 0.6;
+    cursor: default;
+  }
+
   .missing {
     display: flex;
     flex-direction: column;
@@ -236,6 +478,9 @@
     padding: 48px 0;
     color: var(--text-muted);
     font-size: 12.5px;
+  }
+  .missing .msr {
+    font-size: 28px;
   }
   .missing p {
     margin: 0;

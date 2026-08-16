@@ -1,19 +1,24 @@
 <script lang="ts">
-  import { plugins, loadPlugins, setEnabled, installFromSource, uninstallPlugin, checkUpdates, updatePlugin } from '../../../stores/plugins.svelte'
+  import { plugins, loadPlugins, setEnabled, installFromSource, checkUpdates } from '../../../stores/plugins.svelte'
   import { openPluginFolder } from '../../../lib/tauri'
   import { pushToast } from '../../../stores/toast.svelte'
   import { onMount } from 'svelte'
-  import Icon from '../../../components/Icon.svelte'
   import { open } from '@tauri-apps/plugin-dialog'
   import type { PluginUpdateInfo } from '../../../lib/tauri'
+  import SettingsHeader from '../../../components/SettingsHeader.svelte'
+  import CornerMarks from '../../../components/CornerMarks.svelte'
 
-  let expanded = $state<Record<string, boolean>>({})
+  // Design v2 plugin page (`Pragma UI Kit v2.dc.html`): search + filter pills
+  // over a grid of click-through cards (→ plugin detail), and an "Install a
+  // plugin" panel at the bottom. Per-plugin actions (update/uninstall) live
+  // on the detail page.
+
+  let query = $state('')
+  let filter = $state<'all' | 'on' | 'off' | 'updates'>('all')
+  let checking = $state(false)
   let installing = $state(false)
   let showInstall = $state(false)
   let sourceInput = $state('')
-  let confirmUninstall = $state<Record<string, boolean>>({})
-  let checking = $state(false)
-  let updatingId = $state<string | null>(null)
 
   onMount(async () => {
     await loadPlugins()
@@ -22,18 +27,37 @@
     if (plugins.checkedAt === null) checkUpdates().catch(() => {})
   })
 
-  async function toggle(p: { id: string; name: string; enabled: boolean }) {
-    const next = !p.enabled
+  const updateFor = (id: string): PluginUpdateInfo | undefined =>
+    plugins.updates?.find((u) => u.id === id && u.updateAvailable)
+
+  const filtered = $derived.by(() => {
+    const q = query.trim().toLowerCase()
+    return plugins.list.filter((p) => {
+      if (filter === 'on' && !p.enabled) return false
+      if (filter === 'off' && p.enabled) return false
+      if (filter === 'updates' && !updateFor(p.id)) return false
+      if (!q) return true
+      return (p.name + ' ' + p.id + ' ' + p.description + ' ' + (p.author ?? '')).toLowerCase().includes(q)
+    })
+  })
+
+  const filters = $derived([
+    { key: 'all' as const, label: `All ${plugins.list.length}` },
+    { key: 'on' as const, label: 'Enabled' },
+    { key: 'off' as const, label: 'Disabled' },
+    { key: 'updates' as const, label: 'Updates' },
+  ])
+
+  async function checkForUpdates() {
+    checking = true
     try {
-      await setEnabled(p.id, next)
-      pushToast(`${next ? 'Enabled' : 'Disabled'} ${p.name}`, 'success')
+      const updates = await checkUpdates()
+      if (!updates.some((u) => u.updateAvailable)) pushToast('All plugins are up to date', 'success')
     } catch (err) {
       pushToast(String(err), 'error')
+    } finally {
+      checking = false
     }
-  }
-
-  function reveal(p: { id: string }) {
-    openPluginFolder(p.id).catch((e) => pushToast(String(e), 'error'))
   }
 
   async function browseFolder() {
@@ -56,331 +80,479 @@
       installing = false
     }
   }
-
-  async function checkForUpdates() {
-    checking = true
-    try {
-      const updates = await checkUpdates()
-      if (!updates.some((u) => u.updateAvailable)) pushToast('All plugins are up to date', 'success')
-    } catch (err) {
-      pushToast(String(err), 'error')
-    } finally {
-      checking = false
-    }
-  }
-
-  const updateFor = (id: string): PluginUpdateInfo | undefined =>
-    plugins.updates?.find((u) => u.id === id && u.updateAvailable)
-
-  async function doUpdate(p: { id: string; name: string }) {
-    updatingId = p.id
-    try {
-      await updatePlugin(p.id)
-      pushToast(`Updated ${p.name}`, 'success')
-      await checkUpdates()
-    } catch (err) {
-      pushToast(String(err), 'error')
-    } finally {
-      updatingId = null
-    }
-  }
-
-  async function doUninstall(p: { id: string; name: string }) {
-    try {
-      await uninstallPlugin(p.id)
-      pushToast(`Uninstalled ${p.name}`, 'success')
-    } catch (err) {
-      pushToast(String(err), 'error')
-    } finally {
-      confirmUninstall[p.id] = false
-    }
-  }
-
-  const badge = (text: string, kind: 'provider' | 'slot' | 'command' | 'skill') => ({
-    text,
-    kind
-  })
 </script>
 
 <div class="page">
   <div class="title-row">
-    <div class="title">Plugins</div>
+    <SettingsHeader
+      kicker="Extensions"
+      title="Plugins"
+      blurb={'Everything Pragma can do beyond the core loop.\nEach plugin brings its own settings and its own skills.'}
+    />
     <div class="header-actions">
-      <button class="install-btn" onclick={checkForUpdates} disabled={checking}>
-        <Icon name="sync" size={14} />
+      <button class="hdr-btn" onclick={checkForUpdates} disabled={checking}>
+        <span class="msr" aria-hidden="true">{checking ? 'progress_activity' : 'sync'}</span>
         {checking ? 'Checking…' : 'Check for updates'}
       </button>
-      <button class="install-btn" onclick={() => (showInstall = !showInstall)}>
-        <Icon name="download" size={14} />
-        Install…
+      <button class="hdr-btn" onclick={() => (showInstall = !showInstall)} aria-expanded={showInstall}>
+        <span class="msr" aria-hidden="true">add</span>
+        Install
       </button>
     </div>
   </div>
-  <div class="desc-lead">
-    Install from a source — <code>npm:pragma-plugin-…</code> or a local folder — or
-    drop a folder into <code>~/.config/dev.pragma.app/plugins/</code> (both hot-reload instantly).
+
+  <!-- toolbar: search + filter pills -->
+  <div class="toolbar">
+    <div class="search">
+      <span class="msr" aria-hidden="true">search</span>
+      <input
+        type="search"
+        placeholder="Search plugins"
+        bind:value={query}
+        aria-label="Search plugins"
+      />
+    </div>
+    <div class="pills" role="group" aria-label="Filter plugins">
+      {#each filters as f (f.key)}
+        <button
+          class="pill"
+          class:active={filter === f.key}
+          onclick={() => (filter = f.key)}
+          aria-pressed={filter === f.key}
+        >{f.label}</button>
+      {/each}
+    </div>
   </div>
 
   {#if showInstall}
-    <div class="install-row">
-      <input
-        class="source-input"
-        bind:value={sourceInput}
-        placeholder="npm:pragma-plugin-my-plugin  ·  /path/to/folder"
-        onkeydown={(e) => {
-          if (e.key === 'Enter') install()
-          if (e.key === 'Escape') {
-            showInstall = false
-            sourceInput = ''
-          }
-        }}
-      />
-      <button class="btn ghost" onclick={browseFolder} title="Pick a local plugin folder">
-        <Icon name="folder" size={14} /> Browse…
-      </button>
-      <button class="btn" onclick={install} disabled={installing || !sourceInput.trim()}>
-        {installing ? 'Installing…' : 'Install'}
-      </button>
+    <div class="install-panel">
+      <div class="install-head">
+        <span class="msr" aria-hidden="true">deployed_code_update</span>
+        <span class="install-title">Install from a source</span>
+        <span class="install-note">npm package or local folder — hot-reloads instantly</span>
+      </div>
+      <div class="install-row">
+        <span class="msr" aria-hidden="true">search</span>
+        <input
+          class="source-input"
+          bind:value={sourceInput}
+          placeholder="npm:pragma-plugin-…  ·  /path/to/folder"
+          aria-label="Plugin source"
+          onkeydown={(e) => {
+            if (e.key === 'Enter') install()
+            if (e.key === 'Escape') {
+              showInstall = false
+              sourceInput = ''
+            }
+          }}
+        />
+        <button class="ghost" onclick={browseFolder} title="Pick a local plugin folder">
+          <span class="msr" aria-hidden="true">folder_open</span>Browse…
+        </button>
+        <button class="go" onclick={install} disabled={installing || !sourceInput.trim()}>
+          {installing ? 'Installing…' : 'Install'}
+        </button>
+      </div>
+      <p class="install-hint">
+        Every Pragma plugin is an npm package — one plugin per package, publishing with
+        <code>npm publish</code>. Dropping a folder into
+        <code>~/.config/dev.pragma.app/plugins/</code> works too. Or{' '}
+        <a href="/settings/marketplace">browse the marketplace</a>.
+      </p>
     </div>
   {/if}
-
-  <div class="browse-toggle">
-    <a class="link" href="/settings/marketplace">
-      <Icon name="extension" size={13} />
-      Browse the marketplace for more plugins
-    </a>
-  </div>
 
   {#if plugins.loading}
     <div class="empty">Loading…</div>
   {:else if plugins.list.length === 0}
     <div class="empty">
-      <Icon name="extension" size={30} />
+      <span class="msr" aria-hidden="true">extension</span>
       <p>No plugins installed yet.</p>
       <p>Restart and the demo plugin will be bootstrapped automatically.</p>
     </div>
+  {:else if filtered.length === 0}
+    <div class="empty">
+      <span class="msr" aria-hidden="true">search_off</span>
+      <p>Nothing matches “{query}”.</p>
+    </div>
   {:else}
-    <ul class="cards">
-      {#each plugins.list as p (p.id)}
-        <li class="card">
-          <div class="head">
+    <div class="grid">
+      {#each filtered as p, i (p.id)}
+        {@const up = updateFor(p.id)}
+        {@const statusColor = !p.enabled ? 'var(--text-muted)' : up ? 'var(--warning)' : 'var(--success)'}
+        <a class="card stagger" style={`--i:${Math.min(i, 10)}`} href={`/settings/plugin/${p.id}`} class:off={!p.enabled}>
+          <CornerMarks />
+
+          <div class="card-top">
             <span class="initial" aria-hidden="true">{p.name.slice(0, 1).toUpperCase()}</span>
             <div class="name-col">
-              <div class="name-row">
-                <span class="name">{p.name}</span>
-                {#if p.publisher === 'pragma'}
-                  <span class="badge first-party" title="Built into Pragma">Pragma</span>
-                {/if}
-                <span class="ver">v{p.version}</span>
-                {#if updateFor(p.id)}
-                  {@const up = updateFor(p.id)!}
-                  <span class="badge update" title="Newer version available from {up.source}">
-                    v{up.current} → v{up.latest}
-                  </span>
-                {/if}
-              </div>
-              <div class="id">{p.id}</div>
+              <div class="name">{p.name}</div>
+              <div class="ver">v{p.version} · {p.publisher || p.author || 'community'}</div>
             </div>
-            <button
-              class="expand"
-              class:open={expanded[p.id]}
-              onclick={() => (expanded[p.id] = !expanded[p.id])}
-              aria-expanded={!!expanded[p.id]}
-              aria-label="Expand {p.name}"
-            >
-              <Icon name="chevron_right" size={16} />
-            </button>
+            <span class="status-dot" style={`background:${statusColor}`} aria-hidden="true"></span>
           </div>
-
-          <p class="meta">{p.description || 'No description'}</p>
-
-          <div class="tags">
-            {#each p.contributes.providers as prv (prv)}<span class="b provider">{badge(prv, 'provider').text}</span>{/each}
-            {#each p.contributes.slots as s (s)}<span class="b slot">{s}</span>{/each}
-            {#each p.contributes.commands as c (c)}<span class="b command">{c}</span>{/each}
-            {#if p.hasSkill}<span class="b skill">skill</span>{/if}
+          <p class="desc">{p.description || 'No description'}</p>
+          <div class="card-foot">
+            <span class="skill-tag">{p.skills.length ? `${p.skills.length} skill${p.skills.length > 1 ? 's' : ''}` : 'no skills'}</span>
+            <span class="status-text" style={`color:${statusColor}`}>
+              {!p.enabled ? 'disabled' : up ? `update available — v${up.latest}` : 'active'}
+            </span>
           </div>
-
-          {#if expanded[p.id]}
-            <div class="detail">
-              <div class="status-line">
-                <span class="status-dot" class:off={!p.enabled} aria-hidden="true"></span>
-                <span>{p.enabled ? 'Active' : 'Disabled'}</span>
-                <code class="folder">{p.folder}</code>
-              </div>
-              {#if p.author}<div class="meta">by {p.author}</div>{/if}
-              {#if p.repository || p.homepage}
-                <div class="links">
-                  {#if p.repository}<a href={p.repository} target="_blank" rel="noopener noreferrer">Repository</a>{/if}
-                  {#if p.homepage}<a href={p.homepage} target="_blank" rel="noopener noreferrer">Homepage</a>{/if}
-                </div>
-              {/if}
-              <div class="actions">
-                <a class="link" href={`/settings/plugin/${p.id}`}>Open settings</a>
-                <button class="link" onclick={() => reveal(p)}>Open folder</button>
-              </div>
-            </div>
-          {/if}
-
-          <div class="foot">
-            <button class="btn" class:off={p.enabled} onclick={() => toggle(p)} aria-pressed={p.enabled}>
-              {p.enabled ? 'Enabled' : 'Disabled'}
-            </button>
-            {#if updateFor(p.id)}
-              {@const up = updateFor(p.id)!}
-              <button
-                class="btn update-btn"
-                onclick={() => doUpdate(p)}
-                disabled={updatingId === p.id}
-              >
-                {updatingId === p.id ? 'Updating…' : `Update to v${up.latest}`}
-              </button>
-            {/if}
-            <button
-              class="btn danger"
-              class:confirm={confirmUninstall[p.id]}
-              onclick={() => {
-                if (!confirmUninstall[p.id]) {
-                  confirmUninstall[p.id] = true
-                  setTimeout(() => (confirmUninstall[p.id] = false), 3000)
-                } else {
-                  doUninstall(p)
-                }
-              }}
-            >
-              {confirmUninstall[p.id] ? 'Confirm uninstall?' : 'Uninstall'}
-            </button>
-          </div>
-        </li>
+        </a>
       {/each}
-    </ul>
+    </div>
   {/if}
 </div>
 
 <style>
-  .title {
-    font-family: var(--font-heading);
-    font-size: 18px;
-    font-weight: 600;
-    color: var(--text-primary);
-    margin-bottom: 2px;
-  }
   .title-row {
     display: flex;
-    align-items: center;
+    align-items: flex-start;
     justify-content: space-between;
-    margin-bottom: 2px;
-  }
-  .install-btn {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    background: var(--bg-elevated);
-    color: var(--text-primary);
-    border: 1px solid var(--border-default);
-    border-radius: var(--radius-sm);
-    padding: 5px 12px;
-    font-size: 12px;
-    font-family: var(--font-heading);
-    font-weight: 600;
-    cursor: pointer;
-  }
-  .install-btn:hover:not(:disabled) {
-    border-color: var(--accent);
-    color: var(--accent);
-  }
-  .install-btn:disabled {
-    opacity: 0.6;
-    cursor: default;
+    gap: 20px;
   }
   .header-actions {
     display: flex;
     gap: 8px;
+    padding-top: 2px;
+    flex: none;
   }
-  .badge {
-    font-family: var(--font-mono);
-    font-size: 9.5px;
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
-    border-radius: 2px;
-    padding: 1px 6px;
-  }
-  .badge.first-party {
-    color: var(--accent);
-    border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
-    background: color-mix(in srgb, var(--accent) 12%, transparent);
-  }
-  .badge.update {
-    color: var(--warning);
-    border: 1px solid color-mix(in srgb, var(--warning) 45%, transparent);
-    background: color-mix(in srgb, var(--warning) 12%, transparent);
-  }
-  .btn.update-btn {
-    background: transparent;
-    color: var(--warning);
-    border: 1px solid color-mix(in srgb, var(--warning) 45%, transparent);
-  }
-  .btn.update-btn:hover:not(:disabled) {
-    background: color-mix(in srgb, var(--warning) 12%, transparent);
-  }
-  .btn.update-btn:disabled {
-    opacity: 0.6;
-  }
-  .browse-toggle {
-    margin: -8px 0 12px;
-  }
-  .browse-toggle .link {
+  /* Design header actions: bordered mono uppercase buttons. */
+  .hdr-btn {
     display: inline-flex;
     align-items: center;
-    gap: 4px;
+    gap: 6px;
+    background: none;
+    border: 1px solid var(--border-default);
+    color: var(--text-secondary);
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    padding: 7px 13px;
+    cursor: pointer;
+    transition: border-color 0.18s ease, color 0.18s ease;
   }
-                    .install-row {
+  .hdr-btn:hover:not(:disabled) {
+    border-color: var(--accent);
+    color: var(--text-primary);
+  }
+  .hdr-btn:disabled {
+    opacity: 0.6;
+    cursor: default;
+  }
+  .hdr-btn .msr {
+    font-size: 16px;
+    line-height: 1;
+  }
+  .hdr-btn .msr:first-child { font-size: 15px; }
+
+  /* toolbar: search + filter pills */
+  .toolbar {
     display: flex;
-    gap: 8px;
     align-items: center;
-    margin-bottom: 20px;
-    max-width: 720px;
+    gap: 10px;
+    margin-bottom: 18px;
+    flex-wrap: wrap;
+  }
+  .search {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex: 1;
+    min-width: 210px;
+    border: 1px solid var(--border-default);
+    background: var(--bg-base);
+    padding: 7px 11px;
+  }
+  .search .msr {
+    font-size: 16px;
+    line-height: 1;
+    color: var(--text-muted);
+    flex: none;
+  }
+  .search input {
+    flex: 1;
+    min-width: 0;
+    background: transparent;
+    border: 0;
+    outline: none;
+    font-family: var(--font-body);
+    font-size: 13px;
+    color: var(--text-primary);
+  }
+  .search input::placeholder {
+    color: var(--text-muted);
+  }
+  .pills {
+    display: flex;
+    border: 1px solid var(--border-default);
+    flex: none;
+  }
+  .pill {
+    padding: 7px 12px;
+    border: none;
+    background: transparent;
+    color: var(--text-secondary);
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    letter-spacing: 0.04em;
+    cursor: pointer;
+    transition: background 0.18s ease, color 0.18s ease;
+  }
+  .pill + .pill {
+    border-left: 1px solid var(--border-default);
+  }
+  .pill:hover {
+    color: var(--text-primary);
+  }
+  .pill.active {
+    background: var(--accent);
+    color: var(--accent-on);
+  }
+
+  /* card grid (design pluginCards): auto-fill 250px columns */
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+    gap: 16px;
+  }
+  .card {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    text-align: left;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border-default);
+    padding: 0;
+    cursor: pointer;
+    text-decoration: none;
+    transition: border-color 0.2s ease;
+  }
+  .card:hover {
+    border-color: var(--accent);
+    /* light the corner marks up with the border */
+    --cm-color: var(--accent);
+  }
+  .card.off {
+    opacity: 0.62;
+  }
+  .card-top {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 13px 13px 0;
+  }
+  .initial {
+    width: 28px;
+    height: 28px;
+    flex: none;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid var(--border-default);
+    background: var(--bg-overlay);
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--accent);
+  }
+  .card.off .initial {
+    color: var(--text-muted);
+  }
+  .name-col {
+    flex: 1;
+    min-width: 0;
+  }
+  .name {
+    font-family: var(--font-heading);
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--text-primary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .ver {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--text-muted);
+    margin-top: 2px;
+  }
+  .status-dot {
+    width: 7px;
+    height: 7px;
+    flex: none;
+    margin-top: 6px;
+    border-radius: 50%;
+  }
+  .desc {
+    margin: 8px 13px 0;
+    font-family: var(--font-body);
+    font-size: 12px;
+    line-height: 1.5;
+    color: var(--text-muted);
+    text-wrap: pretty;
+    flex: 1;
+  }
+  .card-foot {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 11px 13px 12px;
+    margin-top: auto;
+  }
+  .skill-tag {
+    font-family: var(--font-mono);
+    font-size: 9.5px;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    padding: 2px 7px;
+    background: var(--bg-overlay);
+    color: var(--text-secondary);
+  }
+  .status-text {
+    font-family: var(--font-mono);
+    font-size: 9.5px;
+    letter-spacing: 0.05em;
+    margin-left: auto;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  /* Design stagger entrance: cards fade up 45ms apart. */
+  .stagger {
+    animation: rowIn 0.34s cubic-bezier(0.22, 0.8, 0.3, 1) both;
+    animation-delay: calc(var(--i) * 45ms);
+  }
+
+  /* install panel (design "Install a plugin" registry section) */
+  .install-panel {
+    margin: 26px 0 18px;
+    border: 1px solid var(--border-default);
+    background: var(--bg-elevated);
+  }
+  .install-head {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    padding: 9px 14px;
+    border-bottom: 1px solid var(--border-subtle);
+    background: var(--bg-overlay);
+  }
+  .install-head .msr {
+    font-size: 15px;
+    line-height: 1;
+    color: var(--accent);
+  }
+  .install-title {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--text-primary);
+  }
+  .install-note {
+    margin-left: auto;
+    font-family: var(--font-body);
+    font-size: 11.5px;
+    color: var(--text-muted);
+  }
+  .install-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    border: 1px solid var(--border-default);
+    background: var(--bg-base);
+    margin: 13px 14px 0;
+    padding: 8px 11px;
+  }
+  .install-row > .msr {
+    font-size: 16px;
+    line-height: 1;
+    color: var(--text-muted);
+    flex: none;
   }
   .source-input {
     flex: 1;
     min-width: 0;
-    font-family: var(--font-mono);
-    font-size: 12px;
-    color: var(--text-primary);
-    background: var(--bg-base);
-    border: 1px solid var(--border-default);
-    border-radius: var(--radius-sm);
-    padding: 7px 10px;
-  }
-  .source-input:focus {
+    background: transparent;
+    border: 0;
     outline: none;
-    border-color: var(--accent);
+    font-family: var(--font-mono);
+    font-size: 12.5px;
+    color: var(--text-primary);
   }
-  .btn.ghost {
-    background: var(--bg-overlay);
-    color: var(--text-secondary);
-    border: 1px solid var(--border-default);
+  .source-input::placeholder {
+    color: var(--text-muted);
+  }
+  .ghost {
     display: inline-flex;
     align-items: center;
-    gap: 5px;
+    gap: 6px;
+    background: none;
+    border: 1px solid var(--border-default);
+    color: var(--text-secondary);
+    font-family: var(--font-body);
+    font-size: 12.5px;
+    padding: 7px 12px;
+    cursor: pointer;
+    flex: none;
     white-space: nowrap;
+    transition: border-color 0.18s ease, color 0.18s ease;
   }
-  .btn.ghost:hover {
+  .ghost:hover {
+    border-color: var(--accent);
     color: var(--text-primary);
   }
-  .desc-lead {
-    color: var(--text-muted);
-    font-size: 12.5px;
-    margin-bottom: 20px;
+  .ghost .msr {
+    font-size: 15px;
+    line-height: 1;
   }
-  .desc-lead code {
+  .go {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: var(--accent);
+    color: var(--accent-on);
+    border: 1px solid var(--accent);
+    font-family: var(--font-heading);
+    font-weight: 600;
+    font-size: 12.5px;
+    padding: 8px 14px;
+    cursor: pointer;
+    flex: none;
+    transition: background 0.18s ease;
+  }
+  .go:hover:not(:disabled) {
+    background: var(--accent-hover);
+  }
+  .go:disabled {
+    opacity: 0.5;
+    cursor: default;
+  }
+  .install-hint {
+    margin: 0;
+    padding: 11px 14px 13px;
+    font-family: var(--font-body);
+    font-size: 12px;
+    line-height: 1.55;
+    color: var(--text-muted);
+    max-width: 66ch;
+    text-wrap: pretty;
+  }
+  .install-hint code {
     font-family: var(--font-mono);
     font-size: 11px;
     color: var(--text-secondary);
-    background: var(--bg-overlay);
-    padding: 1px 5px;
-    border-radius: 2px;
   }
+  .install-hint a {
+    color: var(--accent);
+    text-decoration: none;
+  }
+  .install-hint a:hover {
+    text-decoration: underline;
+  }
+
   .empty {
     display: flex;
     flex-direction: column;
@@ -391,220 +563,11 @@
     color: var(--text-muted);
     font-size: 12.5px;
   }
+  .empty .msr {
+    font-size: 30px;
+    color: var(--text-muted);
+  }
   .empty p {
     margin: 0;
-  }
-  .cards {
-    list-style: none;
-    margin: 0;
-    padding: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-    max-width: 720px;
-  }
-  .card {
-    background: var(--bg-elevated);
-    border: 1px solid var(--border-default);
-    border-radius: var(--radius-md);
-    padding: 14px 16px;
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-  }
-  .head {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-  }
-  .initial {
-    width: 32px;
-    height: 32px;
-    border-radius: 4px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-family: var(--font-heading);
-    font-weight: 600;
-    font-size: 15px;
-    color: var(--accent-on);
-    background: var(--accent);
-    flex: none;
-  }
-  .name-col {
-    flex: 1;
-    min-width: 0;
-  }
-  .name-row {
-    display: flex;
-    align-items: baseline;
-    gap: 8px;
-  }
-  .name {
-    font-size: 14px;
-    font-weight: 600;
-    color: var(--text-primary);
-  }
-  .ver {
-    font-size: 11px;
-    color: var(--text-muted);
-    font-family: var(--font-mono);
-  }
-  .id {
-    font-family: var(--font-mono);
-    font-size: 10.5px;
-    color: var(--text-muted);
-  }
-  .expand {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 26px;
-    height: 26px;
-    border: none;
-    background: transparent;
-    color: var(--text-muted);
-    border-radius: 3px;
-    cursor: pointer;
-    flex: none;
-    transition: transform 0.15s ease;
-  }
-  .expand.open {
-    transform: rotate(90deg);
-  }
-  .expand:hover {
-    color: var(--text-primary);
-    background: var(--surface-hover);
-  }
-  .meta {
-    margin: 0;
-    font-size: 12.5px;
-    color: var(--text-muted);
-  }
-  .tags {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 6px;
-  }
-  .b {
-    font-family: var(--font-mono);
-    font-size: 10px;
-    border: 1px solid var(--border-default);
-    border-radius: 2px;
-    padding: 1px 7px;
-  }
-  .b.provider {
-    color: var(--success);
-    border-color: color-mix(in srgb, var(--success) 40%, transparent);
-    background: color-mix(in srgb, var(--success) 12%, transparent);
-  }
-  .b.slot {
-    color: var(--accent);
-    border-color: color-mix(in srgb, var(--accent) 40%, transparent);
-    background: color-mix(in srgb, var(--accent) 12%, transparent);
-  }
-  .b.command {
-    color: var(--slot);
-    border-color: color-mix(in srgb, var(--slot) 40%, transparent);
-    background: color-mix(in srgb, var(--slot) 14%, transparent);
-  }
-  .b.skill {
-    color: var(--warning);
-    border-color: color-mix(in srgb, var(--warning) 40%, transparent);
-    background: color-mix(in srgb, var(--warning) 12%, transparent);
-  }
-  .detail {
-    border-top: 1px solid var(--border-subtle);
-    padding-top: 10px;
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-  }
-  .status-line {
-    display: flex;
-    align-items: center;
-    gap: 7px;
-    font-size: 12px;
-    color: var(--text-secondary);
-  }
-  .status-dot {
-    width: 7px;
-    height: 7px;
-    border-radius: 50%;
-    background: var(--success);
-  }
-  .status-dot.off {
-    background: var(--text-muted);
-  }
-  .folder {
-    font-family: var(--font-mono);
-    font-size: 10.5px;
-    color: var(--text-muted);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    max-width: 320px;
-    margin-left: auto;
-  }
-  .actions {
-    display: flex;
-    gap: 16px;
-  }
-  .link {
-    background: none;
-    border: none;
-    padding: 0;
-    font-size: 12px;
-    color: var(--accent);
-    cursor: pointer;
-    text-decoration: none;
-  }
-  .link:hover {
-    text-decoration: underline;
-  }
-  .foot {
-    display: flex;
-    justify-content: flex-end;
-    gap: 8px;
-  }
-  .btn {
-    background: var(--accent);
-    color: var(--accent-on);
-    border: none;
-    border-radius: var(--radius-sm);
-    padding: 5px 14px;
-    font-size: 12px;
-    font-family: var(--font-heading);
-    font-weight: 600;
-    cursor: pointer;
-  }
-  .btn.off {
-    background: var(--bg-overlay);
-    color: var(--text-secondary);
-    border: 1px solid var(--border-default);
-  }
-  .btn.danger {
-    background: transparent;
-    color: var(--danger, #e5484d);
-    border: 1px solid color-mix(in srgb, var(--danger, #e5484d) 45%, transparent);
-  }
-  .btn.danger:hover {
-    background: color-mix(in srgb, var(--danger, #e5484d) 10%, transparent);
-  }
-  .btn.danger.confirm {
-    background: var(--danger, #e5484d);
-    color: #fff;
-  }
-  .links {
-    display: flex;
-    gap: 14px;
-  }
-  .links a {
-    font-size: 12px;
-    color: var(--accent);
-    text-decoration: none;
-  }
-  .links a:hover {
-    text-decoration: underline;
   }
 </style>
