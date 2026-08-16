@@ -1,6 +1,8 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import SettingsHeader from '../../../components/SettingsHeader.svelte'
+  import Card from '../../../components/Card.svelte'
+  import Button from '../../../components/Button.svelte'
   import { saveApiKeys, getApiKeys } from '../../../lib/tauri'
   import { providerState, loadProviders } from '../../../stores/providers.svelte'
 
@@ -50,7 +52,7 @@
     blurb="Model endpoints and their API tokens. A provider can hold several tokens — Pragma rotates them automatically on rate limits."
   />
 
-  <div class="card stack">
+  <Card class="stack">
     {#each providerState.providers.filter((p) => p.source === 'builtin') as p}
       {@const list = drafts[p.id] ?? []}
       <div class="block">
@@ -89,13 +91,9 @@
 
         <div class="btn-row">
           <button class="add-btn" onclick={() => addKey(p.id)}>+ Add key</button>
-          <button
-            class="save-btn"
-            onclick={() => save(p.id)}
-            aria-label="Save {p.name} API keys"
-          >
+          <Button variant="primary" class="save-btn" onclick={() => save(p.id)} ariaLabel="Save {p.name} API keys">
             {saved[p.id] ? 'Saved ✓' : 'Save'}
-          </button>
+          </Button>
         </div>
         {#if list.length > 1}
           <div class="hint">First key is primary (used for model discovery); the others are tried in order after a 429.</div>
@@ -106,17 +104,10 @@
     {#if providerState.providers.filter((p) => p.source !== 'builtin').length > 0}
       <div class="hint">Plugin-contributed providers are managed on each plugin's settings page.</div>
     {/if}
-  </div>
+  </Card>
 </div>
 
 <style>
-  .card {
-    background: var(--bg-elevated);
-    border: 1px solid var(--border-default);
-    border-radius: var(--radius-md);
-    overflow: hidden;
-    max-width: 640px;
-  }
   .block {
     padding: 14px 16px;
     border-bottom: 1px solid var(--border-subtle);
@@ -143,14 +134,6 @@
     height: 6px;
     border-radius: 50%;
     background: var(--accent);
-  }
-  .status-tag {
-    font-family: var(--font-mono);
-    font-size: 10px;
-    color: var(--text-muted);
-    border: 1px solid var(--border-default);
-    border-radius: 2px;
-    padding: 2px 6px;
   }
   .key-row {
     display: flex;
@@ -203,25 +186,18 @@
     color: var(--accent);
     border-color: var(--accent);
   }
-  .save-btn {
-    background: var(--accent);
-    color: var(--accent-on);
-    border: none;
-    border-radius: var(--radius-sm);
-    padding: 5px 16px;
-    font-family: var(--font-heading);
-    font-weight: 600;
-    font-size: 12px;
-    cursor: pointer;
-    white-space: nowrap;
-  }
-  .save-btn:hover {
-    background: var(--accent-hover);
-  }
   .hint {
     margin-top: 6px;
     color: var(--text-muted);
     font-size: 11px;
     line-height: 1.4;
+  }
+  /* Restore the page's original Save button (heading face, 2px radius). */
+  :global(.btn.save-btn) {
+    font-family: var(--font-heading);
+    font-weight: 600;
+    font-size: 12px;
+    padding: 5px 16px;
+    border-radius: var(--radius-sm);
   }
 </style>

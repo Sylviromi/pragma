@@ -7,6 +7,14 @@
   import type { PluginUpdateInfo } from '../../../lib/tauri'
   import SettingsHeader from '../../../components/SettingsHeader.svelte'
   import CornerMarks from '../../../components/CornerMarks.svelte'
+  import Button from '../../../components/Button.svelte'
+  import SearchInput from '../../../components/SearchInput.svelte'
+  import Segmented from '../../../components/Segmented.svelte'
+  import SectionHeader from '../../../components/SectionHeader.svelte'
+  import EmptyState from '../../../components/EmptyState.svelte'
+  import Icon from '../../../components/Icon.svelte'
+  import StatusDot from '../../../components/StatusDot.svelte'
+  import Pill from '../../../components/Pill.svelte'
 
   // Design v2 plugin page (`Pragma UI Kit v2.dc.html`): search + filter pills
   // over a grid of click-through cards (→ plugin detail), and an "Install a
@@ -42,10 +50,10 @@
   })
 
   const filters = $derived([
-    { key: 'all' as const, label: `All ${plugins.list.length}` },
-    { key: 'on' as const, label: 'Enabled' },
-    { key: 'off' as const, label: 'Disabled' },
-    { key: 'updates' as const, label: 'Updates' },
+    { value: 'all' as const, label: `All ${plugins.list.length}` },
+    { value: 'on' as const, label: 'Enabled' },
+    { value: 'off' as const, label: 'Disabled' },
+    { value: 'updates' as const, label: 'Updates' },
   ])
 
   async function checkForUpdates() {
@@ -87,52 +95,39 @@
     <SettingsHeader
       kicker="Extensions"
       title="Plugins"
-      blurb={'Everything Pragma can do beyond the core loop.\nEach plugin brings its own settings and its own skills.'}
+      blurb="Everything Pragma can do beyond the core loop. Each plugin brings its own settings and its own skills."
     />
     <div class="header-actions">
-      <button class="hdr-btn" onclick={checkForUpdates} disabled={checking}>
-        <span class="msr" aria-hidden="true">{checking ? 'progress_activity' : 'sync'}</span>
+      <Button variant="ghost" mono icon="sync" loading={checking} onclick={checkForUpdates}>
         {checking ? 'Checking…' : 'Check for updates'}
-      </button>
-      <button class="hdr-btn" onclick={() => (showInstall = !showInstall)} aria-expanded={showInstall}>
-        <span class="msr" aria-hidden="true">add</span>
+      </Button>
+      <Button variant="ghost" mono icon="add" onclick={() => (showInstall = !showInstall)} aria-expanded={showInstall}>
         Install
-      </button>
+      </Button>
     </div>
   </div>
 
   <!-- toolbar: search + filter pills -->
   <div class="toolbar">
-    <div class="search">
-      <span class="msr" aria-hidden="true">search</span>
-      <input
-        type="search"
-        placeholder="Search plugins"
-        bind:value={query}
-        aria-label="Search plugins"
-      />
-    </div>
-    <div class="pills" role="group" aria-label="Filter plugins">
-      {#each filters as f (f.key)}
-        <button
-          class="pill"
-          class:active={filter === f.key}
-          onclick={() => (filter = f.key)}
-          aria-pressed={filter === f.key}
-        >{f.label}</button>
-      {/each}
-    </div>
+    <SearchInput bind:value={query} placeholder="Search plugins" label="Search plugins" />
+    <Segmented
+      mono
+      options={filters}
+      value={filter}
+      onchange={(v) => (filter = v as typeof filter)}
+      ariaLabel="Filter plugins"
+    />
   </div>
 
   {#if showInstall}
     <div class="install-panel">
-      <div class="install-head">
-        <span class="msr" aria-hidden="true">deployed_code_update</span>
-        <span class="install-title">Install from a source</span>
-        <span class="install-note">npm package or local folder — hot-reloads instantly</span>
-      </div>
+      <SectionHeader
+        icon="deployed_code_update"
+        title="Install from a source"
+        note="npm package or local folder — hot-reloads instantly"
+      />
       <div class="install-row">
-        <span class="msr" aria-hidden="true">search</span>
+        <Icon name="search" size={16} />
         <input
           class="source-input"
           bind:value={sourceInput}
@@ -146,12 +141,12 @@
             }
           }}
         />
-        <button class="ghost" onclick={browseFolder} title="Pick a local plugin folder">
-          <span class="msr" aria-hidden="true">folder_open</span>Browse…
-        </button>
-        <button class="go" onclick={install} disabled={installing || !sourceInput.trim()}>
+        <Button variant="ghost" icon="folder_open" onclick={browseFolder} title="Pick a local plugin folder">
+          Browse…
+        </Button>
+        <Button variant="primary" class="go" onclick={install} disabled={installing || !sourceInput.trim()}>
           {installing ? 'Installing…' : 'Install'}
-        </button>
+        </Button>
       </div>
       <p class="install-hint">
         Every Pragma plugin is an npm package — one plugin per package, publishing with
@@ -163,18 +158,16 @@
   {/if}
 
   {#if plugins.loading}
-    <div class="empty">Loading…</div>
+    <div class="page-empty">Loading…</div>
   {:else if plugins.list.length === 0}
-    <div class="empty">
-      <span class="msr" aria-hidden="true">extension</span>
+    <EmptyState icon="extension">
       <p>No plugins installed yet.</p>
       <p>Restart and the demo plugin will be bootstrapped automatically.</p>
-    </div>
+    </EmptyState>
   {:else if filtered.length === 0}
-    <div class="empty">
-      <span class="msr" aria-hidden="true">search_off</span>
+    <EmptyState icon="search_off">
       <p>Nothing matches “{query}”.</p>
-    </div>
+    </EmptyState>
   {:else}
     <div class="grid">
       {#each filtered as p, i (p.id)}
@@ -189,11 +182,11 @@
               <div class="name">{p.name}</div>
               <div class="ver">v{p.version} · {p.publisher || p.author || 'community'}</div>
             </div>
-            <span class="status-dot" style={`background:${statusColor}`} aria-hidden="true"></span>
+            <StatusDot color={statusColor} size={7} />
           </div>
           <p class="desc">{p.description || 'No description'}</p>
           <div class="card-foot">
-            <span class="skill-tag">{p.skills.length ? `${p.skills.length} skill${p.skills.length > 1 ? 's' : ''}` : 'no skills'}</span>
+            <Pill>{p.skills.length ? `${p.skills.length} skill${p.skills.length > 1 ? 's' : ''}` : 'no skills'}</Pill>
             <span class="status-text" style={`color:${statusColor}`}>
               {!p.enabled ? 'disabled' : up ? `update available — v${up.latest}` : 'active'}
             </span>
@@ -217,35 +210,6 @@
     padding-top: 2px;
     flex: none;
   }
-  /* Design header actions: bordered mono uppercase buttons. */
-  .hdr-btn {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    background: none;
-    border: 1px solid var(--border-default);
-    color: var(--text-secondary);
-    font-family: var(--font-mono);
-    font-size: 10.5px;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
-    padding: 7px 13px;
-    cursor: pointer;
-    transition: border-color 0.18s ease, color 0.18s ease;
-  }
-  .hdr-btn:hover:not(:disabled) {
-    border-color: var(--accent);
-    color: var(--text-primary);
-  }
-  .hdr-btn:disabled {
-    opacity: 0.6;
-    cursor: default;
-  }
-  .hdr-btn .msr {
-    font-size: 16px;
-    line-height: 1;
-  }
-  .hdr-btn .msr:first-child { font-size: 15px; }
 
   /* toolbar: search + filter pills */
   .toolbar {
@@ -254,61 +218,6 @@
     gap: 10px;
     margin-bottom: 18px;
     flex-wrap: wrap;
-  }
-  .search {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    flex: 1;
-    min-width: 210px;
-    border: 1px solid var(--border-default);
-    background: var(--bg-base);
-    padding: 7px 11px;
-  }
-  .search .msr {
-    font-size: 16px;
-    line-height: 1;
-    color: var(--text-muted);
-    flex: none;
-  }
-  .search input {
-    flex: 1;
-    min-width: 0;
-    background: transparent;
-    border: 0;
-    outline: none;
-    font-family: var(--font-body);
-    font-size: 13px;
-    color: var(--text-primary);
-  }
-  .search input::placeholder {
-    color: var(--text-muted);
-  }
-  .pills {
-    display: flex;
-    border: 1px solid var(--border-default);
-    flex: none;
-  }
-  .pill {
-    padding: 7px 12px;
-    border: none;
-    background: transparent;
-    color: var(--text-secondary);
-    font-family: var(--font-mono);
-    font-size: 10.5px;
-    letter-spacing: 0.04em;
-    cursor: pointer;
-    transition: background 0.18s ease, color 0.18s ease;
-  }
-  .pill + .pill {
-    border-left: 1px solid var(--border-default);
-  }
-  .pill:hover {
-    color: var(--text-primary);
-  }
-  .pill.active {
-    background: var(--accent);
-    color: var(--accent-on);
   }
 
   /* card grid (design pluginCards): auto-fill 250px columns */
@@ -378,13 +287,6 @@
     color: var(--text-muted);
     margin-top: 2px;
   }
-  .status-dot {
-    width: 7px;
-    height: 7px;
-    flex: none;
-    margin-top: 6px;
-    border-radius: 50%;
-  }
   .desc {
     margin: 8px 13px 0;
     font-family: var(--font-body);
@@ -401,15 +303,6 @@
     padding: 11px 13px 12px;
     margin-top: auto;
   }
-  .skill-tag {
-    font-family: var(--font-mono);
-    font-size: 9.5px;
-    letter-spacing: 0.05em;
-    text-transform: uppercase;
-    padding: 2px 7px;
-    background: var(--bg-overlay);
-    color: var(--text-secondary);
-  }
   .status-text {
     font-family: var(--font-mono);
     font-size: 9.5px;
@@ -419,43 +312,12 @@
     overflow: hidden;
     text-overflow: ellipsis;
   }
-  /* Design stagger entrance: cards fade up 45ms apart. */
-  .stagger {
-    animation: rowIn 0.34s cubic-bezier(0.22, 0.8, 0.3, 1) both;
-    animation-delay: calc(var(--i) * 45ms);
-  }
 
   /* install panel (design "Install a plugin" registry section) */
   .install-panel {
     margin: 26px 0 18px;
     border: 1px solid var(--border-default);
     background: var(--bg-elevated);
-  }
-  .install-head {
-    display: flex;
-    align-items: center;
-    gap: 9px;
-    padding: 9px 14px;
-    border-bottom: 1px solid var(--border-subtle);
-    background: var(--bg-overlay);
-  }
-  .install-head .msr {
-    font-size: 15px;
-    line-height: 1;
-    color: var(--accent);
-  }
-  .install-title {
-    font-family: var(--font-mono);
-    font-size: 10px;
-    letter-spacing: 0.12em;
-    text-transform: uppercase;
-    color: var(--text-primary);
-  }
-  .install-note {
-    margin-left: auto;
-    font-family: var(--font-body);
-    font-size: 11.5px;
-    color: var(--text-muted);
   }
   .install-row {
     display: flex;
@@ -466,7 +328,7 @@
     margin: 13px 14px 0;
     padding: 8px 11px;
   }
-  .install-row > .msr {
+  .install-row > :global(.msr) {
     font-size: 16px;
     line-height: 1;
     color: var(--text-muted);
@@ -484,51 +346,6 @@
   }
   .source-input::placeholder {
     color: var(--text-muted);
-  }
-  .ghost {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    background: none;
-    border: 1px solid var(--border-default);
-    color: var(--text-secondary);
-    font-family: var(--font-body);
-    font-size: 12.5px;
-    padding: 7px 12px;
-    cursor: pointer;
-    flex: none;
-    white-space: nowrap;
-    transition: border-color 0.18s ease, color 0.18s ease;
-  }
-  .ghost:hover {
-    border-color: var(--accent);
-    color: var(--text-primary);
-  }
-  .ghost .msr {
-    font-size: 15px;
-    line-height: 1;
-  }
-  .go {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    background: var(--accent);
-    color: var(--accent-on);
-    border: 1px solid var(--accent);
-    font-family: var(--font-heading);
-    font-weight: 600;
-    font-size: 12.5px;
-    padding: 8px 14px;
-    cursor: pointer;
-    flex: none;
-    transition: background 0.18s ease;
-  }
-  .go:hover:not(:disabled) {
-    background: var(--accent-hover);
-  }
-  .go:disabled {
-    opacity: 0.5;
-    cursor: default;
   }
   .install-hint {
     margin: 0;
@@ -552,22 +369,20 @@
   .install-hint a:hover {
     text-decoration: underline;
   }
+  /* Restore the page's original Install button (heading face, square). */
+  :global(.btn.go) {
+    font-family: var(--font-heading);
+    font-weight: 600;
+    font-size: 12.5px;
+    padding: 8px 14px;
+    border-radius: 0;
+  }
 
-  .empty {
+  .page-empty {
     display: flex;
-    flex-direction: column;
-    align-items: center;
     justify-content: center;
-    gap: 8px;
     padding: 48px 0;
     color: var(--text-muted);
     font-size: 12.5px;
-  }
-  .empty .msr {
-    font-size: 30px;
-    color: var(--text-muted);
-  }
-  .empty p {
-    margin: 0;
   }
 </style>

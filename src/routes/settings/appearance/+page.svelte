@@ -1,6 +1,8 @@
 <script lang="ts">
   import { theme, setFamily, setMode, setMatchSystem, setReduceMotion, setUiScale, setFontFamily, THEME_FAMILIES } from '../../../stores/theme.svelte'
   import Toggle from '../../../components/Toggle.svelte'
+  import SettingRow from '../../../components/SettingRow.svelte'
+  import Segmented from '../../../components/Segmented.svelte'
   import { buildTheme, applyHighContrast } from '../../../lib/theme/palette-engine'
   import type { ThemeMode } from '../../../lib/theme/palette-engine'
   import SettingsHeader from '../../../components/SettingsHeader.svelte'
@@ -39,59 +41,52 @@
 </div>
 
 <div class="label">Mode</div>
-<div class="segmented" role="group" aria-label="Theme mode">
-  {#each ['light', 'mid', 'dark'] as m (m)}
-    <button
-      class="seg"
-      class:active={theme.mode === m}
-      onclick={() => setMode(m as ThemeMode)}
-      aria-pressed={theme.mode === m}
-    >{m === 'mid' ? 'Mid' : m[0].toUpperCase() + m.slice(1)}</button>
-  {/each}
+<div class="seg-block">
+  <Segmented
+    options={[
+      { value: 'light', label: 'Light' },
+      { value: 'mid', label: 'Mid' },
+      { value: 'dark', label: 'Dark' },
+    ]}
+    value={theme.mode}
+    onchange={(m) => setMode(m as ThemeMode)}
+    ariaLabel="Theme mode"
+  />
 </div>
 
 <div class="label">Interface scale</div>
-<div class="segmented" role="group" aria-label="Interface scale">
-  {#each [90, 100, 110, 125] as s (s)}
-    <button
-      class="seg"
-      class:active={theme.uiScale === s}
-      onclick={() => setUiScale(s)}
-      aria-pressed={theme.uiScale === s}
-    >{s}%</button>
-  {/each}
+<div class="seg-block">
+  <Segmented
+    options={[90, 100, 110, 125].map((s) => ({ value: String(s), label: `${s}%` }))}
+    value={String(theme.uiScale)}
+    onchange={(v) => setUiScale(Number(v))}
+    ariaLabel="Interface scale"
+  />
 </div>
 
 <div class="label">UI font</div>
-<div class="segmented" role="group" aria-label="UI font">
-  {#each [{ key: 'design', label: 'Design' }, { key: 'system', label: 'System' }] as f (f.key)}
-    <button
-      class="seg"
-      class:active={theme.fontFamily === f.key}
-      onclick={() => setFontFamily(f.key as 'design' | 'system')}
-      aria-pressed={theme.fontFamily === f.key}
-    >{f.label}</button>
-  {/each}
+<div class="seg-block">
+  <Segmented
+    options={[
+      { value: 'design', label: 'Design' },
+      { value: 'system', label: 'System' },
+    ]}
+    value={theme.fontFamily}
+    onchange={(f) => setFontFamily(f as 'design' | 'system')}
+    ariaLabel="UI font"
+  />
 </div>
 <p class="font-hint">
   Design — Barlow · Barlow Condensed · JetBrains Mono. System — your OS's native UI font.
 </p>
 
-<div class="row">
-  <div>
-    <div class="row-label">Match system appearance</div>
-    <div class="row-desc">Follow prefers-color-scheme automatically</div>
-  </div>
+<SettingRow bare label="Match system appearance" desc="Follow prefers-color-scheme automatically">
   <Toggle checked={theme.matchSystem} onChange={setMatchSystem} label="Match system appearance" />
-</div>
+</SettingRow>
 
-<div class="row">
-  <div>
-    <div class="row-label">Reduce motion</div>
-    <div class="row-desc">Disable transitions and streaming cursor blink</div>
-  </div>
+<SettingRow bare label="Reduce motion" desc="Disable transitions and streaming cursor blink">
   <Toggle checked={theme.reduceMotion} onChange={setReduceMotion} label="Reduce motion" />
-</div>
+</SettingRow>
 
 
 <style>
@@ -138,49 +133,12 @@
     position: relative;
     box-shadow: inset 0 0 0 3px var(--preview-accent);
   }
-  .segmented {
-    display: flex;
-    gap: 2px;
-    border: 1px solid var(--border-default);
-    border-radius: 4px;
-    overflow: hidden;
-    width: fit-content;
+  .seg-block {
     margin-bottom: 20px;
-  }
-  .seg {
-    padding: 6px 12px;
-    font-size: 11.5px;
-    font-family: var(--font-body);
-    border: none;
-    cursor: pointer;
-    background: transparent;
-    color: var(--text-secondary);
-  }
-  .seg.active {
-    background: var(--accent);
-    color: var(--accent-on);
-  }
-  .row {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 20px;
-    padding: 14px 0;
-    border-top: 1px solid var(--border-subtle);
-  }
-  .row-label {
-    font-family: var(--font-body);
-    font-size: 14px;
-    color: var(--text-primary);
-  }
-  .row-desc {
-    font-family: var(--font-body);
-    font-size: 12px;
-    color: var(--text-muted);
-    margin-top: 2px;
   }
   .font-hint {
     margin-top: 6px;
+    margin-bottom: 20px;
     font-family: var(--font-mono);
     font-size: 11px;
     color: var(--text-muted);

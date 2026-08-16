@@ -1,5 +1,6 @@
 <script lang="ts">
   import SettingsHeader from '../../../components/SettingsHeader.svelte'
+  import Card from '../../../components/Card.svelte'
   // Static keymap — the harness's built-in shortcuts. (Remapping UI + plugin
   // shortcut registration is tracked in TODO.md.)
   const shortcuts = [
@@ -23,7 +24,7 @@
     blurb="Keyboard map for the session window. Chords are fixed in this build."
   />
 
-  <div class="card">
+  <Card style="max-width: 560px">
     {#each shortcuts as s, i (s.action)}
       <div class="row">
         <div class="kbd-group" aria-label={s.keys.join(' + ')}>
@@ -35,17 +36,10 @@
       </div>
       {#if i < shortcuts.length - 1}<div class="sep"></div>{/if}
     {/each}
-  </div>
+  </Card>
 </div>
 
 <style>
-  .card {
-    background: var(--bg-elevated);
-    border: 1px solid var(--border-default);
-    border-radius: var(--radius-md);
-    overflow: hidden;
-    max-width: 560px;
-  }
   .row {
     display: flex;
     align-items: center;

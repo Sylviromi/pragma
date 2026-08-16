@@ -6,6 +6,10 @@
   import { pushToast } from '../../../../stores/toast.svelte'
   import SlotStack from '../../../../components/SlotStack.svelte'
   import Toggle from '../../../../components/Toggle.svelte'
+  import Button from '../../../../components/Button.svelte'
+  import SectionHeader from '../../../../components/SectionHeader.svelte'
+  import EmptyState from '../../../../components/EmptyState.svelte'
+  import Pill from '../../../../components/Pill.svelte'
 
   // Design v2 plugin detail (`Pragma UI Kit v2.dc.html` → isSectionPluginDetail):
   // back link, head card with bordered mono initial + status pill + enable
@@ -90,9 +94,13 @@
 
 <div class="page">
   {#if plugin}
-    <a class="crumb" href="/settings/plugins">
-      <span class="msr" aria-hidden="true">chevron_left</span>All plugins
-    </a>
+    <Button
+      variant="quiet"
+      mono
+      href="/settings/plugins"
+      icon="chevron_left"
+      class="crumb"
+    >All plugins</Button>
 
     <!-- head card -->
     <div class="head">
@@ -101,15 +109,11 @@
         <div class="title-row">
           <span class="title">{plugin.name}</span>
           <span class="ver">v{plugin.version}</span>
-          <span
-            class="status-pill"
-            style={`
-              color:${!plugin.enabled ? 'var(--text-muted)' : update ? 'var(--warning)' : 'var(--success)'};
-              background:${!plugin.enabled ? 'var(--bg-overlay)' : update ? 'color-mix(in oklch, var(--warning) 13%, transparent)' : 'color-mix(in oklch, var(--success) 13%, transparent)'};
-            `}
+          <Pill
+            tone={!plugin.enabled ? 'muted' : update ? 'warning' : 'success'}
           >
             {!plugin.enabled ? 'disabled' : update ? `update available — v${update.latest}` : 'loaded'}
-          </span>
+          </Pill>
         </div>
         <div class="desc-lead">{plugin.description || 'No description'}</div>
       </div>
@@ -118,11 +122,7 @@
 
     <!-- details section -->
     <section class="sec">
-      <div class="sec-head">
-        <span class="msr" aria-hidden="true">info</span>
-        <span class="sec-title">Details</span>
-        <span class="sec-note">contributed by this plugin</span>
-      </div>
+      <SectionHeader icon="info" title="Details" note="contributed by this plugin" />
       <div class="field"><span class="k">ID</span><span class="v">{plugin.id}</span></div>
       <div class="field"><span class="k">Version</span><span class="v">{plugin.version}</span></div>
       <div class="field"><span class="k">Folder</span><code class="v">{plugin.folder}</code></div>
@@ -138,11 +138,7 @@
 
     <!-- skills section: per-skill toggles (skills belong to their plugin) -->
     <section class="sec">
-      <div class="sec-head">
-        <span class="msr" aria-hidden="true">auto_awesome</span>
-        <span class="sec-title">Skills</span>
-        <span class="sec-note">{plugin.skills.length ? 'enable with the plugin' : 'this plugin contributes none'}</span>
-      </div>
+      <SectionHeader icon="auto_awesome" title="Skills" note={plugin.skills.length ? 'enable with the plugin' : 'this plugin contributes none'} />
       {#if plugin.skills.length === 0}
         <div class="no-skills">No skills contributed.</div>
       {:else}
@@ -160,11 +156,7 @@
 
     <!-- plugin settings: config.json values + the plugin's own screen (slot) -->
     <section class="sec">
-      <div class="sec-head">
-        <span class="msr" aria-hidden="true">tune</span>
-        <span class="sec-title">Plugin settings</span>
-        <span class="sec-note">saved to config.json</span>
-      </div>
+      <SectionHeader icon="tune" title="Plugin settings" note="saved to config.json" />
       {#if configLoaded}
         {#if Object.keys(config).length > 0}
           {#each Object.entries(config) as [key, value], i (key)}
@@ -188,47 +180,28 @@
     <!-- actions -->
     <div class="actions">
       {#if update}
-        <button class="act update" onclick={doUpdate} disabled={busy !== ''}>
+        <Button variant="warning" mono onclick={doUpdate} disabled={busy !== ''}>
           {busy === 'update' ? 'Updating…' : `Update to v${update.latest}`}
-        </button>
+        </Button>
       {/if}
-      <button class="act" onclick={reveal} disabled={busy !== ''}>Open folder</button>
-      <button class="act danger" onclick={doUninstall} disabled={busy !== ''}>
+      <Button variant="ghost" mono onclick={reveal} disabled={busy !== ''}>Open folder</Button>
+      <Button variant="danger" mono onclick={doUninstall} disabled={busy !== ''}>
         {busy === 'uninstall' ? 'Uninstalling…' : 'Uninstall'}
-      </button>
+      </Button>
     </div>
   {:else}
-    <div class="missing">
-      <span class="msr" aria-hidden="true">extension</span>
+    <EmptyState icon="extension">
       <p>Plugin “{pluginId}” not found — is it installed and enabled?</p>
       <a href="/settings/plugins">Back to plugins</a>
-    </div>
+    </EmptyState>
   {/if}
 </div>
 
 <style>
-  .crumb {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    background: none;
-    border: none;
+  /* Back crumb — quiet mono link (class lands on the shared Button). */
+  :global(.crumb) {
     padding: 0;
-    color: var(--text-muted);
-    font-family: var(--font-mono);
-    font-size: 10.5px;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    text-decoration: none;
-    cursor: pointer;
     margin-bottom: 12px;
-  }
-  .crumb:hover {
-    color: var(--accent);
-  }
-  .crumb .msr {
-    font-size: 15px;
-    line-height: 1;
   }
 
   /* head card (design pdInitial / pdName / pdStatus / toggle) */
@@ -275,13 +248,6 @@
     font-size: 10.5px;
     color: var(--text-muted);
   }
-  .status-pill {
-    font-family: var(--font-mono);
-    font-size: 9.5px;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
-    padding: 2px 7px;
-  }
   .desc-lead {
     margin-top: 4px;
     color: var(--text-muted);
@@ -295,32 +261,6 @@
     background: var(--bg-elevated);
     margin-bottom: 16px;
     max-width: 680px;
-  }
-  .sec-head {
-    display: flex;
-    align-items: center;
-    gap: 9px;
-    padding: 9px 14px;
-    border-bottom: 1px solid var(--border-subtle);
-    background: var(--bg-overlay);
-  }
-  .sec-head .msr {
-    font-size: 15px;
-    line-height: 1;
-    color: var(--accent);
-  }
-  .sec-title {
-    font-family: var(--font-mono);
-    font-size: 10px;
-    letter-spacing: 0.12em;
-    text-transform: uppercase;
-    color: var(--text-primary);
-  }
-  .sec-note {
-    margin-left: auto;
-    font-family: var(--font-body);
-    font-size: 11.5px;
-    color: var(--text-muted);
   }
   .field {
     display: flex;
@@ -434,59 +374,5 @@
     gap: 8px;
     flex-wrap: wrap;
     max-width: 680px;
-  }
-  .act {
-    padding: 6px 12px;
-    background: none;
-    border: 1px solid var(--border-default);
-    color: var(--text-secondary);
-    font-family: var(--font-mono);
-    font-size: 10.5px;
-    letter-spacing: 0.05em;
-    text-transform: uppercase;
-    cursor: pointer;
-    transition: border-color 0.18s ease, color 0.18s ease;
-  }
-  .act:hover:not(:disabled) {
-    border-color: var(--accent);
-    color: var(--text-primary);
-  }
-  .act.update {
-    color: var(--warning);
-    border-color: color-mix(in srgb, var(--warning) 45%, transparent);
-  }
-  .act.update:hover:not(:disabled) {
-    border-color: var(--warning);
-  }
-  .act.danger {
-    color: var(--danger, #e5484d);
-    border-color: color-mix(in srgb, var(--danger, #e5484d) 45%, transparent);
-  }
-  .act.danger:hover:not(:disabled) {
-    border-color: var(--danger, #e5484d);
-  }
-  .act:disabled {
-    opacity: 0.6;
-    cursor: default;
-  }
-
-  .missing {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 10px;
-    padding: 48px 0;
-    color: var(--text-muted);
-    font-size: 12.5px;
-  }
-  .missing .msr {
-    font-size: 28px;
-  }
-  .missing p {
-    margin: 0;
-  }
-  .missing a {
-    color: var(--accent);
-    font-size: 12px;
   }
 </style>
