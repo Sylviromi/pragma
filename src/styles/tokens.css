@@ -143,6 +143,23 @@
   to { opacity: 0; transform: translateY(6px); }
 }
 
+/* Design stagger entrance — rows fade up 45ms apart (duplicated in 8 files
+   before the audit; now a single utility). Add `style="--i:<n>"` (or a
+   CSS-var per element) to index the delay. */
+.stagger {
+  animation: rowIn 0.34s cubic-bezier(0.22, 0.8, 0.3, 1) both;
+  animation-delay: calc(var(--i) * 45ms);
+}
+
+/* Mono uppercase label — the design's caption style (10px, letterspaced). */
+.mono-label {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
     animation-duration: 0.01ms !important;
