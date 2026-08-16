@@ -79,8 +79,8 @@ describe('Marketplace (npm search)', () => {
       // onMount's loadPlugins populated the list with mock data (no source) —
       // installing state is derived from plugins.list, so set it reactively.
       plugins.list = [installedPlugin]
-      await vi.waitFor(() => expect(target.textContent).toContain('Installed v2.4.1'))
-      expect(target.textContent).toContain('by Ada')
+      await vi.waitFor(() => expect(target.textContent).toContain('Installed'))
+      expect(target.textContent).toContain('Ada')
       const installButtons = [...target.querySelectorAll('button')].filter((b) =>
         b.textContent?.includes('Install')
       )
@@ -95,12 +95,10 @@ describe('Marketplace (npm search)', () => {
     const { target, comp } = mountPage()
     try {
       await vi.waitFor(() => expect(target.textContent).toContain('pragma-plugin-alpha'))
-      const input = target.querySelector('input.search') as HTMLInputElement
+      const input = target.querySelector('.reg-search input') as HTMLInputElement
       input.value = 'some-plugin'
-      input.dispatchEvent(new Event('input', { bubbles: true }))
-      ;[...target.querySelectorAll('button')]
-        .find((b) => b.textContent?.trim() === 'Search')
-        ?.dispatchEvent(new Event('click', { bubbles: true }))
+      input.dispatchEvent(new Event('input', { bubbles: true })) // sync bind:value
+      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
       await vi.waitFor(() =>
         expect(fetch).toHaveBeenCalledWith(
           expect.stringContaining('text=some-plugin')
@@ -133,7 +131,7 @@ describe('Marketplace (npm search)', () => {
     const { target, comp } = mountPage()
     try {
       await vi.waitFor(() =>
-        expect(target.textContent).toContain('No plugins found')
+        expect(target.textContent).toContain('Nothing on npm matches that')
       )
     } finally {
       unmount(comp)

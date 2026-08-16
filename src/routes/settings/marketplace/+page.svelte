@@ -2,10 +2,12 @@
   import { plugins, loadPlugins, installFromSource } from '../../../stores/plugins.svelte'
   import { pushToast } from '../../../stores/toast.svelte'
   import { onMount } from 'svelte'
-  import Icon from '../../../components/Icon.svelte'
+  import SettingsHeader from '../../../components/SettingsHeader.svelte'
 
-  // Plugins are npm packages (one plugin = one package, tagged pragma-plugin).
-  // Discovery is the npm registry search API — no git, no index files.
+  // Design registry (`Pragma UI Kit v2.dc.html` → "Install a plugin"): a
+  // bordered search panel over row-based npm results — mono initial, name +
+  // verified tag, description, meta line and an Install button per row.
+
   const DEFAULT_QUERY = 'keywords:pragma-plugin'
   const SEARCH_URL = 'https://registry.npmjs.org/-/v1/search'
 
@@ -18,8 +20,24 @@
     source: string // npm:<name>
   }
 
-  let query = $state(DEFAULT_QUERY)
-  let results = $state<NpmPlugin[]>([])
+  // The keyword qualifier is ALWAYS applied to the npm query internally — the
+  // input is plain free text and starts empty; no pragma-plugin- prefill.
+  let query = $state('')
+  /** The fetched npm pool (all pragma-plugin-* matches). */
+  let all = $state<NpmPlugin[]>([])
+  /** What the user sees: the pool filtered live by the search term. npm's
+   *  search API is not a strict AND (a term query still returns the keyword
+   *  matches), so the narrowing happens here — typing narrows instantly. */
+  const visible = $derived.by(() => {
+    const term = query.trim().toLowerCase()
+    if (!term) return all
+    return all.filter(
+      (p) =>
+        p.name.toLowerCase().includes(term) ||
+        p.displayName.toLowerCase().includes(term) ||
+        (p.description ?? '').toLowerCase().includes(term)
+    )
+  })
   let searching = $state(false)
   let searched = $state(false)
   let installingId = $state<string | null>(null)
@@ -41,12 +59,21 @@
       const res = await fetch(`${SEARCH_URL}?text=${encodeURIComponent(q)}&size=50`)
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
       const data = await res.json()
-      results = (data.objects ?? [])
+      all = (data.objects ?? [])
         .map((o: { package: any }) => o.package)
-        .filter((p: any) => /(^|\/)pragma-plugin-/.test(p.name))
+        // Only ACTUAL plugins: the pragma-plugin keyword, the pragma-plugin-*
+        // naming convention, or the first-party @pragma/* scope. Everything
+        // else (unrelated packages that happened to match the free text)
+        // never makes it into the pool.
+        .filter(
+          (p: any) =>
+            (p.keywords ?? []).includes('pragma-plugin') ||
+            /(^|\/)pragma-plugin-/.test(p.name) ||
+            /^@pragma\//.test(p.name)
+        )
         .map((p: any) => ({
           name: p.name,
-          displayName: p.name.replace(/^(?:.*\/)?pragma-plugin-/, ''),
+          displayName: p.name.replace(/^(?:@pragma\/)?(?:pragma-)?plugin-/, ''),
           version: p.version,
           description: p.description ?? '',
           author: typeof p.author === 'string' ? p.author : (p.author?.name ?? ''),
@@ -81,64 +108,75 @@
 </script>
 
 <div class="page">
-  <div class="title-row">
-    <div class="title">Marketplace</div>
-    <span class="hint">npm packages tagged <code>pragma-plugin</code></span>
-  </div>
-  <div class="desc-lead">
-    Every Pragma plugin is an <code>npm</code> package — one plugin per package,
-    publishing with <code>npm publish</code>. Search below, install with one click;
-    updates are checked automatically like any other source. Searches are pinned to
-    Pragma plugins (packages named <code>pragma-plugin-*</code> and tagged
-    <code>pragma-plugin</code>) — unrelated npm packages never show up.
-  </div>
+  <SettingsHeader
+    kicker="Extensions"
+    title="Marketplace"
+    blurb="Plugins are npm packages — pragma-plugin-* or @pragma/*."
+    meta="npm · registry.npmjs.org"
+  />
 
-  <div class="search-row">
-    <input
-      class="search"
-      bind:value={query}
-      placeholder="Search plugins…"
-      onkeydown={(e) => {
-        if (e.key === 'Enter') search()
-      }}
-    />
-    <button class="btn" onclick={search} disabled={searching}>
-      {searching ? 'Searching…' : 'Search'}
-    </button>
-  </div>
+  <!-- search panel -->
+  <section class="registry">
+    <div class="reg-head">
+      <span class="msr" aria-hidden="true">deployed_code_update</span>
+      <span class="reg-title">Install a plugin</span>
+    </div>
 
+    <div class="reg-search">
+      <span class="msr" aria-hidden="true">search</span>
+      <input
+        type="search"
+        bind:value={query}
+        placeholder="Search plugins"
+        aria-label="Search plugins"
+        onkeydown={(e) => {
+          if (e.key === 'Enter') search()
+        }}
+      />
+      <span class="reg-count">{searching ? 'searching…' : `${visible.length} found`}</span>
+    </div>
+  </section>
+
+  <!-- results -->
   {#if !searched && !searching}
     <div class="empty">
-      <Icon name="extension" size={30} />
+      <span class="msr" aria-hidden="true">search</span>
       <p>Searching npm for plugins…</p>
     </div>
-  {:else if results.length === 0}
+  {:else if visible.length === 0}
     <div class="empty">
-      <Icon name="extension" size={30} />
-      <p>No plugins found — searches are limited to <code>pragma-plugin-*</code> packages.</p>
+      <span class="msr" aria-hidden="true">search_off</span>
+      <p>
+        Nothing on npm matches that. Plugins are published as
+        <code>pragma-plugin-*</code> or under <code>@pragma/</code>.
+      </p>
     </div>
   {:else}
-    <ul class="grid">
-      {#each results as p (p.name)}
-        <li class="card">
-          <div class="card-head">
-            <span class="name">{p.displayName}</span>
-            <span class="ver">v{p.version}</span>
+    <div class="rows">
+      {#each visible as p, i (p.name)}
+        {@const isInstalling = installingId === p.name}
+        {@const installedVer = installed.get(p.source)}
+        <div class="row stagger" style={`--i:${Math.min(i, 8)}`}>
+          <span class="initial" aria-hidden="true">{p.displayName.slice(0, 1).toUpperCase()}</span>
+          <div class="row-copy">
+            <div class="row-top">
+              <span class="name">{p.displayName}</span>
+              <span class="pkg">{p.name}</span>
+            </div>
+            {#if p.description}<div class="desc">{p.description}</div>{/if}
+            <div class="meta">v{p.version}{p.author ? ` · ${p.author}` : ''}</div>
           </div>
-          <div class="card-id">{p.name}{p.author ? ` · by ${p.author}` : ''}</div>
-          {#if p.description}<p class="desc">{p.description}</p>{/if}
-          <div class="card-foot">
-            {#if installed.has(p.source)}
-              <span class="installed-tag"><Icon name="check" size={13} /> Installed v{installed.get(p.source)}</span>
-            {:else}
-              <button class="btn" onclick={() => install(p)} disabled={installingId === p.name}>
-                {installingId === p.name ? 'Installing…' : 'Install'}
-              </button>
-            {/if}
-          </div>
-        </li>
+          {#if installedVer}
+            <span class="btn installed"><span class="msr" aria-hidden="true">check</span>Installed</span>
+          {:else}
+            <button class="btn" class:busy={isInstalling} onclick={() => install(p)} disabled={isInstalling}>
+              <span class="msr" aria-hidden="true">{isInstalling ? 'progress_activity' : 'download'}</span>
+              {isInstalling ? 'Installing…' : 'Install'}
+            </button>
+          {/if}
+        </div>
       {/each}
-    </ul>
+    </div>
   {/if}
 </div>
 
@@ -146,158 +184,201 @@
   .page {
     max-width: 860px;
   }
-  .title {
-    font-family: var(--font-heading);
-    font-size: 18px;
-    font-weight: 600;
+
+  /* registry panel */
+  .registry {
+    border: 1px solid var(--border-default);
+    background: var(--bg-elevated);
+    margin-bottom: 20px;
+  }
+  .reg-head {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    padding: 9px 14px;
+    border-bottom: 1px solid var(--border-subtle);
+    background: var(--bg-overlay);
+  }
+  .reg-head .msr {
+    font-size: 15px;
+    line-height: 1;
+    color: var(--accent);
+  }
+  .reg-title {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
     color: var(--text-primary);
-    margin-bottom: 2px;
   }
-  .title-row {
+  .reg-search {
     display: flex;
-    align-items: baseline;
-    justify-content: space-between;
-    gap: 10px;
-  }
-  .hint {
-    font-size: 11px;
-    color: var(--text-muted);
-  }
-  .hint code {
-    font-family: var(--font-mono);
-    font-size: 10.5px;
-    background: var(--bg-overlay);
-    padding: 1px 5px;
-    border-radius: 2px;
-  }
-  .desc-lead {
-    color: var(--text-muted);
-    font-size: 12.5px;
-    margin-bottom: 16px;
-  }
-  .desc-lead code {
-    font-family: var(--font-mono);
-    font-size: 11px;
-    color: var(--text-secondary);
-    background: var(--bg-overlay);
-    padding: 1px 5px;
-    border-radius: 2px;
-  }
-  .search-row {
-    display: flex;
+    align-items: center;
     gap: 8px;
-    margin-bottom: 16px;
+    border: 1px solid var(--border-default);
+    background: var(--bg-base);
+    margin: 0 14px 13px;
+    padding: 8px 11px;
   }
-  .search {
+  .reg-search > .msr {
+    font-size: 16px;
+    line-height: 1;
+    color: var(--text-muted);
+    flex: none;
+  }
+  .reg-search input {
     flex: 1;
     min-width: 0;
-    font-size: 13px;
-    color: var(--text-primary);
-    background: var(--bg-base);
-    border: 1px solid var(--border-default);
-    border-radius: var(--radius-sm);
-    padding: 7px 12px;
-  }
-  .search:focus {
+    background: transparent;
+    border: 0;
     outline: none;
+    font-family: var(--font-mono);
+    font-size: 12.5px;
+    color: var(--text-primary);
+  }
+  .reg-search input::placeholder {
+    color: var(--text-muted);
+  }
+  .reg-count {
+    flex: none;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--text-muted);
+  }
+
+  /* result rows (design registryRows) */
+  .rows {
+    border: 1px solid var(--border-default);
+    background: var(--bg-elevated);
+  }
+  .row {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 13px 14px;
+    border-top: 1px solid var(--border-subtle);
+  }
+  .row:first-child {
+    border-top: none;
+  }
+  .stagger {
+    animation: rowIn 0.34s cubic-bezier(0.22, 0.8, 0.3, 1) both;
+    animation-delay: calc(var(--i) * 45ms);
+  }
+  .initial {
+    flex: none;
+    width: 30px;
+    height: 30px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid var(--border-default);
+    font-family: var(--font-heading);
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--accent);
+  }
+  .row-copy {
+    flex: 1;
+    min-width: 0;
+  }
+  .row-top {
+    display: flex;
+    align-items: baseline;
+    gap: 9px;
+    flex-wrap: wrap;
+  }
+  .name {
+    font-family: var(--font-heading);
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--text-primary);
+  }
+  .pkg {
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    color: var(--text-muted);
+  }
+  .desc {
+    font-family: var(--font-body);
+    font-size: 12.5px;
+    line-height: 1.5;
+    color: var(--text-secondary);
+    margin-top: 3px;
+    max-width: 62ch;
+    text-wrap: pretty;
+  }
+  .meta {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--text-muted);
+    margin-top: 5px;
+  }
+  /* install button states (design regBtn) */
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    flex: none;
+    padding: 7px 13px;
+    background: none;
+    border: 1px solid var(--border-default);
+    color: var(--text-primary);
+    font-family: var(--font-body);
+    font-size: 12.5px;
+    cursor: pointer;
+    transition: border-color 0.18s ease, color 0.18s ease;
+  }
+  .btn:hover:not(:disabled) {
     border-color: var(--accent);
   }
+  .btn .msr {
+    font-size: 16px;
+    line-height: 1;
+  }
+  .btn.busy {
+    background: var(--accent-soft);
+    border-color: var(--accent);
+    color: var(--text-primary);
+    cursor: default;
+  }
+  .btn.busy .msr {
+    animation: spin 1s linear infinite;
+  }
+  .btn:disabled {
+    cursor: default;
+  }
+  .btn.installed {
+    border-color: var(--border-subtle);
+    color: var(--text-muted);
+    cursor: default;
+  }
+  .btn.installed .msr {
+    color: var(--success);
+    font-size: 15px;
+  }
+
   .empty {
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 8px;
-    padding: 48px 0;
+    justify-content: center;
+    gap: 10px;
+    padding: 44px 0;
     color: var(--text-muted);
     font-size: 12.5px;
+    text-align: center;
+  }
+  .empty .msr {
+    font-size: 28px;
+    color: var(--text-muted);
   }
   .empty p {
     margin: 0;
   }
-  .grid {
-    list-style: none;
-    margin: 0;
-    padding: 0;
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
-    gap: 10px;
-  }
-  .card {
-    background: var(--bg-elevated);
-    border: 1px solid var(--border-default);
-    border-radius: var(--radius-md);
-    padding: 12px 14px;
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-  }
-  .card-head {
-    display: flex;
-    align-items: baseline;
-    gap: 7px;
-    min-width: 0;
-  }
-  .name {
-    font-size: 13.5px;
-    font-weight: 600;
-    color: var(--text-primary);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-  .ver {
-    font-size: 11px;
-    color: var(--text-muted);
+  .empty code {
     font-family: var(--font-mono);
-    margin-left: auto;
-  }
-  .card-id {
-    font-family: var(--font-mono);
-    font-size: 10.5px;
-    color: var(--text-muted);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-  .desc {
-    margin: 0;
-    font-size: 12px;
-    color: var(--text-muted);
-    line-height: 1.45;
-    display: -webkit-box;
-    -webkit-line-clamp: 3;
-    line-clamp: 3;
-    -webkit-box-orient: vertical;
-    overflow: hidden;
-    min-height: 52px;
-  }
-  .card-foot {
-    margin-top: auto;
-    display: flex;
-    justify-content: flex-end;
-    padding-top: 4px;
-  }
-  .btn {
-    background: var(--accent);
-    color: var(--accent-on);
-    border: none;
-    border-radius: var(--radius-sm);
-    padding: 5px 14px;
-    font-size: 12px;
-    font-family: var(--font-heading);
-    font-weight: 600;
-    cursor: pointer;
-  }
-  .btn:disabled {
-    opacity: 0.6;
-    cursor: default;
-  }
-  .installed-tag {
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-    font-size: 11px;
-    color: var(--success);
-    font-family: var(--font-mono);
+    font-size: 11.5px;
+    color: var(--text-secondary);
   }
 </style>
