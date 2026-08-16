@@ -3,10 +3,16 @@
   import { pushToast } from '../../../stores/toast.svelte'
   import { onMount } from 'svelte'
   import SettingsHeader from '../../../components/SettingsHeader.svelte'
+  import SectionHeader from '../../../components/SectionHeader.svelte'
+  import SearchInput from '../../../components/SearchInput.svelte'
+  import EmptyState from '../../../components/EmptyState.svelte'
+  import Icon from '../../../components/Icon.svelte'
 
   // Design registry (`Pragma UI Kit v2.dc.html` → "Install a plugin"): a
   // bordered search panel over row-based npm results — mono initial, name +
-  // verified tag, description, meta line and an Install button per row.
+  // description, meta line and an Install button per row.
+  // Search UX: the input starts EMPTY and the fetched pool narrows live as you
+  // type (npm's search API is not a strict AND, so narrowing happens locally).
 
   const DEFAULT_QUERY = 'keywords:pragma-plugin'
   const SEARCH_URL = 'https://registry.npmjs.org/-/v1/search'
@@ -20,14 +26,10 @@
     source: string // npm:<name>
   }
 
-  // The keyword qualifier is ALWAYS applied to the npm query internally — the
-  // input is plain free text and starts empty; no pragma-plugin- prefill.
   let query = $state('')
   /** The fetched npm pool (all pragma-plugin-* matches). */
   let all = $state<NpmPlugin[]>([])
-  /** What the user sees: the pool filtered live by the search term. npm's
-   *  search API is not a strict AND (a term query still returns the keyword
-   *  matches), so the narrowing happens here — typing narrows instantly. */
+  /** What the user sees: the pool filtered live by the search term. */
   const visible = $derived.by(() => {
     const term = query.trim().toLowerCase()
     if (!term) return all
@@ -117,40 +119,37 @@
 
   <!-- search panel -->
   <section class="registry">
-    <div class="reg-head">
-      <span class="msr" aria-hidden="true">deployed_code_update</span>
-      <span class="reg-title">Install a plugin</span>
-    </div>
+    <SectionHeader icon="deployed_code_update" title="Install a plugin" />
 
     <div class="reg-search">
-      <span class="msr" aria-hidden="true">search</span>
-      <input
-        type="search"
+      <SearchInput
+        mono
         bind:value={query}
         placeholder="Search plugins"
-        aria-label="Search plugins"
+        label="Search plugins"
         onkeydown={(e) => {
           if (e.key === 'Enter') search()
         }}
-      />
-      <span class="reg-count">{searching ? 'searching…' : `${visible.length} found`}</span>
+      >
+        {#snippet trailing()}
+          <span class="reg-count">{searching ? 'searching…' : `${visible.length} found`}</span>
+        {/snippet}
+      </SearchInput>
     </div>
   </section>
 
   <!-- results -->
   {#if !searched && !searching}
-    <div class="empty">
-      <span class="msr" aria-hidden="true">search</span>
+    <EmptyState icon="search">
       <p>Searching npm for plugins…</p>
-    </div>
+    </EmptyState>
   {:else if visible.length === 0}
-    <div class="empty">
-      <span class="msr" aria-hidden="true">search_off</span>
+    <EmptyState icon="search_off">
       <p>
         Nothing on npm matches that. Plugins are published as
         <code>pragma-plugin-*</code> or under <code>@pragma/</code>.
       </p>
-    </div>
+    </EmptyState>
   {:else}
     <div class="rows">
       {#each visible as p, i (p.name)}
@@ -167,10 +166,10 @@
             <div class="meta">v{p.version}{p.author ? ` · ${p.author}` : ''}</div>
           </div>
           {#if installedVer}
-            <span class="btn installed"><span class="msr" aria-hidden="true">check</span>Installed</span>
+            <span class="btn installed"><Icon name="check" size={15} />Installed</span>
           {:else}
             <button class="btn" class:busy={isInstalling} onclick={() => install(p)} disabled={isInstalling}>
-              <span class="msr" aria-hidden="true">{isInstalling ? 'progress_activity' : 'download'}</span>
+              <Icon name={isInstalling ? 'progress_activity' : 'download'} size={16} />
               {isInstalling ? 'Installing…' : 'Install'}
             </button>
           {/if}
@@ -191,53 +190,8 @@
     background: var(--bg-elevated);
     margin-bottom: 20px;
   }
-  .reg-head {
-    display: flex;
-    align-items: center;
-    gap: 9px;
-    padding: 9px 14px;
-    border-bottom: 1px solid var(--border-subtle);
-    background: var(--bg-overlay);
-  }
-  .reg-head .msr {
-    font-size: 15px;
-    line-height: 1;
-    color: var(--accent);
-  }
-  .reg-title {
-    font-family: var(--font-mono);
-    font-size: 10px;
-    letter-spacing: 0.12em;
-    text-transform: uppercase;
-    color: var(--text-primary);
-  }
   .reg-search {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    border: 1px solid var(--border-default);
-    background: var(--bg-base);
     margin: 0 14px 13px;
-    padding: 8px 11px;
-  }
-  .reg-search > .msr {
-    font-size: 16px;
-    line-height: 1;
-    color: var(--text-muted);
-    flex: none;
-  }
-  .reg-search input {
-    flex: 1;
-    min-width: 0;
-    background: transparent;
-    border: 0;
-    outline: none;
-    font-family: var(--font-mono);
-    font-size: 12.5px;
-    color: var(--text-primary);
-  }
-  .reg-search input::placeholder {
-    color: var(--text-muted);
   }
   .reg-count {
     flex: none;
@@ -260,10 +214,6 @@
   }
   .row:first-child {
     border-top: none;
-  }
-  .stagger {
-    animation: rowIn 0.34s cubic-bezier(0.22, 0.8, 0.3, 1) both;
-    animation-delay: calc(var(--i) * 45ms);
   }
   .initial {
     flex: none;
@@ -314,7 +264,7 @@
     color: var(--text-muted);
     margin-top: 5px;
   }
-  /* install button states (design regBtn) */
+  /* install button states */
   .btn {
     display: inline-flex;
     align-items: center;
@@ -332,17 +282,13 @@
   .btn:hover:not(:disabled) {
     border-color: var(--accent);
   }
-  .btn .msr {
-    font-size: 16px;
-    line-height: 1;
-  }
   .btn.busy {
     background: var(--accent-soft);
     border-color: var(--accent);
     color: var(--text-primary);
     cursor: default;
   }
-  .btn.busy .msr {
+  .btn.busy :global(.msr) {
     animation: spin 1s linear infinite;
   }
   .btn:disabled {
@@ -353,32 +299,7 @@
     color: var(--text-muted);
     cursor: default;
   }
-  .btn.installed .msr {
+  .btn.installed :global(.msr) {
     color: var(--success);
-    font-size: 15px;
-  }
-
-  .empty {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    gap: 10px;
-    padding: 44px 0;
-    color: var(--text-muted);
-    font-size: 12.5px;
-    text-align: center;
-  }
-  .empty .msr {
-    font-size: 28px;
-    color: var(--text-muted);
-  }
-  .empty p {
-    margin: 0;
-  }
-  .empty code {
-    font-family: var(--font-mono);
-    font-size: 11.5px;
-    color: var(--text-secondary);
   }
 </style>
