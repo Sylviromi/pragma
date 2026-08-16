@@ -2,6 +2,7 @@
   import { open } from '@tauri-apps/plugin-dialog'
   import { getSession, sessions } from '../stores/sessions.svelte'
   import { statsFor } from '../stores/stats.svelte'
+  import { ui } from '../stores/ui.svelte'
   import { updateSession } from '../lib/tauri'
 
   // Design working-directory bar (`Pragma UI Kit`): folder icon + parent/leaf
@@ -11,6 +12,24 @@
   const session = $derived(getSession(sessionId))
   const workingDir = $derived(session?.workingDir ?? '')
   const st = $derived(statsFor(sessionId))
+
+  // Design v2 responsive dir bar: hide the git branch below 430px centre
+  // width and the files-touched meta below 580px (centre = window minus the
+  // rail and the right sidebar).
+  let centreW = $state(1200)
+  $effect(() => {
+    const onResize = () => {
+      const rail = ui.railOpen ? (window.innerWidth < 900 ? 200 : 224) : 0
+      const side = ui.sidebarOpen && window.innerWidth >= 900 ? 300 : 0
+      centreW = Math.max(0, window.innerWidth - rail - side)
+    }
+    onResize()
+    window.addEventListener('resize', onResize)
+    return () => window.removeEventListener('resize', onResize)
+  })
+  const showBranch = $derived(centreW >= 430)
+  const showDirMeta = $derived(centreW >= 580)
+  const showParent = $derived(centreW >= 360)
 
   const dirParent = $derived.by(() => {
     const i = workingDir.lastIndexOf('/')
@@ -117,18 +136,18 @@
     {#if workingDir}
       <!-- parent + leaf are one flex child so the path reads as a single
            continuous string (no flex gap between muted parent / leaf). -->
-      <span class="path"><span class="parent">{dirParent}</span><span class="leaf">{dirLeaf}</span></span>
+      <span class="path"><span class="parent" class:hidden={!showParent}>{dirParent}</span><span class="leaf">{dirLeaf}</span></span>
     {:else}
       <span class="leaf placeholder">Set working directory</span>
     {/if}
     <span class="msr unfold" aria-hidden="true">unfold_more</span>
   </button>
-  {#if st.git.branch}
+  {#if st.git.branch && showBranch}
     <span class="branch" title="Git branch">
       <span class="msr" aria-hidden="true">fork_right</span>{st.git.branch}
     </span>
   {/if}
-  {#if workingDir}
+  {#if workingDir && showDirMeta}
     <span class="meta" aria-hidden="true">{dirMeta}</span>
   {/if}
 </div>
@@ -235,6 +254,9 @@
     white-space: nowrap;
     min-width: 0;
     flex: 0 1 auto;
+  }
+  .parent.hidden {
+    display: none;
   }
   .leaf {
     font-weight: 500;

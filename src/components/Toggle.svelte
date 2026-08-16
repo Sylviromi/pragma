@@ -43,7 +43,7 @@
     padding: 0;
     background: var(--border-default);
     flex-shrink: 0;
-    transition: background 0.15s ease;
+    transition: background 0.28s cubic-bezier(0.22, 0.8, 0.3, 1);
   }
   .toggle:hover {
     border-color: var(--text-muted);
@@ -64,7 +64,7 @@
     border-radius: 1px;
     background: var(--bg-elevated);
     display: block;
-    transition: left 0.15s ease;
+    transition: left 0.28s cubic-bezier(0.22, 0.8, 0.3, 1), background 0.28s ease;
   }
   .toggle.on .knob {
     left: calc(100% - 16px);
