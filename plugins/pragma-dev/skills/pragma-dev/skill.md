@@ -49,6 +49,12 @@ src/components/                  ChatPanel (root per-tab: MessageList + InputAre
                                  context ring + Plan/Agents/Changes tabs), SettingsHeader, StatusBar,
                                  PluginSlot/SlotStack (plugin UI slots), PluginConfirmModal, ReturnModal,
                                  Toast, Toggle, Icon, ContextMenu
+                                 Shared primitives (componentized audit): Collapsible (chevron header +
+                                 grid-rows collapse — ThoughtCard/ToolCard/SubagentCard/ProcessCard shells),
+                                 Button (primary/ghost/danger/warning/quiet), Modal (overlay + ESC/outside
+                                 close — ReturnModal/PluginConfirmModal/UpdateDialog), Logo, TurnRow,
+                                 Card/SettingRow/SectionHeader/SearchInput/Segmented/EmptyState (settings),
+                                 StatusDot, InlineAlert, OutputLog (shared mono log pane), Changelog
 src/routes/                      +page.svelte (rail + chat + sidebar), +layout.svelte, settings/{general,appearance,
                                  providers,plugins,plugin/[id],skills,shortcuts}
 

@@ -173,3 +173,68 @@ Local keyframes re-declaring global ones: `fade-in` (ReturnModal, PluginConfirmM
 13. **`TurnRow` / `AgentMark` reuse** (2 sites) — A2/A3
 14. **`Logo`** (2 sites) — A5
 15. **`InlineAlert`**, **`Changelog`**, **`toolIcons`**, **`Toggle` size prop** — D3/E4/D5/G1
+
+---
+
+# Componentization report — done ✓
+
+All items in the audit above were implemented in a single refactor pass (see git diff).
+Every shared primitive lives in `src/components/` and consumers were migrated onto it.
+
+## New shared components
+
+| Component | Replaces (files) | Notes |
+|---|---|---|
+| `Button.svelte` | `.ghost`/`.primary`/`.danger`/`.go`/`.hdr-btn`/`.act` in ToolCard, DirBar, PluginConfirmModal, ReturnModal, UpdateDialog, general, plugins, marketplace, plugin detail, ProcessCard | variants `primary/ghost/danger/danger-solid/warning/quiet`, sizes `xs/sm/md`, `mono`, `icon`, `loading`, `href` |
+| `Collapsible.svelte` | ThoughtCard / SubagentCard / ToolCard / ProcessCard card shells | rail + chevron + grid-rows collapse + header/actions/footer snippets |
+| `Modal.svelte` | ReturnModal / PluginConfirmModal / UpdateDialog overlay+card+ESC/backdrop-close | `padded`, `zIndex`, `footClass` |
+| `Logo.svelte` | TabBar + settings layout brand block | |
+| `TurnRow.svelte` | ChatMessage + MessageList assistant turn row + avatar | |
+| `Card.svelte` | general / providers / shortcuts / verification `.card` | |
+| `SettingRow.svelte` | general / verification / appearance label+desc+control rows | `bare` variant |
+| `SectionHeader.svelte` | plugins install-panel / marketplace registry / plugin-detail section heads | |
+| `SearchInput.svelte` | ModelPicker dropdown / plugins / marketplace / DirBar search fields | `box`/`underline`, `mono`, `trailing` slot, `bind:inputEl` |
+| `Segmented.svelte` | appearance `.segmented` + plugins filter pills | `mono` variant |
+| `EmptyState.svelte` | plugins / marketplace / plugin-detail empty states | |
+| `Pill.svelte` | q-pill / think-badge / c-state / p-state / skill-tag / status-tag / status-pill / verified / pane-badge / branch-pill / ptab-badge / kind | tones + `color` + `outline` + `radius` + `icon` |
+| `StatusDot.svelte` | s-dot.live / active-dot.live / node-dot.pulse / p-dot.blink / status-dot | `color`, `live`, `size` |
+| `InlineAlert.svelte` | MessageList error-row + notice-row | `kind: error/info` |
+| `OutputLog.svelte` | ToolCard output / ProcessCard log / SidebarPanel console | truncation + per-line color + `anchorBottom` |
+| `Changelog.svelte` | UpdateDialog + general changelog markdown styling | |
+| `toolIcons.ts` | ToolCard `iconFor()` + SubagentCard `TOOL_ICONS` | shared tool→glyph map |
+
+## Cross-cutting fixes
+
+- **Icon registry expanded** — every glyph used anywhere in the app now lives in
+  `Icon.svelte`; all first-party raw `<span class="msr">` usages (14 files) migrated
+  to `<Icon name="…" />` (aria-hidden + size + fill handled centrally).
+- **`.stagger` moved to `tokens.css`** — the 45ms rowIn entrance was defined in 8 files.
+- **Duplicate keyframes removed** — `fade-in`/`modal-in` consolidated into `Modal`;
+  `vspin` → global `spin`; local `cursorblink` in TextBubble removed.
+- **Toggle gained `size="sm"`** — InputArea's hand-rolled auto-approve switch now uses it.
+- **AgentMark reused** in SubagentCard (was an inlined 15px copy).
+- **`pragma-dev` skill reference updated** to list the new shared primitives.
+
+## Verification
+
+- `npm run check` — 0 errors, 0 warnings
+- `npm run test` — 25/25 pass
+- `npm run build` — production build succeeds
+
+## Fidelity corrections (post-refactor review)
+
+The first pass over-changed the **Marketplace** page (it had newer committed
+behavior that the audit description didn't reflect). Restored to exact parity:
+- **Search UX**: back to the empty-start input + fetched pool (`all`) narrowed
+  **live as you type** (`visible`), Enter re-searches — not the older
+  prefill + re-search-on-Enter behavior.
+- **No added elements**: removed the reg-note, reg-blurb paragraph,
+  verified/community pill, and the "· npm / unknown author" meta suffix that
+  were never in the committed page.
+- Kept only pixel-identical componentization (SectionHeader, SearchInput,
+  EmptyState, Icon, global `.stagger`).
+
+Also restored per-site button skins so the shared `Button` renders exactly
+what it replaced: `flat` (borderless ghost — general page), heading-face
+Save/Install/Open-directory CTAs, 8px-radius modal buttons, 14px update-dialog
+buttons, and the general changelog heading size + shortcuts card width.
