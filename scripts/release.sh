@@ -110,6 +110,22 @@ echo "==> committed 'Release $VERSION' and tagged $TAG"
 if [ "$PUSH" -eq 1 ]; then
   git push origin main --tags
   echo "==> pushed main + $TAG — the Release workflow builds and publishes."
+  # Pre-create the empty draft so the workflow only needs to update/upload to
+  # it. The Actions GITHUB_TOKEN gets 403 on creating a release but update +
+  # asset upload always work — so the draft is created here with the user's
+  # gh (admin) token. Without this, the pipeline stalls on a create-403.
+  if command -v gh >/dev/null 2>&1; then
+    if gh release view "$TAG" >/dev/null 2>&1; then
+      echo "==> draft release $TAG already exists — not pre-creating"
+    else
+      gh release create "$TAG" --draft --title "Pragma ${VERSION}" \
+        --notes "Assets are uploaded by the release workflow." >/dev/null \
+        && echo "==> pre-created empty draft release $TAG"
+    fi
+  else
+    echo "==> gh not found — pre-create the draft manually so Actions can upload:"
+    echo "    gh release create $TAG --draft --title 'Pragma ${VERSION}' --notes 'Assets are uploaded by the release workflow.'"
+  fi
 else
   echo "==> --no-push: run this when ready:  git push origin main --tags"
 fi
