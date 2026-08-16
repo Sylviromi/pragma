@@ -2,6 +2,7 @@
   import { onMount } from 'svelte'
   import ChatPanel from '../components/ChatPanel.svelte'
   import DirBar from '../components/DirBar.svelte'
+  import SessionRail from '../components/SessionRail.svelte'
   import SidebarPanel from '../components/SidebarPanel.svelte'
   import { loadSessions, sessions, restoreTabs } from '../stores/sessions.svelte'
   import { ui } from '../stores/ui.svelte'
@@ -30,6 +31,7 @@
 
 {#if sessions.activeTabId}
   <div class="app-view">
+    <SessionRail />
     <div class="chat-col">
       <DirBar sessionId={sessions.activeTabId} />
       <ChatPanel sessionId={sessions.activeTabId} />
@@ -43,7 +45,12 @@
     </div>
   </div>
 {:else}
-  <div class="empty">Open or create a session to start.</div>
+  <!-- Rail stays mounted even with no open session so "New session" is always
+       reachable (design v2: the rail owns session creation). -->
+  <div class="app-view">
+    <SessionRail />
+    <div class="empty">Open or create a session to start.</div>
+  </div>
 {/if}
 
 <style>
