@@ -124,6 +124,12 @@
 
 <style>
   .msg-row {
+    /* Long sessions: skip layout+paint for off-screen history (content-
+       visibility); the browser keeps the last-rendered height as an estimate
+       so the scrollbar doesn't jump. The scroll container is still fully
+       composited — this only skips per-row work that's off-screen. */
+    content-visibility: auto;
+    contain-intrinsic-size: auto 80px;
     padding: var(--spacing-1) 0;
     cursor: context-menu;
     border-radius: var(--radius-md);

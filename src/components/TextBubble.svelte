@@ -16,7 +16,51 @@
   // never drift apart again (trailing-newline gaps, style mismatches, …).
   // tidy() strips trailing whitespace BEFORE markdown so pre-wrap never adds
   // a phantom empty line at the bubble's end.
-  const segs = $derived(segmentsOf(tidy(text)));
+  //
+  // Streaming path: tokens arrive faster than frames, and every single one
+  // would re-run segmentsOf + tidy + marked.parse + the caret regex + an
+  // innerHTML replacement over the WHOLE accumulated text (the markdown cache
+  // can't help — the text changes every token, so it always misses). Throttle
+  // live updates to ~12/sec so that work is bounded; the persisted path
+  // (showCaret=false) renders once, unchanged, and flips instantly when a
+  // stream ends.
+  let liveText = $state('');
+  let lastRender = 0;
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  let pending = '';
+
+  $effect(() => {
+    if (!showCaret) {
+      if (timer) {
+        clearTimeout(timer);
+        timer = null;
+      }
+      liveText = text;
+      pending = text;
+      return;
+    }
+    pending = text;
+    const now = Date.now();
+    const wait = 80 - (now - lastRender);
+    if (wait <= 0) {
+      liveText = pending;
+      lastRender = now;
+    } else if (!timer) {
+      timer = setTimeout(() => {
+        timer = null;
+        lastRender = Date.now();
+        liveText = pending;
+      }, wait);
+    }
+    return () => {
+      if (timer) {
+        clearTimeout(timer);
+        timer = null;
+      }
+    };
+  });
+
+  const segs = $derived(segmentsOf(tidy(showCaret ? liveText : text)));
   const last = $derived(segs.length - 1);
 
   async function copyCode(code: string) {

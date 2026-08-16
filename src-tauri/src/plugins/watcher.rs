@@ -7,6 +7,23 @@ use std::time::Duration;
 /// `on_changed` (debounced by ~350ms) whenever any file inside changes.
 /// `extra_dirs` are watched too (shipped-plugin symlink targets — notify
 /// does not follow symlinked directories by default).
+/// Ignore editor/SCM/build noise — plugin source repos are often inside git
+/// trees with node_modules / target dirs; an un-filtered watcher would storm
+/// hot-reloads on every git index write or build artifact touch.
+fn is_ignored(p: &Path) -> bool {
+    p.components().any(|c| {
+        let n = c.as_os_str();
+        n == "node_modules"
+            || n == ".git"
+            || n == "target"
+            || n == ".svelte-kit"
+            || n == "dist"
+            || n == "build"
+            || n == ".idea"
+            || n == ".vscode"
+    })
+}
+
 pub fn spawn_plugin_watcher<F>(
     plugins_dir: impl AsRef<Path>,
     extra_dirs: Vec<std::path::PathBuf>,
@@ -50,7 +67,8 @@ pub fn spawn_plugin_watcher<F>(
                         .paths
                         .iter()
                         .all(|p| p.file_name().map(|n| n == "config.json").unwrap_or(false));
-                    if !dominated_by_config {
+                    let dominated_by_ignored = evt.paths.iter().all(|p| is_ignored(p));
+                    if !dominated_by_config && !dominated_by_ignored {
                         got_event = true;
                     }
                 }
@@ -68,7 +86,8 @@ pub fn spawn_plugin_watcher<F>(
                             .paths
                             .iter()
                             .all(|p| p.file_name().map(|n| n == "config.json").unwrap_or(false));
-                        if !dominated_by_config {
+                        let dominated_by_ignored = evt.paths.iter().all(|p| is_ignored(p));
+                        if !dominated_by_config && !dominated_by_ignored {
                             again = true;
                         }
                     }
