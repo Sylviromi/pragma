@@ -1,7 +1,8 @@
 name: Release
 
-# Builds installable bundles for Linux (deb/rpm/AppImage), macOS (arm64 +
-# x64) and Windows, attaches them to a GitHub Release, and auto-publishes it.
+# Builds installable bundles for Linux (deb/rpm/AppImage), macOS (Apple
+# Silicon) and Windows, attaches them to a GitHub Release, and auto-publishes
+# it. (Intel macOS is a follow-up — its runner pool is unreliable.)
 # Triggered by a version tag (full release, all platforms) or manually (quick
 # debug build — pick only the platforms you need).
 #
@@ -25,7 +26,7 @@ on:
       platforms:
         description: >-
           Runners to build for, comma-separated (quick debug builds).
-          Allowed: ubuntu-22.04, macos-latest, macos-13, windows-latest
+          Allowed: ubuntu-22.04, macos-latest, windows-latest
         required: false
         default: ubuntu-22.04
 
@@ -46,7 +47,7 @@ jobs:
       - name: Compute platform matrix and release tag
         id: resolve
         run: |
-          ALLOWED='ubuntu-22.04 macos-latest macos-13 windows-latest'
+          ALLOWED='ubuntu-22.04 macos-latest windows-latest'
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             VERSION="${{ inputs.version }}"
             case "$VERSION" in
@@ -57,7 +58,7 @@ jobs:
             SELECTED="${{ inputs.platforms }}"
           else
             TAG="${{ github.ref_name }}"
-            SELECTED='ubuntu-22.04, macos-latest, macos-13, windows-latest'
+            SELECTED='ubuntu-22.04, macos-latest, windows-latest'
           fi
 
           JSON='['
@@ -117,7 +118,7 @@ jobs:
             echo "See the assets below to download and install this version."
             echo ""
             echo "- **Linux**: use the \`.deb\` (Debian/Ubuntu) or \`.AppImage\` (any distro, no install needed)"
-            echo "- **macOS**: use the \`.dmg\` / \`.app\` for your architecture (Apple Silicon or Intel)"
+            echo "- **macOS**: use the \`.dmg\` / \`.app\` for Apple Silicon"
             echo "- **Windows**: use the \`.msi\` installer"
             echo ""
             echo "## Changelog"

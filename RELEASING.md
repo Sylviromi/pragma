@@ -125,8 +125,8 @@ details in `distrib/aur/README.md`.
 
 - The **Release** workflow:
   - builds the bundles for the platforms in the matrix (Linux `.deb` /
-    `.rpm` / `.AppImage` on ubuntu-22.04, macOS `.dmg` + `.app` for both
-    Apple Silicon and Intel, Windows `.msi` / `.exe`) — parallel across
+    `.rpm` / `.AppImage` on ubuntu-22.04, macOS `.dmg` + `.app` for
+    Apple Silicon, Windows `.msi` / `.exe`) — parallel across
     runners, with npm + Rust caches so follow-up builds are minutes;
   - writes the release notes: install preamble + **this version's
     `CHANGELOG.md` section, embedded directly** (no link-out); missing
