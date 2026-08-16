@@ -24,7 +24,10 @@ in the code can never drift apart:
    `## [Unreleased]` above it), so the release-notes extraction always finds it;
 3. verifies every file agrees and matches the tag (`verify-version.mjs`) —
    fails loudly on any mismatch;
-4. commits `Release 1.0.0`, tags `v1.0.0`, pushes `main` + the tag.
+4. commits `Release 1.0.0`, tags `v1.0.0`, pushes `main` + the tag, and
+   **pre-creates the empty draft release** (via `gh`) so the workflow only
+   needs to upload assets + publish — the Actions token can't create releases
+   (403), only update them.
 
 Flags:
 
