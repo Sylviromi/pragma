@@ -2,7 +2,7 @@
   import { onMount } from 'svelte';
   import { fly } from 'svelte/transition';
   import { loadProviders, providerState } from '../stores/providers.svelte';
-  import { theme, uiScaleFactor } from '../stores/theme.svelte';
+  import { theme } from '../stores/theme.svelte';
   import SlotStack from './SlotStack.svelte';
   import Icon from './Icon.svelte';
   import SearchInput from './SearchInput.svelte';
@@ -36,11 +36,9 @@
   $effect(() => {
     if (open) {
       const r = el?.querySelector('.chip')?.getBoundingClientRect();
-      // The dropdown is position:fixed; under the app's interface-scale
-      // transform (#app) fixed anchors to the app's layout box, so viewport
-      // (visual) coordinates must be divided by the scale factor.
-      const s = uiScaleFactor();
-      anchor = r ? { top: (r.top - 6) / s, left: r.left / s } : null;
+      // The dropdown is position:fixed; with the root layout-zoom the viewport
+      // IS the app's coordinate space, so rect values are used as-is.
+      anchor = r ? { top: r.top - 6, left: r.left } : null;
       searchInput?.focus();
     }
   });

@@ -41,10 +41,9 @@
 
 <style>
   /* Global free-positioning surface: fully transparent and non-interactive
-     itself — plugins re-enable pointer events on their own :host. Anchored
-     to the (scaled) app via inset:0, so fixed children inside it position
-     relative to the app's coordinate space (see skill.md: divide exact
-     cursor coordinates by --ui-scale). */
+     itself — plugins re-enable pointer events on their own :host. With the
+     root layout-zoom the viewport IS the app's coordinate space, so fixed
+     children position exactly like anywhere else in the app. */
   .plugin-free-layer {
     position: fixed;
     inset: 0;

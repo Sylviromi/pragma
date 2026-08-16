@@ -13,16 +13,22 @@ body {
   overflow: hidden;
 }
 /* Interface scale: uniform scale for the whole app (settings → Appearance).
-   Transform-based, NOT zoom: `zoom` resolves viewport units differently per
-   engine (Chromium scales explicit px heights, WebKit scales 100vh), which
-   forces engine-specific height formulas. A transform never touches unit
-   resolution — the layout box is sized at 100%/scale and rendered at scale,
-   so it lands exactly on the viewport in every engine with one formula. */
+   Layout `zoom` on the root, NOT a GPU `transform: scale` — the document is
+   laid out at the zoomed size, so text is always rasterized sharp and there
+   is no full-window scaled backing layer. (The old transform approach made
+   composited animation layers blurry: the browser upscaled their rasters by
+   the 1.1× factor while they animated, then re-rasterized sharp once they
+   settled — visible as blurry fonts on pages with entrance animations, e.g.
+   Marketplace/Plugins. It also kept a giant scaled layer that WebKitGTK
+   re-rasterized on content changes.) Modern engines resolve 100vh against the
+   zoomed root, so a plain height:100vh fills the window; --ui-scale still
+   publishes the factor for coordinate math. */
+:root {
+  zoom: var(--ui-scale, 1.1);
+}
 #app {
-  transform: scale(var(--ui-scale, 1.1));
-  transform-origin: top left;
-  width: calc(100% / var(--ui-scale, 1.1));
-  height: calc(100vh / var(--ui-scale, 1.1));
+  width: 100%;
+  height: 100vh;
 }
 :focus-visible {
   outline: 2px solid var(--border-focus);
@@ -57,8 +63,11 @@ button {
   border: 0;
 }
 
-/* Thin, square, themed scrollbars (design spec) — Firefox + WebKit/WebKitGTK. */
-* {
+/* Thin, square, themed scrollbars (design spec) — Firefox + WebKit/WebKitGTK.
+   These are inherited properties, so set them once on the root instead of the
+   `*` selector: same visual result, but the per-element color-mix resolution
+   (expensive in WebKitGTK) is skipped for non-scrollable elements. */
+html {
   scrollbar-width: thin;
   scrollbar-color: color-mix(in oklch, var(--text-muted) 45%, transparent) transparent;
 }

@@ -372,6 +372,9 @@
     flex: 1;
     min-height: 0;
     overflow-y: auto;
+    /* Bound layout/paint effects to the scroll surface so style changes inside
+       (hover, streaming) never reflow/paint the rest of the app. */
+    contain: content;
     padding: 20px max(24px, calc((100% - 900px) / 2));
     display: flex;
     flex-direction: column;

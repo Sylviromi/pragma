@@ -119,16 +119,10 @@ export function applyFontFamily() {
   el.style.setProperty('--font-mono', f.mono);
 }
 
-/** Reactive scale factor (1 = 100%, 1.25 = 125%) — components that anchor
- *  fixed-position overlays to viewport coordinates divide by this. Call it
- *  inside a reactive context ($derived/$effect) to track scale changes. */
-export function uiScaleFactor() {
-  return theme.uiScale / 100;
-}
-
 /** Apply the interface-scale factor on <html> so every surface (app chrome,
- *  chat, settings, plugin slots) scales uniformly. The actual scaling is a
- *  transform in base.css (#app) — this just publishes the factor as a token. */
+ *  chat, settings, plugin slots) scales uniformly. base.css turns it into a
+ *  layout `zoom` on the root; the token is also what fixed-position helpers
+ *  (and plugins) read for coordinate math. */
 export function applyUiScale() {
   document.documentElement.style.setProperty('--ui-scale', String(theme.uiScale / 100));
 }

@@ -89,9 +89,9 @@
   #app {
     display: flex;
     flex-direction: column;
-    /* Interface scale: the layout box is 100%/scale and rendered at scale
-       (transform in base.css) — one formula, every engine. */
-    height: calc(100vh / var(--ui-scale, 1.1));
+    /* Root layout-zoom (base.css) already scales the viewport units, so the
+       app fills the window at any interface scale. */
+    height: 100vh;
     overflow: hidden;
   }
   main {
