@@ -254,6 +254,28 @@ jobs:
             echo "release $TAG already published — notes updated"
           fi
 
+      # tauri-action uploads latest.json with EMPTY notes, so the in-app
+      # changelog dialog shows "release notes weren't published". Re-upload it
+      # with the notes set to this release's changelog section.
+      - name: Patch latest.json with changelog notes
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.setup.outputs.tag }}
+          RELEASE_BODY: ${{ needs.setup.outputs.release_body }}
+        run: |
+          curl -sfL "https://github.com/${{ github.repository }}/releases/download/${TAG}/latest.json" \
+            -o "$RUNNER_TEMP/latest.json" || { echo "latest.json not found — skipping"; exit 0; }
+          NOTES="$(printf '%s\n' "$RELEASE_BODY" | sed -n '/^## Changelog/,$p')"
+          python3 - "$RUNNER_TEMP/latest.json" "$NOTES" <<'PY'
+          import json, sys
+          path, notes = sys.argv[1], sys.argv[2]
+          d = json.load(open(path))
+          d['notes'] = notes
+          json.dump(d, open(path, 'w'), indent=2)
+          PY
+          gh release upload "$TAG" "$RUNNER_TEMP/latest.json" --clobber
+          echo "latest.json notes patched with the changelog"
+
   notify:
     name: Notify build finished
     needs: [setup, publish-tauri, publish]
