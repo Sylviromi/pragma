@@ -38,13 +38,19 @@ src/lib/markdown.ts              safe markdown for model output (marked: escape-
                                  on window.__pragmaMarkdown (installed in +layout.svelte) so plugins render
                                  model text with the exact same renderer — plugins never vendor a parser
 src/stores/chat.svelte.ts        Chat state — streaming, tool items, approval, SAFE_TOOLS set, working_dir sync
-src/stores/sessions.svelte.ts    Sessions list + tab management
-src/components/                  ChatPanel (root per-tab: StatusBar + MessageList + InputArea), ChatMessage,
-                                 DirBar (working-dir strip), ThoughtCard, QuestionBlock, ToolCard, ModelPicker,
-                                 InputArea, StatusBar, TabBar, SidebarPanel, PluginSlot/SlotStack (plugin UI
-                                 slots), PluginConfirmModal, ReturnModal, Toast, Toggle, Icon, ContextMenu
-src/routes/                      +page.svelte, +layout.svelte, settings/{general,appearance,providers,plugins,
-                                 plugin/[id],skills,shortcuts}
+src/stores/sessions.svelte.ts    Sessions list + tab (open-tab set) management — sessions render in SessionRail
+src/stores/agents.svelte.ts      Agents pane store (sub-agents + detached processes) — EMPTY until backend events land
+src/components/                  ChatPanel (root per-tab: MessageList + InputArea), ChatMessage, SessionRail
+                                 (left rail, sessions grouped by working dir), DirBar (working-dir strip),
+                                 ThoughtCard, QuestionBlock (choice/scale/input), ToolCard, SubagentCard +
+                                 ProcessCard (upcoming — inert renderer branches), ModelPicker, AgentMark
+                                 (per-session tint avatar), InputArea (inline effort chips), TabBar (slim
+                                 chrome: logo + rail toggle + active session + actions), SidebarPanel (pinned
+                                 context ring + Plan/Agents/Changes tabs), SettingsHeader, StatusBar,
+                                 PluginSlot/SlotStack (plugin UI slots), PluginConfirmModal, ReturnModal,
+                                 Toast, Toggle, Icon, ContextMenu
+src/routes/                      +page.svelte (rail + chat + sidebar), +layout.svelte, settings/{general,appearance,
+                                 providers,plugins,plugin/[id],skills,shortcuts}
 
 src-tauri/src/lib.rs             App setup, AppState, plugin registration, invoke_handler
 src-tauri/src/commands/agentic.rs  run_agentic_loop (agentic loop + tool dispatch + change_directory special
@@ -150,6 +156,9 @@ session_usage(id, session_id, model, provider, input_tokens, output_tokens, cost
   it live. Only sessions with no payload yet are fetched once.
 
 ## Plugin authoring (folders in `~/.config/dev.pragma.app/plugins/<id>/`)
+
+- Theming: plugin UI reads the same design tokens as the app (`--bg-base`, `--accent`, `--border-default`, …) — including the interface scale var `--ui-scale` (default 1.1 = 110%, adjustable in Settings → Appearance) and the font knob `--font-ui` (the primary UI face; Settings → Appearance → UI font remaps the whole trio — `--font-body` derives from it, `--font-heading`/`--font-mono` keep the display/mono roles). The scale is applied as a `transform: scale` on `#app`, so plugin components inherit it automatically and should NOT set their own font-size root.
+- Positioning: because of that transform, `position: fixed` inside a plugin anchors to the app (which fills the window), not the raw viewport — use `inset`/`top-right-bottom-left` anchors (they render correctly at any scale), and if you need exact cursor coordinates, divide them by `--ui-scale`.
 
 - `manifest.json` — id (lowercase, = folder name), name, version, contributes: {providers, slots, commands, skills}. Legacy `contributes.skills` kept for compatibility; modern skills live in `skills/<id>/` and are auto-discovered.
 - `skills/<id>/` — `skill.md` (reference, loaded on demand via load_skill), `tools.json` (model-facing schemas — authoritative), `handler.js` (Node sidecar implementing them, JSON-RPC over stdio).
