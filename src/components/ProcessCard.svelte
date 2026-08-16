@@ -5,6 +5,14 @@
   //
   // TODO(agents): no backend event produces this block yet (see TODO.md) —
   // renderer branches stay inert until detached-process events land.
+  // Card shell (chevron + collapse) lives in Collapsible; the log is the
+  // shared OutputLog pane (audit D4).
+  import Icon from './Icon.svelte'
+  import Collapsible from './Collapsible.svelte'
+  import OutputLog from './OutputLog.svelte'
+  import Button from './Button.svelte'
+  import StatusDot from './StatusDot.svelte'
+  import Pill from './Pill.svelte'
 
   export interface ProcessAction {
     label: string
@@ -41,67 +49,52 @@
         : runState
   )
   const icon = $derived(runState === 'detached' ? 'open_in_new' : 'terminal')
+
+  function colorFor(line: string): string | undefined {
+    return /error|fail/i.test(line) ? 'var(--danger)' : undefined
+  }
 </script>
 
-<div class="process" style={`--pcolor:${color}`}>
-  <div class="head">
-    <span class="p-ico" aria-hidden="true"><span class="msr">{icon}</span></span>
+<Collapsible
+  bind:open
+  clickable={false}
+  chevron={log.length > 0}
+  label="Toggle log"
+  class="process"
+  style={`--pcolor:${color}`}
+>
+  {#snippet header()}
+    <span class="p-ico" aria-hidden="true"><Icon name={icon as never} size={15} /></span>
     <span class="p-cmd">{cmd}</span>
-    <span class="p-state">
-      <span class="p-dot" class:blink={runState === 'running'}></span>{stateLabel}
-    </span>
+    <Pill color={color}>
+      <StatusDot color={color} live={runState === 'running'} size={5} />{stateLabel}
+    </Pill>
     {#if meta}<span class="p-meta">{meta}</span>{/if}
-    {#if log.length > 0}
-      <button class="p-logbtn" aria-label="Toggle log" onclick={() => (open = !open)}>
-        <span class="chev" class:open aria-hidden="true"><span class="msr">expand_more</span></span>
-      </button>
-    {/if}
-  </div>
+  {/snippet}
 
-  <div class="log-grid" class:open>
+  {#if log.length > 0}
     <div class="log">
-      {#each log as line, li (li)}
-        <div class="log-line" class:err={/error|fail/i.test(line)}>{line}</div>
-      {/each}
-    </div>
-  </div>
-
-  {#if actions.length > 0}
-    <div class="actions">
-      {#each actions as act (act.label)}
-        <button class="act" onclick={act.onClick}>
-          <span class="msr" aria-hidden="true">{act.icon}</span>{act.label}
-        </button>
-      {/each}
+      <OutputLog lines={log} {colorFor} maxHeight={160} />
     </div>
   {/if}
-</div>
+
+  {#snippet footer()}
+    {#each actions as act (act.label)}
+      <Button size="xs" variant="ghost" icon={act.icon as never} onclick={act.onClick}>{act.label}</Button>
+    {/each}
+  {/snippet}
+</Collapsible>
 
 <style>
-  /* Design: dashed border tinted by state, state chip with dot. */
-  .process {
-    display: flex;
-    flex-direction: column;
+  /* Root theme — dashed border tinted by state. */
+  :global(.process) {
     background: var(--bg-base);
     border: 1px dashed color-mix(in oklch, var(--pcolor) 45%, var(--border-default));
-    border-radius: var(--radius-sm);
-    overflow: hidden;
-    animation: blockIn 0.32s cubic-bezier(0.22, 0.8, 0.3, 1) both;
-  }
-  .head {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 7px 9px 7px 11px;
   }
   .p-ico {
     flex: none;
     display: flex;
     color: var(--pcolor);
-  }
-  .p-ico .msr {
-    font-size: 15px;
-    line-height: 1;
   }
   .p-cmd {
     flex: 1 1 auto;
@@ -113,29 +106,6 @@
     overflow: hidden;
     text-overflow: ellipsis;
   }
-  .p-state {
-    display: inline-flex;
-    align-items: center;
-    gap: 5px;
-    flex: none;
-    font-family: var(--font-mono);
-    font-size: 9.5px;
-    letter-spacing: 0.07em;
-    text-transform: uppercase;
-    color: var(--pcolor);
-    background: color-mix(in oklch, var(--pcolor) 13%, transparent);
-    border-radius: 2px;
-    padding: 2px 7px;
-  }
-  .p-dot {
-    width: 5px;
-    height: 5px;
-    border-radius: 50%;
-    background: var(--pcolor);
-  }
-  .p-dot.blink {
-    animation: cursorblink 1.2s ease-in-out infinite;
-  }
   .p-meta {
     flex: 0 1 auto;
     min-width: 0;
@@ -146,83 +116,9 @@
     overflow: hidden;
     text-overflow: ellipsis;
   }
-  .p-logbtn {
-    background: none;
-    border: none;
-    padding: 1px;
-    display: flex;
-    cursor: pointer;
-    color: var(--text-muted);
-    flex: none;
-  }
-  .chev {
-    display: flex;
-    transition: transform 0.22s ease;
-  }
-  .chev .msr {
-    font-size: 15px;
-    line-height: 1;
-  }
-  .chev.open {
-    transform: rotate(180deg);
-  }
-  .log-grid {
-    display: grid;
-    grid-template-rows: 0fr;
-    min-height: 0;
-    background: var(--bg-elevated);
-    transition: grid-template-rows 0.32s cubic-bezier(0.4, 0, 0.2, 1), border-top-width 0.32s step-start;
-    border-top: 0 solid var(--border-subtle);
-  }
-  .log-grid.open {
-    grid-template-rows: 1fr;
-    border-top-width: 1px;
-  }
   .log {
-    min-height: 0;
-    overflow: hidden;
+    background: var(--bg-elevated);
+    border-top: 1px solid var(--border-subtle);
     padding: 8px 12px;
-    max-height: 160px;
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-  }
-  .log-line {
-    font-family: var(--font-mono);
-    font-size: 10.5px;
-    line-height: 1.55;
-    white-space: pre-wrap;
-    color: var(--text-secondary);
-  }
-  .log-line.err {
-    color: var(--danger);
-  }
-  .actions {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    padding: 0 11px 9px;
-  }
-  .act {
-    display: inline-flex;
-    align-items: center;
-    gap: 5px;
-    font-family: var(--font-body);
-    font-size: 11.5px;
-    color: var(--text-secondary);
-    background: none;
-    border: 1px solid var(--border-default);
-    border-radius: var(--radius-sm);
-    padding: 3px 9px;
-    cursor: pointer;
-    transition: border-color 0.2s ease, color 0.2s ease;
-  }
-  .act .msr {
-    font-size: 13px;
-    line-height: 1;
-  }
-  .act:hover {
-    border-color: var(--text-muted);
-    color: var(--text-primary);
   }
 </style>

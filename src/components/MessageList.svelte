@@ -12,9 +12,11 @@
   import { buildAgentTranscript } from '../lib/transcript'
   import { messageText, isToolResultTurn, parseContent, parseVerification } from '../lib/types'
   import TextBubble from './TextBubble.svelte'
-  import AgentMark from './AgentMark.svelte'
   import SubagentCard from './SubagentCard.svelte'
   import ProcessCard from './ProcessCard.svelte'
+  import Icon from './Icon.svelte'
+  import InlineAlert from './InlineAlert.svelte'
+  import TurnRow from './TurnRow.svelte'
   import { sessionTint } from '../lib/tint'
   import type { Message, ToolResultBlock } from '../lib/types'
 
@@ -251,8 +253,7 @@
   {/each}
 
   {#if liveBlocks.length > 0 || thinking}
-    <div class="live-turn">
-      <div class="avatar" aria-hidden="true"><AgentMark tint={sessionTint(sessionId)} /></div>
+    <TurnRow {sessionId}>
       <div class="live-body">
         {#each liveBlocks as block, bi (block.type === 'tool' ? block.toolUseId : block.type === 'thinking' ? `th-${bi}` : `${block.type}-${bi}`)}
           {#if block.type === 'thinking'}
@@ -306,7 +307,7 @@
             style={`--ind-color:${indColor}`}
           >
             <span class="ind-icon" class:spin={indMeta.spin} aria-hidden="true">
-              <span class="msr">{indMeta.icon}</span>
+              <Icon name={indMeta.icon as never} size={13} />
             </span>
             <span class="ind-label">{statusMeta.label.toLowerCase()}</span>
             {#if !indMeta.still}
@@ -323,30 +324,20 @@
               title="Stop the response"
               aria-label="Stop generating"
             >
-              <span class="msr" aria-hidden="true">stop_circle</span>
+              <Icon name="stop_circle" size={14} />
             </button>
           </div>
         {/if}
       </div>
-    </div>
+    </TurnRow>
   {/if}
 
   {#if error}
-    <div class="error-row" role="alert">
-      <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true">
-        <circle cx="8" cy="8" r="7"/>
-        <line x1="8" y1="5" x2="8" y2="8.5"/>
-        <circle cx="8" cy="11" r="0.5" fill="currentColor" stroke="none"/>
-      </svg>
-      <span>{error}</span>
-    </div>
+    <InlineAlert kind="error">{error}</InlineAlert>
   {/if}
 
   {#if notice}
-    <div class="notice-row" role="status">
-      <span class="msr" aria-hidden="true">stop</span>
-      <span>{notice}</span>
-    </div>
+    <InlineAlert kind="info" icon="stop">{notice}</InlineAlert>
   {/if}
 
   {#if running && (verifying || verification)}
@@ -386,20 +377,6 @@
     gap: 16px;
   }
 
-  .live-turn {
-    display: flex;
-    gap: 10px;
-    align-items: flex-start;
-  }
-  .avatar {
-    width: 30px;
-    height: 30px;
-    flex: none;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    margin-top: 2px;
-  }
   .live-body {
     flex: 1;
     min-width: 0;
@@ -427,7 +404,7 @@
     color: var(--ind-color);
     animation: dotPulse 1.5s ease-in-out infinite;
   }
-  .ind-icon .msr {
+  .ind-icon :global(.msr) {
     font-size: 13px;
     line-height: 1;
   }
@@ -476,37 +453,10 @@
     opacity: 1;
     color: var(--text-primary);
   }
-  .ind-stop .msr {
+  .ind-stop :global(.msr) {
     font-size: 14px;
     line-height: 1;
   }
-
-  .error-row {
-    display: flex;
-    align-items: flex-start;
-    gap: var(--spacing-2);
-    padding: 8px 12px;
-    background: color-mix(in srgb, var(--danger) 10%, transparent);
-    border: 1px solid color-mix(in srgb, var(--danger) 30%, transparent);
-    border-radius: var(--radius-md);
-    color: var(--danger);
-    font-size: var(--font-size-sm);
-  }
-  .error-row svg { flex-shrink: 0; margin-top: 1px; }
-  .error-row span { white-space: pre-wrap; word-break: break-word; }
-
-  .notice-row {
-    display: flex;
-    align-items: flex-start;
-    gap: var(--spacing-2);
-    padding: 8px 12px;
-    background: color-mix(in srgb, var(--text-muted) 8%, transparent);
-    border: 1px solid color-mix(in srgb, var(--text-muted) 25%, transparent);
-    border-radius: var(--radius-md);
-    color: var(--text-muted);
-    font-size: var(--font-size-sm);
-  }
-  .notice-row .msr { font-size: 14px; flex-shrink: 0; }
 
   /* Tight windows */
   @media (max-width: 640px) {

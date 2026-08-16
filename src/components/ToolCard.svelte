@@ -1,6 +1,10 @@
 <script lang="ts">
   import { approveTool, denyTool, alwaysApproveTool } from '../stores/chat.svelte'
   import Icon from './Icon.svelte'
+  import Collapsible from './Collapsible.svelte'
+  import Button from './Button.svelte'
+  import OutputLog from './OutputLog.svelte'
+  import { toolIcon } from '../lib/toolIcons'
   import type { ToolItem } from '../stores/chat.svelte'
 
   let {
@@ -19,23 +23,6 @@
       outputOpen = true
     }
   })
-
-  // Design tool icons — read/edit/run/search/grep/write families map to their
-  // material glyphs, everything else falls back to a neutral build icon.
-  function iconFor(name: string): string {
-    switch (true) {
-      case name.startsWith('read'): return 'description'
-      case name.startsWith('write'): return 'note_add'
-      case name.startsWith('patch') || name.startsWith('edit'): return 'edit_document'
-      case name.startsWith('create') || name.startsWith('delete') || name.startsWith('move'): return 'note_add'
-      case name.startsWith('run'): return 'terminal'
-      case name.startsWith('list') || name.startsWith('search'): return 'travel_explore'
-      case name.startsWith('git'): return 'difference'
-      case name.startsWith('web'): return 'travel_explore'
-      case name.startsWith('fetch'): return 'travel_explore'
-      default: return 'build'
-    }
-  }
 
   // Human-readable one-liner for the tool input
   function summarize(name: string, input: Record<string, unknown>): string {
@@ -66,127 +53,83 @@
   const hasOutput = $derived(tool.output !== undefined && tool.output !== '')
   const running = $derived(tool.status === 'running')
   const waiting = $derived(tool.status === 'waiting')
-
-  // Output preview is bounded to keep the DOM small: tool results can be tens
-  // of KB to MBs (git diffs, file reads, command output). Splitting the FULL
-  // output into one <div> per line would otherwise build thousands of nodes
-  // inside the scrollable list — the scroll repaint cost that makes the UI
-  // jank even when the app is idle. Cap both characters and line count.
-  const OUTPUT_CHAR_LIMIT = 4000
-  const OUTPUT_LINE_LIMIT = 300
+  const icon = $derived(toolIcon(tool.name) as never)
+  // Root border-left color by state (design: default → accent open → warning
+  // waiting → danger error). `open` is added by Collapsible itself.
+  const rootClass = $derived(
+    `tool-card${waiting ? ' waiting' : ''}${tool.status === 'error' ? ' error' : ''}`
+  )
 
   // Diff-ish coloring per output line (design: + green / − red / failures red).
-  const outputLines = $derived.by(() => {
-    const raw = tool.output ?? ''
-    const sliced = raw.trimEnd().slice(0, OUTPUT_CHAR_LIMIT)
-    const lines = sliced.split('\n')
-    const clipped = lines.length > OUTPUT_LINE_LIMIT
-    const shown = clipped ? lines.slice(0, OUTPUT_LINE_LIMIT) : lines
-    const rows = shown.map((text) => {
-      const add = text.startsWith('+'), rm = text.startsWith('-')
-      const fail = /FAIL|●|Expected:|error:/i.test(text)
-      return {
-        text,
-        color: add
-          ? 'var(--success)'
-          : rm
-            ? 'var(--danger)'
-            : fail
-              ? 'var(--danger)'
-              : 'var(--text-secondary)',
-      }
-    })
-    return {
-      rows,
-      charsTruncated: raw.length > OUTPUT_CHAR_LIMIT,
-      linesTruncated: clipped,
-      hiddenLines: lines.length - shown.length,
-    }
-  })
+  function colorFor(line: string): string | undefined {
+    const add = line.startsWith('+')
+    const rm = line.startsWith('-')
+    const fail = /FAIL|●|Expected:|error:/i.test(line)
+    if (add) return 'var(--success)'
+    if (rm || fail) return 'var(--danger)'
+    return undefined
+  }
 </script>
 
-<div
-  class="tool-card"
-  class:waiting
-  class:error={tool.status === 'error'}
-  class:open={outputOpen}
+<Collapsible
+  bind:open={outputOpen}
+  clickable={false}
+  dense
+  chevron={hasOutput && !waiting}
+  label="Toggle output"
+  class={rootClass}
 >
-  <div class="header">
-    <span class="t-icon" aria-hidden="true"><Icon name={iconFor(tool.name) as never} size={15} /></span>
+  {#snippet header()}
+    <span class="t-icon" aria-hidden="true"><Icon name={icon} size={15} /></span>
     <span class="label">{tool.name}</span>
     {#if summary}<span class="detail">{summary}</span>{/if}
+  {/snippet}
 
-    <span class="spacer"></span>
-
+  {#snippet actions()}
     {#if waiting}
-      <button class="btn primary" onclick={() => approveTool(sessionId, tool.toolUseId)}>Run</button>
-      <button class="btn ghost" onclick={() => { alwaysApproveTool(sessionId, tool.name); approveTool(sessionId, tool.toolUseId) }}>Always</button>
-      <button class="btn danger" onclick={() => denyTool(sessionId, tool.toolUseId)}>Deny</button>
+      <Button size="xs" variant="primary" onclick={() => approveTool(sessionId, tool.toolUseId)}>Run</Button>
+      <Button
+        size="xs"
+        variant="ghost"
+        onclick={() => { alwaysApproveTool(sessionId, tool.name); approveTool(sessionId, tool.toolUseId) }}
+      >Always</Button>
+      <Button size="xs" variant="danger" onclick={() => denyTool(sessionId, tool.toolUseId)}>Deny</Button>
     {:else if running}
       <span class="status spin" aria-hidden="true"><Icon name="progress_activity" size={14} /></span>
     {:else if tool.status === 'done' || tool.status === 'error'}
       <span class="status" class:ok={tool.status === 'done'} aria-hidden="true"><Icon name="check" size={14} fill={tool.status === 'done'} /></span>
     {/if}
-
-    {#if hasOutput && !waiting}
-      <button class="chev" class:open={outputOpen} onclick={() => outputOpen = !outputOpen} aria-label="Toggle output" aria-expanded={outputOpen}>
-        <Icon name="expand_more" size={15} />
-      </button>
-    {/if}
-  </div>
+  {/snippet}
 
   {#if hasOutput}
-    <!-- Design output collapse: grid-rows 0fr↔1fr transition (smooth height
-         open/close instead of a hard v-if pop). Inner div keeps the scroll. -->
-    <div class="out-grid" class:closed={!outputOpen}>
-      <div class="out-inner">
-        <div class="output">
-          {#each outputLines.rows as line, i (i)}
-            <div class="line" style={`color:${line.color}`}>{line.text}</div>
-          {/each}
-          {#if outputLines.linesTruncated || outputLines.charsTruncated}
-            <div class="more">
-              … truncated
-              {#if outputLines.hiddenLines > 0}{outputLines.hiddenLines} more lines{/if}
-            </div>
-          {/if}
-        </div>
-      </div>
+    <div class="output">
+      <OutputLog
+        lines={tool.output?.split('\n') ?? []}
+        {colorFor}
+        maxHeight={200}
+      />
     </div>
   {/if}
-</div>
+</Collapsible>
 
 <style>
-  /* Design: tool call strip — elevated card, 2px left border colored by state,
-     icon + mono label + detail + status glyph + chevron, expandable output. */
-  .tool-card {
-    display: flex;
-    flex-direction: column;
+  /* Root card theme — class lands on Collapsible's root. */
+  :global(.tool-card) {
     background: var(--bg-elevated);
     border: 1px solid var(--border-subtle);
     border-left: 2px solid var(--border-default);
-    border-radius: var(--radius-sm);
-    overflow: hidden;
     margin: 1px 0;
     transition: border-color 0.25s ease;
     max-width: 100%;
-    animation: blockIn 0.32s cubic-bezier(0.22, 0.8, 0.3, 1) both;
   }
-  .tool-card.open {
+  :global(.tool-card.open) {
     border-left-color: var(--accent);
   }
-  .tool-card.waiting {
+  :global(.tool-card.waiting) {
     border-left-color: var(--warning);
   }
-  .tool-card.error {
+  :global(.tool-card.error) {
     border-left-color: var(--danger);
-  }
-  .header {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 6px 11px;
-    min-height: 30px;
   }
   .t-icon { color: var(--text-muted); flex: none; display: flex; }
   .label {
@@ -208,63 +151,18 @@
     white-space: nowrap;
     max-width: 180px;
   }
-  .spacer { flex: 1; }
-  .status { color: var(--success); display: flex; flex: none; }
-  .status.ok { color: var(--success); }
-  .status.spin {
-    color: var(--warning);
+  .status {
+    color: var(--success);
     display: flex;
-    animation: spin 1s linear infinite;
-  }
-  .chev { background: none; border: none; color: var(--text-muted); cursor: pointer; padding: 0; display: flex; flex: none; transition: transform 0.22s ease, color 0.2s ease; }
-  .chev:hover { color: var(--text-primary); }
-  .chev.open { transform: rotate(180deg); }
-  .btn {
-    font-family: var(--font-body);
-    font-size: 11.5px;
-    border-radius: 2px;
-    cursor: pointer;
-    padding: 2px 10px;
     flex: none;
   }
-  .btn.primary { background: var(--accent); color: var(--accent-on); border: none; }
-  .btn.ghost { background: transparent; color: var(--text-secondary); border: 1px solid var(--border-default); }
-  .btn.danger { background: transparent; color: var(--danger); border: 1px solid currentColor; }
-  .btn:hover { filter: brightness(1.1); }
-  /* Grid-rows collapse — animated height between open/closed. */
-  .out-grid {
-    display: grid;
-    grid-template-rows: 1fr;
-    transition: grid-template-rows 0.3s cubic-bezier(0.22, 0.8, 0.3, 1);
-  }
-  .out-grid.closed {
-    grid-template-rows: 0fr;
-  }
-  .out-inner {
-    min-height: 0;
-    overflow: hidden;
+  .status.spin {
+    color: var(--warning);
+    animation: spin 1s linear infinite;
   }
   .output {
     border-top: 1px solid var(--border-subtle);
     background: var(--bg-base);
     padding: 9px 12px;
-    max-height: 200px;
-    overflow: auto;
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-  }
-  .line {
-    font-family: var(--font-mono);
-    font-size: 11px;
-    line-height: 1.55;
-    white-space: pre-wrap;
-    word-break: break-word;
-  }
-  .more {
-    font-family: var(--font-mono);
-    font-size: 10.5px;
-    color: var(--text-muted);
-    padding-top: 5px;
   }
 </style>
