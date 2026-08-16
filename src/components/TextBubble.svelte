@@ -49,7 +49,9 @@
 {/if}
 
 <style>
-  /* Shared assistant text bubble — design: elevated, asymmetric radius. */
+  /* Shared assistant text bubble — design: elevated, asymmetric radius,
+     blockIn entrance (matches ThoughtCard/ToolCard so every chat block
+     animates consistently). */
   .text-bubble {
     background: var(--bg-elevated);
     border: 1px solid var(--border-subtle);
@@ -61,6 +63,7 @@
     line-height: 1.55;
     white-space: pre-wrap;
     overflow-wrap: anywhere;
+    animation: blockIn 0.34s cubic-bezier(0.22, 0.8, 0.3, 1) both;
   }
   :global(.caret) {
     color: var(--accent);

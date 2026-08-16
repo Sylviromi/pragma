@@ -6,6 +6,8 @@
   import ToolCard from './ToolCard.svelte'
   import QuestionBlock from './QuestionBlock.svelte'
   import ThoughtCard from './ThoughtCard.svelte'
+  import AgentMark from './AgentMark.svelte'
+  import { sessionTint } from '../lib/tint'
 
   let {
     message,
@@ -64,9 +66,9 @@
       </div>
     </div>
   {:else}
-    <!-- Assistant turn: avatar + ordered blocks (thought → tool → text) -->
+    <!-- Assistant turn: agent mark + ordered blocks (thought → tool → text) -->
     <div class="assistant-row">
-      <div class="avatar" aria-hidden="true">P</div>
+      <div class="avatar" aria-hidden="true"><AgentMark tint={sessionTint(message.sessionId)} /></div>
       <div class="turn-body" oncontextmenu={onMenu} role="group" aria-label="Assistant response">
         {#if blocks}
           {#each blocks as block}
@@ -151,25 +153,19 @@
   }
   .user-bubble p { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
 
-  /* Assistant turn: avatar left, body right */
+  /* Assistant turn: agent mark left, body right */
   .assistant-row {
     display: flex;
     gap: 10px;
     align-items: flex-start;
   }
   .avatar {
-    width: 24px;
-    height: 24px;
+    width: 30px;
+    height: 30px;
     flex: none;
-    border-radius: 50%;
-    background: var(--accent);
-    color: var(--accent-on);
     display: flex;
     align-items: center;
     justify-content: center;
-    font-family: var(--font-mono);
-    font-size: 10px;
-    font-weight: 600;
     margin-top: 2px;
   }
   .turn-body {

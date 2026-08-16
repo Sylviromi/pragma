@@ -12,6 +12,10 @@
   import { buildAgentTranscript } from '../lib/transcript'
   import { messageText, isToolResultTurn, parseContent, parseVerification } from '../lib/types'
   import TextBubble from './TextBubble.svelte'
+  import AgentMark from './AgentMark.svelte'
+  import SubagentCard from './SubagentCard.svelte'
+  import ProcessCard from './ProcessCard.svelte'
+  import { sessionTint } from '../lib/tint'
   import type { Message, ToolResultBlock } from '../lib/types'
 
   let { sessionId }: { sessionId: string } = $props()
@@ -248,7 +252,7 @@
 
   {#if liveBlocks.length > 0 || thinking}
     <div class="live-turn">
-      <div class="avatar" aria-hidden="true">P</div>
+      <div class="avatar" aria-hidden="true"><AgentMark tint={sessionTint(sessionId)} /></div>
       <div class="live-body">
         {#each liveBlocks as block, bi (block.type === 'tool' ? block.toolUseId : block.type === 'thinking' ? `th-${bi}` : `${block.type}-${bi}`)}
           {#if block.type === 'thinking'}
@@ -271,6 +275,26 @@
               answer={block.picked ?? qAnswers[bi] ?? null}
               onSelect={(opt) => onAnswer(bi, opt)}
             />
+          {:else if block.type === 'subagent'}
+            <!-- TODO(agents): inert until sub-agent events land (see TODO.md). -->
+            <SubagentCard
+              name={block.name}
+              meta={block.meta}
+              runState={block.state}
+              task={block.task}
+              steps={block.steps}
+              tokens={block.tokens}
+              result={block.result}
+            />
+          {:else if block.type === 'process'}
+            <!-- TODO(agents): inert until detached-process events land (see TODO.md). -->
+            <ProcessCard
+              cmd={block.cmd}
+              runState={block.state}
+              exitCode={block.exitCode}
+              meta={block.meta}
+              log={block.log}
+            />
           {/if}
         {/each}
 
@@ -279,16 +303,16 @@
             class="indicator"
             role="status"
             aria-label={statusMeta.label}
-            style={`border-color:${indColor}`}
+            style={`--ind-color:${indColor}`}
           >
-            <span class="ind-icon" class:spin={indMeta.spin} style={`color:${indColor}`} aria-hidden="true">
+            <span class="ind-icon" class:spin={indMeta.spin} aria-hidden="true">
               <span class="msr">{indMeta.icon}</span>
             </span>
-            <span class="ind-label">{statusMeta.label}</span>
+            <span class="ind-label">{statusMeta.label.toLowerCase()}</span>
             {#if !indMeta.still}
               <span class="ind-dots" aria-hidden="true">
                 {#each [0, 1, 2] as i (i)}
-                  <span class="ind-dot" style={`background:${indColor}; animation-delay:${i * 0.16}s`}></span>
+                  <span class="ind-dot" style={`animation-delay:${i * 0.16}s`}></span>
                 {/each}
               </span>
             {/if}
@@ -299,7 +323,7 @@
               title="Stop the response"
               aria-label="Stop generating"
             >
-              <span class="msr" aria-hidden="true">stop</span>Stop
+              <span class="msr" aria-hidden="true">stop_circle</span>
             </button>
           </div>
         {/if}
@@ -350,12 +374,13 @@
 {/if}
 
 <style>
-  /* Design log style: 20px 24px padding, 16px gaps (tight at small widths). */
+  /* Design log style (v2): measured, centered column — margins grow with
+     the window so full-screen adds margin instead of line length. */
   .list {
     flex: 1;
     min-height: 0;
     overflow-y: auto;
-    padding: 20px 24px;
+    padding: 20px max(24px, calc((100% - 900px) / 2));
     display: flex;
     flex-direction: column;
     gap: 16px;
@@ -367,18 +392,12 @@
     align-items: flex-start;
   }
   .avatar {
-    width: 24px;
-    height: 24px;
+    width: 30px;
+    height: 30px;
     flex: none;
-    border-radius: 50%;
-    background: var(--accent);
-    color: var(--accent-on);
     display: flex;
     align-items: center;
     justify-content: center;
-    font-family: var(--font-mono);
-    font-size: 10px;
-    font-weight: 600;
     margin-top: 2px;
   }
   .live-body {
@@ -390,28 +409,26 @@
     gap: 7px;
   }
 
-  /* Live indicator — design: bubble, icon + mono label + bounce
-     dots (except while waiting for the user) + elapsed + Stop. */
+  /* Live indicator — design v2: subtle text row (no bubble): colored icon,
+     lowercase mono label, bounce dots (except while waiting), elapsed, stop. */
   .indicator {
     display: flex;
     align-items: center;
-    gap: 9px;
-    background: var(--bg-elevated);
-    border: 1px solid var(--accent);
-    border-radius: 5px 16px 16px 16px;
-    padding: 7px 12px 7px 11px;
+    gap: 7px;
+    padding: 0;
     align-self: flex-start;
-    animation: bubbleIn 0.3s cubic-bezier(0.22, 0.8, 0.3, 1) both;
-    transition: border-color 0.3s ease;
+    animation: fadeIn 0.3s ease both;
     max-width: 100%;
+    margin-top: 2px;
   }
   .ind-icon {
     flex: none;
     display: flex;
+    color: var(--ind-color);
     animation: dotPulse 1.5s ease-in-out infinite;
   }
   .ind-icon .msr {
-    font-size: 16px;
+    font-size: 13px;
     line-height: 1;
   }
   .ind-icon.spin {
@@ -419,27 +436,26 @@
   }
   .ind-label {
     font-family: var(--font-mono);
-    font-size: 11px;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
-    color: var(--text-secondary);
+    font-size: 10.5px;
+    letter-spacing: 0.05em;
+    color: var(--text-muted);
     white-space: nowrap;
   }
   .ind-dots {
     display: flex;
     align-items: center;
-    gap: 3px;
+    gap: 2px;
   }
   .ind-dot {
-    width: 5px;
-    height: 5px;
+    width: 3px;
+    height: 3px;
     border-radius: 50%;
-    flex: none;
+    background: var(--ind-color);
     animation: bounceDot 1.1s ease-in-out infinite;
   }
   .ind-elapsed {
     font-family: var(--font-mono);
-    font-size: 10.5px;
+    font-size: 10px;
     color: var(--text-muted);
     flex: none;
     font-variant-numeric: tabular-nums;
@@ -447,24 +463,21 @@
   .ind-stop {
     display: flex;
     align-items: center;
-    gap: 3px;
-    margin-left: 4px;
+    margin-left: 2px;
     background: none;
-    border: 1px solid var(--border-default);
-    border-radius: 11px;
+    border: none;
+    padding: 1px;
     color: var(--text-muted);
-    font-family: var(--font-body);
-    font-size: 11px;
-    padding: 2px 9px 2px 6px;
     cursor: pointer;
-    transition: color 0.2s ease, border-color 0.2s ease;
+    opacity: 0.7;
+    transition: opacity 0.2s ease, color 0.2s ease;
   }
   .ind-stop:hover {
+    opacity: 1;
     color: var(--text-primary);
-    border-color: var(--text-muted);
   }
   .ind-stop .msr {
-    font-size: 12px;
+    font-size: 14px;
     line-height: 1;
   }
 

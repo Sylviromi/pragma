@@ -158,6 +158,27 @@ type LiveBlock =
   | { type: 'text'; text: string }
   | { type: 'tool'; toolUseId: string }
   | { type: 'question'; questionId: string; text: string; options: string[]; picked?: string }
+  // TODO(agents): sub-agent + detached-process blocks. No backend event
+  // produces them yet — the MessageList renderer branches stay inert until
+  // the events land (see TODO.md). Shapes mirror the design's TURN_SCRIPTS.
+  | {
+      type: 'subagent'
+      name: string
+      meta: string
+      state: 'running' | 'done'
+      task: string
+      steps: { tool: string; label: string; detail?: string; state?: 'running' | 'done' | 'pending' }[]
+      tokens: string
+      result: string
+    }
+  | {
+      type: 'process'
+      cmd: string
+      state: 'running' | 'detached' | 'exited' | 'failed'
+      exitCode: number | null
+      meta: string
+      log: string[]
+    }
 
 // Read-only tools: auto-approve without asking
 const SAFE_TOOLS = new Set([
