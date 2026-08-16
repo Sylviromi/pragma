@@ -23,6 +23,15 @@ const SEARCH = {
         description: 'already installed',
         author: 'Bob'
       }
+    },
+    {
+      // A non-plugin package — must never appear in the marketplace.
+      package: {
+        name: 'react',
+        version: '18.3.1',
+        description: 'not a pragma plugin',
+        author: 'React Team'
+      }
     }
   ]
 }
@@ -82,7 +91,7 @@ describe('Marketplace (npm search)', () => {
     }
   })
 
-  it('searches npm with the query text', async () => {
+  it('searches npm with the query text, always pinned to plugins', async () => {
     const { target, comp } = mountPage()
     try {
       await vi.waitFor(() => expect(target.textContent).toContain('pragma-plugin-alpha'))
@@ -97,6 +106,22 @@ describe('Marketplace (npm search)', () => {
           expect.stringContaining('text=some-plugin')
         )
       )
+      // The keyword qualifier must ALWAYS be appended, so a search for
+      // 'react' (or anything) can never escape into the whole npm registry.
+      const url = vi.mocked(fetch).mock.calls.at(-1)?.[0] as string
+      expect(url).toContain('pragma-plugin')
+    } finally {
+      unmount(comp)
+      target.remove()
+    }
+  })
+
+  it('never lists non-plugin npm packages', async () => {
+    const { target, comp } = mountPage()
+    try {
+      await vi.waitFor(() => expect(target.textContent).toContain('pragma-plugin-alpha'))
+      expect(target.textContent).not.toContain('react')
+      expect(target.textContent).not.toContain('not a pragma plugin')
     } finally {
       unmount(comp)
       target.remove()

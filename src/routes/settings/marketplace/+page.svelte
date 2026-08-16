@@ -30,23 +30,28 @@
   })
 
   async function search() {
-    const q = query.trim() || DEFAULT_QUERY
+    const term = query.trim()
+    // The keyword qualifier is ALWAYS applied, so the marketplace never
+    // wanders into unrelated npm packages — the input is free text, not a
+    // raw npm query. Results are additionally gated on the pragma-plugin-
+    // naming convention, so only real plugins can ever be listed.
+    const q = term ? `${term} keywords:pragma-plugin` : DEFAULT_QUERY
     searching = true
     try {
       const res = await fetch(`${SEARCH_URL}?text=${encodeURIComponent(q)}&size=50`)
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
       const data = await res.json()
-      results = (data.objects ?? []).map((o: { package: any }) => {
-        const p = o.package
-        return {
+      results = (data.objects ?? [])
+        .map((o: { package: any }) => o.package)
+        .filter((p: any) => /(^|\/)pragma-plugin-/.test(p.name))
+        .map((p: any) => ({
           name: p.name,
-          displayName: p.name.replace(/^pragma-plugin-/, ''),
+          displayName: p.name.replace(/^(?:.*\/)?pragma-plugin-/, ''),
           version: p.version,
           description: p.description ?? '',
           author: typeof p.author === 'string' ? p.author : (p.author?.name ?? ''),
           source: `npm:${p.name}`
-        }
-      })
+        }))
       searched = true
     } catch (err) {
       pushToast(`Search failed: ${String(err)}`, 'error')
@@ -83,14 +88,16 @@
   <div class="desc-lead">
     Every Pragma plugin is an <code>npm</code> package — one plugin per package,
     publishing with <code>npm publish</code>. Search below, install with one click;
-    updates are checked automatically like any other source.
+    updates are checked automatically like any other source. Searches are pinned to
+    Pragma plugins (packages named <code>pragma-plugin-*</code> and tagged
+    <code>pragma-plugin</code>) — unrelated npm packages never show up.
   </div>
 
   <div class="search-row">
     <input
       class="search"
       bind:value={query}
-      placeholder="keywords:pragma-plugin — or anything on npm"
+      placeholder="Search plugins…"
       onkeydown={(e) => {
         if (e.key === 'Enter') search()
       }}
@@ -108,7 +115,7 @@
   {:else if results.length === 0}
     <div class="empty">
       <Icon name="extension" size={30} />
-      <p>No plugins found — try a different query.</p>
+      <p>No plugins found — searches are limited to <code>pragma-plugin-*</code> packages.</p>
     </div>
   {:else}
     <ul class="grid">
