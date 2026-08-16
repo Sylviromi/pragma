@@ -5,6 +5,10 @@
   import { agents, agentsSummary, selectNode, toggleFollow } from '../stores/agents.svelte'
   import { hueTint } from '../lib/tint'
   import SlotStack from './SlotStack.svelte'
+  import Icon from './Icon.svelte'
+  import StatusDot from './StatusDot.svelte'
+  import OutputLog from './OutputLog.svelte'
+  import Pill from './Pill.svelte'
 
   let { sessionId }: { sessionId: string } = $props()
 
@@ -224,13 +228,13 @@
         aria-selected={ui.panelTab === t.key}
         onclick={() => setPanelTab(t.key)}
       >
-        <span class="ptab-icon" aria-hidden="true"><span class="msr">{t.icon}</span></span>
+        <span class="ptab-icon" aria-hidden="true"><Icon name={t.icon as never} size={15} /></span>
         <span class="ptab-label">{t.label}</span>
         {#if t.key === 'agents' && agents.nodes.length > 0}
-          <span class="ptab-badge">{agents.nodes.length}</span>
+          <Pill radius="pill" class="ptab-badge">{agents.nodes.length}</Pill>
         {/if}
         {#if t.key === 'changes' && files.length > 0}
-          <span class="ptab-badge">{files.length}</span>
+          <Pill radius="pill" class="ptab-badge">{files.length}</Pill>
         {/if}
       </button>
     {/each}
@@ -240,7 +244,7 @@
     {#if ui.panelTab === 'plan'}
       <div class="pane" role="tabpanel" aria-label="Plan">
         <div class="pane-head">
-          <span class="msr pane-ico" aria-hidden="true">checklist</span>
+          <span class="pane-ico" aria-hidden="true"><Icon name="checklist" size={15} /></span>
           <span class="pane-label">Plan</span>
           {#if plan.items.length > 0}<span class="pane-meta">{planProgress}</span>{/if}
         </div>
@@ -255,7 +259,7 @@
                 style={`--plan-color: ${item.state === 'done' ? 'var(--success)' : item.state === 'active' ? 'var(--accent)' : 'var(--text-muted)'}`}
                 aria-hidden="true"
               >
-                <span class="msr">{item.state === 'done' ? 'task_alt' : item.state === 'active' ? 'radio_button_checked' : 'radio_button_unchecked'}</span>
+                <Icon name={item.state === 'done' ? 'task_alt' : item.state === 'active' ? 'radio_button_checked' : 'radio_button_unchecked'} size={15} />
               </span>
               <span class="plan-label" class:done={item.state === 'done'} class:todo={item.state === 'todo'}>{item.label}</span>
             </div>
@@ -267,9 +271,9 @@
     {#if ui.panelTab === 'agents'}
       <div class="pane" role="tabpanel" aria-label="Agents">
         <div class="pane-head">
-          <span class="msr pane-ico" aria-hidden="true">account_tree</span>
+          <span class="pane-ico" aria-hidden="true"><Icon name="account_tree" size={15} /></span>
           <span class="pane-label">Agents</span>
-          <span class="pane-badge">{summary}</span>
+          <Pill radius="pill" class="pane-badge">{summary}</Pill>
         </div>
         <div class="pane-body">
           {#if agents.nodes.length === 0}
@@ -289,9 +293,9 @@
                   onclick={() => selectNode(n.id)}
                 >
                   {#if n.depth > 0}<span class="stem" aria-hidden="true"></span>{/if}
-                  <span class="node-ico" aria-hidden="true"><span class="msr">{n.icon}</span></span>
+                  <span class="node-ico" aria-hidden="true"><Icon name={n.icon as never} size={14} /></span>
                   <span class="node-name" class:proc={!n.isAgent}>{n.name}</span>
-                  <span class="node-dot" class:pulse={n.pulse} style={`background:${n.dotColor}`} aria-hidden="true"></span>
+                  <StatusDot color={n.dotColor} live={n.pulse} size={5} />
                   <span class="node-meta">{n.meta}</span>
                 </button>
               {/each}
@@ -300,7 +304,7 @@
             <div class="console">
               <div class="console-head">
                 <span class="c-ico" style={`color:${procColor}`} aria-hidden="true">
-                  <span class="msr">{procIsAgent ? 'account_tree' : 'terminal'}</span>
+                  <Icon name={procIsAgent ? 'account_tree' : 'terminal'} size={14} />
                 </span>
                 <span class="c-cmd">{proc?.name ?? 'nothing selected'}</span>
                 <span class="c-state" style={`color:${procColor}; background:color-mix(in oklch, ${procColor} 13%, transparent)`}>
@@ -312,14 +316,17 @@
                 {#if procLines.length === 0 && !procLive}
                   <div class="console-empty">No output yet.</div>
                 {/if}
-                {#each procLines as line, li (li)}
-                  <div class="c-line" style={`color:${lineStyle(line)}`}>{line}</div>
-                {/each}
+                <OutputLog
+                  lines={procLines}
+                  colorFor={lineStyle}
+                  maxHeight={132}
+                  anchorBottom={procLive && agents.follow}
+                />
                 {#if procLive && agents.follow}<div class="c-caret" style={`color:${procColor}`}>▌</div>{/if}
               </div>
               <div class="console-foot">
                 <button class="follow" class:on={agents.follow} onclick={toggleFollow}>
-                  <span class="msr" aria-hidden="true">{agents.follow ? 'vertical_align_bottom' : 'pause'}</span>follow
+                  <Icon name={agents.follow ? 'vertical_align_bottom' : 'pause'} size={13} />follow
                 </button>
                 {#if proc}<span class="c-meta">{procLines.length} lines</span>{/if}
               </div>
@@ -332,10 +339,10 @@
     {#if ui.panelTab === 'changes'}
       <div class="pane" role="tabpanel" aria-label="Changes">
         <div class="pane-head">
-          <span class="msr pane-ico" aria-hidden="true">difference</span>
+          <span class="pane-ico" aria-hidden="true"><Icon name="difference" size={15} /></span>
           <span class="pane-label">Changes</span>
           {#if git.branch}
-            <span class="branch-pill"><span class="msr" aria-hidden="true">fork_right</span>{git.branch}</span>
+            <Pill radius="pill" icon="fork_right" class="branch-pill">{git.branch}</Pill>
           {/if}
         </div>
         <div class="git-counts">
@@ -578,23 +585,21 @@
     color: var(--text-primary);
     border-bottom-color: var(--accent);
   }
-  .ptab-icon .msr {
+  .ptab-icon :global(.msr) {
     font-size: 15px;
     line-height: 1;
     color: var(--text-muted);
     transition: color 0.2s ease;
   }
-  .ptab.active .ptab-icon .msr {
+  .ptab.active .ptab-icon :global(.msr) {
     color: var(--accent);
   }
-  .ptab-badge {
-    font-family: var(--font-mono);
-    font-size: 9px;
-    color: var(--text-muted);
-    background: var(--bg-overlay);
-    border-radius: 8px;
+  /* Sidebar badges — shared Pill. */
+  :global(.ptab-badge) {
     padding: 1px 5px;
-    flex: none;
+  }
+  :global(.pane-badge) {
+    color: var(--text-secondary);
   }
 
   .panes {
@@ -630,29 +635,6 @@
     font-size: 10px;
     color: var(--text-muted);
   }
-  .pane-badge {
-    font-family: var(--font-mono);
-    font-size: 10px;
-    color: var(--text-secondary);
-    background: var(--bg-overlay);
-    border-radius: 9px;
-    padding: 2px 8px;
-  }
-  .branch-pill {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    font-family: var(--font-mono);
-    font-size: 10px;
-    color: var(--text-secondary);
-    background: var(--bg-overlay);
-    border-radius: 9px;
-    padding: 2px 8px 2px 6px;
-  }
-  .branch-pill .msr {
-    font-size: 12px;
-    line-height: 1;
-  }
   .pane-body {
     display: flex;
     flex-direction: column;
@@ -660,11 +642,7 @@
   }
 
   /* Design stagger entrance: rows fade up 45ms apart (sidebar only renders
-     when opened, so the animation plays once per open). */
-  .stagger {
-    animation: rowIn 0.34s cubic-bezier(0.22, 0.8, 0.3, 1) both;
-    animation-delay: calc(var(--i) * 45ms);
-  }
+     when opened, so the animation plays once per open) — global .stagger. */
 
   .plan-row {
     display: flex;
@@ -849,7 +827,7 @@
     display: flex;
     color: var(--tint);
   }
-  .node-ico .msr {
+  .node-ico :global(.msr) {
     font-size: 14px;
     line-height: 1;
   }
@@ -865,15 +843,6 @@
   }
   .node-name.proc {
     color: var(--text-secondary);
-  }
-  .node-dot {
-    width: 5px;
-    height: 5px;
-    border-radius: 50%;
-    flex: none;
-  }
-  .node-dot.pulse {
-    animation: cursorblink 1.2s ease-in-out infinite;
   }
   .node-meta {
     font-family: var(--font-mono);
@@ -906,7 +875,7 @@
     flex: none;
     display: flex;
   }
-  .c-ico .msr {
+  .c-ico :global(.msr) {
     font-size: 14px;
     line-height: 1;
   }
@@ -941,7 +910,6 @@
   }
   .console-body {
     height: 132px;
-    overflow-y: auto;
     padding: 8px 10px;
     display: flex;
     flex-direction: column;
@@ -951,13 +919,6 @@
   .console-body.live {
     /* anchor to the bottom so new lines are visible */
     justify-content: flex-end;
-  }
-  .c-line {
-    font-family: var(--font-mono);
-    font-size: 10px;
-    line-height: 1.6;
-    white-space: pre-wrap;
-    word-break: break-word;
   }
   .c-caret {
     font-family: var(--font-mono);
@@ -993,7 +954,7 @@
     color: var(--text-muted);
     transition: background 0.2s ease, color 0.2s ease, border-color 0.2s ease;
   }
-  .follow .msr {
+  .follow :global(.msr) {
     font-size: 13px;
     line-height: 1;
   }
