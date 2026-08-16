@@ -114,11 +114,12 @@ export function applyHighContrast(t: ThemeTokens, hue: number, mode: ThemeMode):
 /// is the actual first-paint fallback and this must stay in sync with it.
 export const BOOTSTRAP_THEME: ThemeTokens = buildTheme(250, 0.055, 'dark')
 
-/// Static (family-independent) tokens — typography, radii, sizes.
+/// Static (family-independent) tokens — radii, sizes. Typography is NOT here:
+/// fonts live in tokens.css (`--font-body: var(--font-ui)` + roles) and are
+/// driven by the theme store's UI-font setting, so one knob remaps them all.
+/// (The `--font-*` vars used to be written here — inline styles on <html>
+/// would have overridden the tokens.css definitions and broken that knob.)
 export const STATIC_TOKENS: ThemeTokens = {
-  'font-heading': '"Barlow Condensed", system-ui, sans-serif',
-  'font-body': '"Barlow", system-ui, sans-serif',
-  'font-mono': '"JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace',
   'radius-sm': '2px',
   'radius-md': '4px',
   'radius-lg': '7px',

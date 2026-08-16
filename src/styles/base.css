@@ -8,6 +8,18 @@ body {
   -webkit-font-smoothing: antialiased;
   overflow: hidden;
 }
+/* Interface scale: uniform scale for the whole app (settings → Appearance).
+   Transform-based, NOT zoom: `zoom` resolves viewport units differently per
+   engine (Chromium scales explicit px heights, WebKit scales 100vh), which
+   forces engine-specific height formulas. A transform never touches unit
+   resolution — the layout box is sized at 100%/scale and rendered at scale,
+   so it lands exactly on the viewport in every engine with one formula. */
+#app {
+  transform: scale(var(--ui-scale, 1.1));
+  transform-origin: top left;
+  width: calc(100% / var(--ui-scale, 1.1));
+  height: calc(100vh / var(--ui-scale, 1.1));
+}
 :focus-visible {
   outline: 2px solid var(--border-focus);
   outline-offset: 2px;

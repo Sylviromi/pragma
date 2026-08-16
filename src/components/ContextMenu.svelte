@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { uiScaleFactor } from '../stores/theme.svelte'
+
   export type MenuIcon = 'copy' | 'transcript' | 'return'
 
   export interface MenuItem {
@@ -25,14 +27,18 @@
   let menuEl = $state<HTMLElement | null>(null)
   let pos = $state({ x: 0, y: 0 })
 
-  // Clamp to the viewport once we know our own size.
+  // Clamp to the viewport once we know our own size. The menu is
+  // position:fixed; under the app's interface-scale transform (#app) fixed
+  // anchors to the app's layout box, so viewport (visual) coordinates and
+  // sizes are divided by the scale factor.
   $effect(() => {
     const el = menuEl
     if (!el) return
+    const s = uiScaleFactor()
     const r = el.getBoundingClientRect()
-    const nx = Math.min(x, window.innerWidth - r.width - 8)
-    const ny = Math.min(y, window.innerHeight - r.height - 8)
-    pos = { x: Math.max(8, nx), y: Math.max(8, ny) }
+    const nx = Math.min(x / s, (window.innerWidth - r.width - 8) / s)
+    const ny = Math.min(y / s, (window.innerHeight - r.height - 8) / s)
+    pos = { x: Math.max(8 / s, nx), y: Math.max(8 / s, ny) }
   })
 
   // Close on outside click, Escape, window blur, or any scroll.

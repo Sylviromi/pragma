@@ -52,9 +52,15 @@ describe('theme palette engine', () => {
     const entries = themeVarEntries(familyByKey('steel'), 'dark');
     const names = entries.map(([n]) => n);
     expect(names).toContain('bg-base');
-    expect(names).toContain('font-body');
     expect(names).toContain('radius-md');
     expect(names).toContain('color-bg-base');
+    // Typography is NOT part of the palette engine — it lives in tokens.css
+    // (`--font-body: var(--font-ui)`) and is driven by the theme store's
+    // UI-font setting, so the engine never clobbers it. The legacy alias
+    // still resolves through --font-body.
+    expect(names).not.toContain('font-body');
+    expect(names).not.toContain('font-heading');
+    expect(names).not.toContain('font-mono');
     expect(names).toContain('font-sans');
   });
 

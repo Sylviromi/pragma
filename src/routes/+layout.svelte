@@ -12,6 +12,7 @@
   import '@fontsource/jetbrains-mono/600.css'
   import '../styles/tokens.css'
   import '../styles/base.css'
+  import { page } from '$app/stores'
   import TabBar from '../components/TabBar.svelte'
   import StatusBar from '../components/StatusBar.svelte'
   import PluginFreeLayer from '../components/PluginFreeLayer.svelte'
@@ -22,11 +23,15 @@
   import { loadPlugins, initPluginEvents, autoCheckUpdates } from '../stores/plugins.svelte';
   import { reconnectRunningSessions } from '../stores/chat.svelte';
   import { initStatsEvents } from '../stores/stats.svelte';
-  import { initTheme, applyTheme, theme } from '../stores/theme.svelte';
+  import { initTheme, applyTheme, applyUiScale, applyFontFamily, theme } from '../stores/theme.svelte';
   import { installMarkdownPluginBridge } from '../lib/markdown';
   import { initUpdater } from '../stores/updater.svelte';
 
   let { children } = $props();
+
+  // The design v2 settings view owns its own chrome (logo + Settings + session
+  // chips + back) — hide the app tab bar / status strip on /settings routes.
+  const isSettings = $derived($page.url.pathname.startsWith('/settings'))
 
   onMount(() => {
     installMarkdownPluginBridge();
@@ -44,16 +49,20 @@
   });
 
   // Re-apply the family×mode token set whenever the user changes it; also
-  // reacts to matchSystem/reduceMotion so <html> attributes stay in sync.
+  // reacts to matchSystem/reduceMotion/uiScale/fontFamily so <html> attributes stay in sync.
   $effect(() => {
-    const _ = [theme.family, theme.mode, theme.matchSystem, theme.reduceMotion];
+    const _ = [theme.family, theme.mode, theme.matchSystem, theme.reduceMotion, theme.uiScale, theme.fontFamily];
     applyTheme();
+    applyUiScale();
+    applyFontFamily();
   });
 </script>
 
 <div id="app">
-  <TabBar />
-  <StatusBar />
+  {#if !isSettings}
+    <TabBar />
+    <StatusBar />
+  {/if}
   <UpdateDialog />
   <main>{@render children()}</main>
   <!-- Free-floating plugin surfaces: any plugin slot the layout doesn't
@@ -67,7 +76,9 @@
   #app {
     display: flex;
     flex-direction: column;
-    height: 100vh;
+    /* Interface scale: the layout box is 100%/scale and rendered at scale
+       (transform in base.css) — one formula, every engine. */
+    height: calc(100vh / var(--ui-scale, 1.1));
     overflow: hidden;
   }
   main {

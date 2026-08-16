@@ -34,9 +34,19 @@
   --shadow-sm: 0 1px 2px oklch(12% 0.0275 250 / 0.42);
   --shadow-md: 0 4px 14px oklch(12% 0.0275 250 / 0.42);
   --shadow-lg: 0 16px 40px oklch(12% 0.0275 250 / 0.52);
+  /* interface scale — uniform scale applied to #app (default 110%, matching
+     the theme store's uiScale pref; overridden on <html> at startup) */
+  --ui-scale: 1.1;
   /* static */
+  /* ── fonts ────────────────────────────────────────────────────────────
+     --font-ui is the SINGULAR font knob: Settings → Appearance → UI font
+     re-maps the whole trio (one control), and plugins read --font-ui for the
+     primary UI face. --font-body derives from it; heading keeps the
+     condensed display face and mono keeps the code face so the design's
+     typographic roles survive any family swap. */
+  --font-ui: 'Barlow', system-ui, sans-serif;
   --font-heading: 'Barlow Condensed', system-ui, sans-serif;
-  --font-body: 'Barlow', system-ui, sans-serif;
+  --font-body: var(--font-ui);
   --font-mono: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace;
   --radius-sm: 2px;
   --radius-md: 4px;
@@ -113,12 +123,12 @@
   to { opacity: 0; transform: translateY(10px) scale(0.985); }
 }
 @keyframes dropIn {
-  from { opacity: 0; transform: translateY(-5px); }
+  from { opacity: 0; transform: translateY(8px) scale(0.98); }
   to { opacity: 1; transform: none; }
 }
 @keyframes dropOut {
   from { opacity: 1; transform: none; }
-  to { opacity: 0; transform: translateY(-5px); }
+  to { opacity: 0; transform: translateY(6px) scale(0.98); }
 }
 @keyframes fadeIn {
   from { opacity: 0; }
