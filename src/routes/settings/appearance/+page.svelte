@@ -1,8 +1,9 @@
 <script lang="ts">
-  import { theme, setFamily, setMode, setMatchSystem, setReduceMotion, THEME_FAMILIES } from '../../../stores/theme.svelte'
+  import { theme, setFamily, setMode, setMatchSystem, setReduceMotion, setUiScale, setFontFamily, THEME_FAMILIES } from '../../../stores/theme.svelte'
   import Toggle from '../../../components/Toggle.svelte'
   import { buildTheme, applyHighContrast } from '../../../lib/theme/palette-engine'
   import type { ThemeMode } from '../../../lib/theme/palette-engine'
+  import SettingsHeader from '../../../components/SettingsHeader.svelte'
 
   // Preview colors for each family card under the current mode — the design
   // shows the actual family swatch (bg base + accent ring), not the active one.
@@ -15,7 +16,11 @@
   }
 </script>
 
-<h2>Appearance</h2>
+<SettingsHeader
+    kicker="Interface"
+    title="Appearance"
+    blurb="Theme, density and the chrome around the conversation."
+  />
 
 <div class="label">Theme</div>
 <div class="family-row">
@@ -45,6 +50,33 @@
   {/each}
 </div>
 
+<div class="label">Interface scale</div>
+<div class="segmented" role="group" aria-label="Interface scale">
+  {#each [90, 100, 110, 125] as s (s)}
+    <button
+      class="seg"
+      class:active={theme.uiScale === s}
+      onclick={() => setUiScale(s)}
+      aria-pressed={theme.uiScale === s}
+    >{s}%</button>
+  {/each}
+</div>
+
+<div class="label">UI font</div>
+<div class="segmented" role="group" aria-label="UI font">
+  {#each [{ key: 'design', label: 'Design' }, { key: 'system', label: 'System' }] as f (f.key)}
+    <button
+      class="seg"
+      class:active={theme.fontFamily === f.key}
+      onclick={() => setFontFamily(f.key as 'design' | 'system')}
+      aria-pressed={theme.fontFamily === f.key}
+    >{f.label}</button>
+  {/each}
+</div>
+<p class="font-hint">
+  Design — Barlow · Barlow Condensed · JetBrains Mono. System — your OS's native UI font.
+</p>
+
 <div class="row">
   <div>
     <div class="row-label">Match system appearance</div>
@@ -61,16 +93,8 @@
   <Toggle checked={theme.reduceMotion} onChange={setReduceMotion} label="Reduce motion" />
 </div>
 
-<p class="hint">Plugins read the same tokens (`--bg-base`, `--accent`, …) so contributed UI follows this choice automatically.</p>
 
 <style>
-  h2 {
-    font-family: var(--font-heading);
-    font-size: 22px;
-    font-weight: 600;
-    color: var(--text-primary);
-    margin: 0 0 18px;
-  }
   .label {
     font-family: var(--font-body);
     font-size: 12px;
@@ -155,12 +179,10 @@
     color: var(--text-muted);
     margin-top: 2px;
   }
-  .hint {
-    margin-top: 22px;
+  .font-hint {
+    margin-top: 6px;
     font-family: var(--font-mono);
     font-size: 11px;
     color: var(--text-muted);
-    border-top: 1px solid var(--border-subtle);
-    padding-top: 12px;
   }
 </style>

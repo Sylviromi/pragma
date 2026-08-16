@@ -2,6 +2,7 @@
   import Toggle from '../../../components/Toggle.svelte'
   import { getVerificationSettings, setVerificationSettings } from '../../../lib/tauri'
   import type { VerificationSettings } from '../../../lib/types'
+  import SettingsHeader from '../../../components/SettingsHeader.svelte'
 
   let s = $state<VerificationSettings>({
     enabled: true,
@@ -27,12 +28,11 @@
 </script>
 
 <div class="page">
-  <div class="title">Verification</div>
-  <div class="desc-lead">
-    When the agent says it's done, the harness runs an independent check before the turn closes:
-    the project's real checks (tests/build), plus a small review of the diff by a fresh, isolated
-    model call that never sees the conversation. Each piece can be turned off here.
-  </div>
+  <SettingsHeader
+    kicker="Quality"
+    title="Verification"
+    blurb="When the agent says it's done, the harness runs an independent check before the turn closes: the project's real checks plus a fresh, isolated review of the diff."
+  />
 
   <div class="card">
     <div class="row">
@@ -134,20 +134,6 @@
 </div>
 
 <style>
-  .title {
-    font-family: var(--font-heading);
-    font-size: 18px;
-    font-weight: 600;
-    color: var(--text-primary);
-    margin-bottom: 2px;
-  }
-  .desc-lead {
-    color: var(--text-muted);
-    font-size: 12.5px;
-    margin-bottom: 20px;
-    max-width: 640px;
-    line-height: 1.5;
-  }
   .card {
     background: var(--bg-elevated);
     border: 1px solid var(--border-default);

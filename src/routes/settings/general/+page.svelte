@@ -1,5 +1,6 @@
 <script lang="ts">
   import Toggle from '../../../components/Toggle.svelte'
+  import SettingsHeader from '../../../components/SettingsHeader.svelte'
   import { getNotificationsEnabled, setNotificationsEnabled } from '../../../lib/tauri'
   import { updater, checkForUpdates, installUpdate } from '../../../stores/updater.svelte'
   import { renderMarkdown } from '../../../lib/markdown'
@@ -36,8 +37,12 @@
 </script>
 
 <div class="page">
-  <div class="title">General</div>
-  <div class="desc-lead">Core behavior for the harness.</div>
+  <SettingsHeader
+    kicker="Workspace"
+    title="General"
+    blurb="How sessions start, how agents are allowed to act, and what Pragma sends home."
+    meta={`${updater.currentVersion || 'dev'} · ${new Date().getFullYear()}`}
+  />
 
   <div class="card">
     <div class="row">
@@ -127,18 +132,6 @@
 </div>
 
 <style>
-  .title {
-    font-family: var(--font-heading);
-    font-size: 18px;
-    font-weight: 600;
-    color: var(--text-primary);
-    margin-bottom: 2px;
-  }
-  .desc-lead {
-    color: var(--text-muted);
-    font-size: 12.5px;
-    margin-bottom: 20px;
-  }
   .card {
     background: var(--bg-elevated);
     border: 1px solid var(--border-default);

@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte'
+  import SettingsHeader from '../../../components/SettingsHeader.svelte'
   import { saveApiKeys, getApiKeys } from '../../../lib/tauri'
   import { providerState, loadProviders } from '../../../stores/providers.svelte'
 
@@ -43,11 +44,11 @@
 </script>
 
 <div class="page">
-  <div class="title">Providers</div>
-  <div class="desc-lead">
-    API keys are stored in <code>~/.config/dev.pragma.app/settings.json</code>. Add several
-    keys per provider and Pragma rotates through them automatically when one is rate-limited.
-  </div>
+  <SettingsHeader
+    kicker="Credentials"
+    title="Providers"
+    blurb="Model endpoints and their API tokens. A provider can hold several tokens — Pragma rotates them automatically on rate limits."
+  />
 
   <div class="card stack">
     {#each providerState.providers.filter((p) => p.source === 'builtin') as p}
@@ -109,27 +110,6 @@
 </div>
 
 <style>
-  .title {
-    font-family: var(--font-heading);
-    font-size: 18px;
-    font-weight: 600;
-    color: var(--text-primary);
-    margin-bottom: 2px;
-  }
-  .desc-lead {
-    color: var(--text-muted);
-    font-size: 12.5px;
-    margin-bottom: 20px;
-    line-height: 1.5;
-  }
-  .desc-lead code {
-    font-family: var(--font-mono);
-    font-size: 11px;
-    color: var(--text-secondary);
-    background: var(--bg-overlay);
-    padding: 1px 5px;
-    border-radius: 2px;
-  }
   .card {
     background: var(--bg-elevated);
     border: 1px solid var(--border-default);

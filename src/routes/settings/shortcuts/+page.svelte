@@ -1,4 +1,5 @@
 <script lang="ts">
+  import SettingsHeader from '../../../components/SettingsHeader.svelte'
   // Static keymap — the harness's built-in shortcuts. (Remapping UI + plugin
   // shortcut registration is tracked in TODO.md.)
   const shortcuts = [
@@ -16,8 +17,11 @@
 </script>
 
 <div class="page">
-  <div class="title">Shortcuts</div>
-  <div class="desc-lead">Built-in keybindings. Modifier shown as Ctrl; on macOS that's ⌘.</div>
+  <SettingsHeader
+    kicker="Input"
+    title="Shortcuts"
+    blurb="Keyboard map for the session window. Chords are fixed in this build."
+  />
 
   <div class="card">
     {#each shortcuts as s, i (s.action)}
@@ -35,18 +39,6 @@
 </div>
 
 <style>
-  .title {
-    font-family: var(--font-heading);
-    font-size: 18px;
-    font-weight: 600;
-    color: var(--text-primary);
-    margin-bottom: 2px;
-  }
-  .desc-lead {
-    color: var(--text-muted);
-    font-size: 12.5px;
-    margin-bottom: 20px;
-  }
   .card {
     background: var(--bg-elevated);
     border: 1px solid var(--border-default);
