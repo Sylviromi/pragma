@@ -159,6 +159,36 @@
     return [];
   });
 
+  // ── Rendering window ────────────────────────────────────────────────────
+  // Long sessions must not grow the DOM unboundedly: WebKitGTK (Linux) lays
+  // out and paints EVERY row — content-visibility needs WebKit 2.46+ and is
+  // ignored on older builds — so scroll degrades to sludge with thousands of
+  // messages in the tree. Render the TAIL of the conversation (bounded), pull
+  // older history in on demand ("↑ N earlier", anchored so the viewport never
+  // jumps), and drop back to the bounded tail once the user is at the bottom.
+  const RENDER_WINDOW = 120;
+  let oldestId = $state<string | null>(null);
+  const renderedMessages = $derived.by(() => {
+    if (oldestId) {
+      const i = visibleMessages.findIndex((m) => m.id === oldestId);
+      if (i !== -1) return visibleMessages.slice(i);
+    }
+    return visibleMessages.slice(-RENDER_WINDOW);
+  });
+  const hiddenCount = $derived(Math.max(0, visibleMessages.length - renderedMessages.length));
+
+  async function showEarlier() {
+    const el = listEl;
+    const prev = el ? el.scrollHeight : 0;
+    const cur = visibleMessages.indexOf(renderedMessages[0]);
+    const target = visibleMessages[Math.max(0, cur - RENDER_WINDOW)];
+    oldestId = (target ?? visibleMessages[0])?.id ?? null;
+    await tick();
+    // Prepending content grows the list above the anchor — shift the scroll
+    // position by exactly the added height to keep the viewport still.
+    if (el) el.scrollTop += el.scrollHeight - prev;
+  }
+
   // Build a map of toolUseId → output from all user tool_result messages.
   // Used by ChatMessage to show outputs in historical (completed) tool cards.
   const toolOutputs = $derived.by(() => {
@@ -221,6 +251,9 @@
   function onScroll() {
     if (!listEl) return;
     stickToBottom = listEl.scrollHeight - listEl.scrollTop - listEl.clientHeight < 60;
+    // Back at the bottom → drop the pulled-in history and return to the
+    // bounded tail window (the browser clamps scrollTop as the list shrinks).
+    if (stickToBottom && oldestId) oldestId = null;
   }
 
   // Per-frame scroll coalescing flag (see stick-to-bottom effect above).
@@ -241,7 +274,12 @@
   aria-live="polite"
   aria-label="Conversation"
 >
-  {#each visibleMessages as msg (msg.id)}
+  {#if hiddenCount > 0}
+    <button class="earlier" onclick={showEarlier}>
+      ↑ {hiddenCount} earlier message{hiddenCount === 1 ? '' : 's'}
+    </button>
+  {/if}
+  {#each renderedMessages as msg (msg.id)}
     {#if msg.role === 'verification'}
       {@const vrun = parseVerification(msg)}
       {#if vrun}
@@ -379,6 +417,29 @@
     display: flex;
     flex-direction: column;
     gap: 16px;
+  }
+
+  /* Pull older history into the render window (bounded DOM on WebKitGTK). */
+  .earlier {
+    align-self: center;
+    flex: none;
+    background: none;
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius-sm);
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    padding: 5px 12px;
+    cursor: pointer;
+    transition:
+      border-color 0.2s ease,
+      color 0.2s ease;
+  }
+  .earlier:hover {
+    border-color: var(--accent);
+    color: var(--text-primary);
   }
 
   .live-body {

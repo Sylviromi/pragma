@@ -19,8 +19,9 @@
   import SectionHeader from '../../../components/SectionHeader.svelte';
   import EmptyState from '../../../components/EmptyState.svelte';
   import Icon from '../../../components/Icon.svelte';
-  import StatusDot from '../../../components/StatusDot.svelte';
   import Pill from '../../../components/Pill.svelte';
+  import Toggle from '../../../components/Toggle.svelte';
+  import { goto } from '$app/navigation';
 
   // Design v2 plugin page (`Pragma UI Kit v2.dc.html`): search + filter pills
   // over a grid of click-through cards (→ plugin detail), and an "Install a
@@ -95,6 +96,15 @@
       pushToast(`Install failed: ${String(err)}`, 'error');
     } finally {
       installing = false;
+    }
+  }
+
+  /** Toggle a plugin's enabled state without navigating into its settings page. */
+  async function toggleEnabled(id: string, next: boolean) {
+    try {
+      await setEnabled(id, next);
+    } catch (err) {
+      pushToast(`Could not toggle plugin: ${String(err)}`, 'error');
     }
   }
 </script>
@@ -182,7 +192,7 @@
     </div>
   {/if}
 
-  {#if plugins.loading}
+  {#if plugins.loading && plugins.list.length === 0}
     <div class="page-empty">Loading…</div>
   {:else if plugins.list.length === 0}
     <EmptyState icon="extension">
@@ -197,18 +207,27 @@
     <div class="grid">
       {#each filtered as p, i (p.id)}
         {@const up = updateFor(p.id)}
-        {@const statusColor = !p.enabled
-          ? 'var(--text-muted)'
-          : up
-            ? 'var(--warning)'
-            : 'var(--success)'}
-        <a
+        <div
           class="card stagger"
           style={`--i:${Math.min(i, 10)}`}
-          href={`/settings/plugin/${p.id}`}
           class:off={!p.enabled}
+          role="link"
+          tabindex="0"
+          aria-label={`${p.name} — open plugin settings`}
+          onclick={(e) => {
+            // Toggling a plugin must not open its settings page.
+            if ((e.target as HTMLElement).closest('.foot-actions')) return;
+            goto(`/settings/plugin/${p.id}`);
+          }}
+          onkeydown={(e) => {
+            if ((e.target as HTMLElement).closest('.foot-actions')) return;
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              goto(`/settings/plugin/${p.id}`);
+            }
+          }}
         >
-          <CornerMarks />
+          <CornerMarks color={p.enabled ? 'var(--accent)' : 'var(--border-subtle)'} />
 
           <div class="card-top">
             <span class="initial" aria-hidden="true">{p.name.slice(0, 1).toUpperCase()}</span>
@@ -216,7 +235,6 @@
               <div class="name">{p.name}</div>
               <div class="ver">v{p.version} · {p.publisher || p.author || 'community'}</div>
             </div>
-            <StatusDot color={statusColor} size={7} />
           </div>
           <p class="desc">{p.description || 'No description'}</p>
           <div class="card-foot">
@@ -225,11 +243,21 @@
                 ? `${p.skills.length} skill${p.skills.length > 1 ? 's' : ''}`
                 : 'no skills'}</Pill
             >
-            <span class="status-text" style={`color:${statusColor}`}>
-              {!p.enabled ? 'disabled' : up ? `update available — v${up.latest}` : 'active'}
-            </span>
+            <div class="foot-actions">
+              {#if up}
+                <span class="update-tag" title={`Update available — v${up.latest}`}>
+                  update → v{up.latest}
+                </span>
+              {/if}
+              <Toggle
+                size="sm"
+                checked={p.enabled}
+                label={p.enabled ? 'Disable this plugin' : 'Enable this plugin'}
+                onChange={(v) => void toggleEnabled(p.id, v)}
+              />
+            </div>
           </div>
-        </a>
+        </div>
       {/each}
     </div>
   {/if}
@@ -270,19 +298,28 @@
     flex-direction: column;
     text-align: left;
     background: var(--bg-elevated);
-    border: 1px solid var(--border-default);
+    /* on = solid, clearly accent-bordered (accent-soft was so faint it read
+       as off); off = barely-there border below */
+    border: 1px solid var(--accent);
     padding: 0;
     cursor: pointer;
     text-decoration: none;
     transition: border-color 0.2s ease;
   }
-  .card:hover {
-    border-color: var(--accent);
+  .card:hover,
+  .card:focus-visible {
+    border-color: var(--accent-hover);
+    outline: none;
     /* light the corner marks up with the border */
     --cm-color: var(--accent);
   }
+  /* off = faint border; the border itself is the on/off showcase */
   .card.off {
-    opacity: 0.62;
+    border-color: var(--border-subtle);
+  }
+  .card.off:hover,
+  .card.off:focus-visible {
+    border-color: var(--accent);
   }
   .card-top {
     display: flex;
@@ -331,8 +368,13 @@
     font-size: 12px;
     line-height: 1.5;
     color: var(--text-muted);
-    text-wrap: pretty;
     flex: 1;
+    /* clamp descriptions so long ones don't stretch the whole grid row */
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    line-clamp: 3;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
   }
   .card-foot {
     display: flex;
@@ -341,14 +383,19 @@
     padding: 11px 13px 12px;
     margin-top: auto;
   }
-  .status-text {
+  .foot-actions {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+  }
+  .update-tag {
     font-family: var(--font-mono);
     font-size: 9.5px;
     letter-spacing: 0.05em;
-    margin-left: auto;
+    color: var(--warning);
     white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
   }
 
   /* install panel (design "Install a plugin" registry section) */

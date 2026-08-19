@@ -32,6 +32,7 @@
   } from '../stores/theme.svelte';
   import { installMarkdownPluginBridge } from '../lib/markdown';
   import { initUpdater } from '../stores/updater.svelte';
+  import FpsMeter from '../components/FpsMeter.svelte';
 
   let { children } = $props();
 
@@ -83,6 +84,7 @@
   <PluginFreeLayer />
   <Toast />
   <PluginConfirmModal />
+  <FpsMeter />
 </div>
 
 <style>
