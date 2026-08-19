@@ -1,8 +1,10 @@
 # Pragma Dev — architecture reference + dev tooling
 
 Working on **Pragma** — a Tauri 2 + Svelte 5 desktop AI coding harness.
-Source: `/mnt/Projects/pragma` (this repo). Set the session working
-directory to that path before starting.
+Source: the repository you're currently in — make sure the session working
+directory is the pragma checkout itself (the folder containing `package.json`
+and `src-tauri/`) before starting; the dev tools resolve everything relative
+to it.
 
 This skill's tools (`pd_*`, see tools.json) drive the dev loop from inside
 the agent: typecheck/cargo-check/test runners, a managed dev-app child, and

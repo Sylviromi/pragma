@@ -144,12 +144,22 @@ hot-reload like any other plugin. The Rust side never creates or copies
 plugin folders — what's in the plugin dir is the source of truth.
 
 **First-party exception — `pragma-dev`:** this plugin is committed IN the repo at
-`plugins/pragma-dev/` and symlinked into the config dir, because its content is
+`plugins/pragma-dev/` and linked into the config dir, because its content is
 an architecture reference for this codebase and must track it (a stale
-reference is worse than none). The Rust e2e test `pragma_dev_skill_end_to_end`
-loads it straight from the repo tree. When you refactor pragma internals
-(commands, tools, providers, DB), update `plugins/pragma-dev/skills/pragma-dev/skill.md`
-in the same change.
+reference is worse than none). It is **dev-only**: its manifest declares
+`"dev": true`, and the plugin manager skips dev plugins in release builds
+(`tauri build`) — only debug builds (`tauri dev` / `cargo run`) see it. Link it
+into your config dir once per checkout with the portable script (computes the
+repo and config paths itself — no hardcoded dirs):
+
+```bash
+bash scripts/link-dev-plugin.sh
+```
+
+The Rust e2e test `pragma_dev_skill_end_to_end` loads it straight from the
+repo tree (debug build, unaffected by the release gating). When you refactor
+pragma internals (commands, tools, providers, DB), update
+`plugins/pragma-dev/skills/pragma-dev/skill.md` in the same change.
 
 ### manifest.json
 ```json
@@ -168,6 +178,9 @@ in the same change.
 ```
 - `id` must be lowercase, no spaces or slashes
 - Only list `"skills": ["skill.md"]` if you actually have a skill.md that should be injected
+- `"dev": true` marks a development-only plugin — loaded only in debug builds
+  (`tauri dev` / `cargo run`), skipped entirely in release builds. Use it for
+  first-party tooling that must never ship to users (e.g. pragma-dev).
 
 ### provider.json
 ```json

@@ -29,6 +29,11 @@ pub struct PluginManifest {
     /// install path as manual zips) will use it; ignored for now.
     #[serde(default, rename = "updateUrl")]
     pub update_url: String,
+    /// Development-only plugin — loads only in debug builds (`tauri dev` /
+    /// `cargo run`), never in a shipped release app. Used for first-party
+    /// dev tooling (pragma-dev) that must not ship to users.
+    #[serde(default)]
+    pub dev: bool,
     #[serde(default)]
     pub contributes: Contributes,
 }

@@ -97,6 +97,15 @@ pub struct PluginManager {
     sources: RwLock<HashMap<String, String>>,
 }
 
+/// Whether a plugin flagged `"dev": true` should load in this build:
+/// debug builds (tauri dev / cargo run) load it; release builds (tauri
+/// build) never do. `cfg!(debug_assertions)` is a compile-time constant, so
+/// the exclusion is free in shipping binaries — the dev plugin is fully
+/// tree-shaken out of release behavior.
+fn include_dev_plugin(dev: bool) -> bool {
+    !dev || cfg!(debug_assertions)
+}
+
 impl PluginManager {
     /// `seen` = plugin ids already known to the app (persisted). Existing
     /// on-disk plugins are automatically treated as seen (upgrade migration:
@@ -198,7 +207,7 @@ impl PluginManager {
             .filter_map(|e| e.file_name().into_string().ok())
             .filter(|id| {
                 load_manifest_from_dir(&self.dir.join(id))
-                    .map(|m| m.id == *id)
+                    .map(|m| m.id == *id && include_dev_plugin(m.dev))
                     .unwrap_or(false)
             })
             .collect();
@@ -427,6 +436,9 @@ impl PluginManager {
                 eprintln!("[plugin] folder \"{id}\" manifest id \"{}\" mismatch", m.id);
                 continue;
             }
+            if !include_dev_plugin(m.dev) {
+                continue; // dev-only plugin, release build — invisible
+            }
             out.push(PluginInfo {
                 id: m.id.clone(),
                 name: m.name.clone(),
@@ -468,6 +480,13 @@ impl PluginManager {
                 std::fs::symlink_metadata(e.path())
                     .map(|m| m.file_type().is_symlink())
                     .unwrap_or(false)
+            })
+            // Dev-only plugins are filtered in release builds — don't watch
+            // something the app can't see (avoids pointless watcher storms).
+            .filter(|e| {
+                load_manifest_from_dir(&e.path())
+                    .map(|m| include_dev_plugin(m.dev))
+                    .unwrap_or(true)
             })
             .filter_map(|e| std::fs::read_link(e.path()).ok())
             .collect()

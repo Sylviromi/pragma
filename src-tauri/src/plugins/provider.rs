@@ -176,6 +176,7 @@ mod tests {
             repository: String::new(),
             homepage: String::new(),
             update_url: String::new(),
+            dev: false,
             contributes: parse_manifest(
                 r#"{"id":"zen","name":"Zen","version":"1","contributes":{"providers":["warp"]}}"#,
             )
