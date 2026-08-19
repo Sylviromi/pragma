@@ -13,6 +13,7 @@
   import '../styles/tokens.css';
   import '../styles/base.css';
   import { page } from '$app/stores';
+  import { dev } from '$app/environment';
   import TabBar from '../components/TabBar.svelte';
   import StatusBar from '../components/StatusBar.svelte';
   import PluginFreeLayer from '../components/PluginFreeLayer.svelte';
@@ -84,7 +85,12 @@
   <PluginFreeLayer />
   <Toast />
   <PluginConfirmModal />
-  <FpsMeter />
+  {#if dev}
+    <!-- Debug overlay (ctrl+shift+f) — dev builds only. `dev` is inlined as a
+         compile-time constant, so the whole branch is dead-code-eliminated
+         from production bundles. -->
+    <FpsMeter />
+  {/if}
 </div>
 
 <style>

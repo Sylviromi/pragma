@@ -14,6 +14,7 @@
   // WebKitGTK note: its rAF is not strictly vsync-locked, so absolute fps
   // wobbles; trust the tail (p95/max/dropped/long/input) over the fps number.
   import { onMount } from 'svelte';
+  import { dev } from '$app/environment';
 
   const LS_KEY = 'pragma:fps';
 
@@ -46,6 +47,9 @@
   let evDur = 0;
 
   onMount(() => {
+    // Debug-only component: if it's ever mounted in a production build the
+    // whole thing stays inert (no observers, no listeners, no frame loop).
+    if (!dev) return;
     // Auto-show via ?fps=1 URL param (browser test) or the persisted toggle.
     try {
       show =
